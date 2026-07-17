@@ -45,6 +45,11 @@ const TARGET_REF = `${TOGGLE_PROVIDER_ID}/${TARGET_MODEL_ID}`;
 const TARGET_SWITCH = /^(enable|disable) glm-4\.7 flash$/i;
 // The switch flips only after the worker's config.patch + restart-tolerant post-check completes.
 const TOGGLE_WINDOW_MS = 120_000;
+// Card-mount tolerance for the structural read below: innerText() auto-waits this long for the
+// card to attach before a miss is judged genuine. ~10x the 500ms poll cadence — absorbs a
+// tab-mount settle or transient remount (sub-2s), yet fails in seconds, not the poll windows below.
+// Happy path (card present) returns immediately; only an absent card pays this.
+const CARD_MOUNT_TIMEOUT = 5_000;
 const OUT = process.argv[2] ?? artifactDir("connections-models");
 
 mkdirSync(OUT, { recursive: true });
@@ -114,15 +119,27 @@ await page.getByRole("tab", { name: BUNDLE_TIER }).click();
 await page.waitForTimeout(600);
 // Structural card lookup (not a text match): #181's table->card port rotted the old `tr` selector.
 // This sits OUTSIDE the toggle try-block below on purpose — a missing card must crash the drive
-// loudly (never swallowed), naming the provider and selector so the rot is obvious.
+// loudly (never swallowed), naming the provider and selector so the rot is obvious. Deterministic,
+// per #238: innerText() is a query, so it auto-waits up to CARD_MOUNT_TIMEOUT only for the card to
+// ATTACH (no visibility/actionability check) — exactly right here, since the tabs are Radix
+// TabsContent without forceMount (model-providers-panel.tsx:189), so an inactive tier is unmounted,
+// not hidden, and a card on the wrong tab times out rather than returning "". That timeout alone is
+// rethrown as the specific rot message below (cause chained); any other error — a strict-mode
+// violation, a closed page — is rethrown untouched so it surfaces as itself, never misnamed or "".
 const bundleRow = page.locator(providerCard(BUNDLE_PROVIDER_ID));
-if ((await bundleRow.count()) === 0) {
-  const selector = providerCard(BUNDLE_PROVIDER_ID);
+const selector = providerCard(BUNDLE_PROVIDER_ID);
+let bundleText;
+try {
+  bundleText = (await bundleRow.innerText({ timeout: CARD_MOUNT_TIMEOUT }))
+    .replace(/\s+/g, " ")
+    .trim();
+} catch (error) {
+  if (error.name !== "TimeoutError") throw error;
   throw new Error(
-    `Provider "${BUNDLE_LABEL}" (id "${BUNDLE_PROVIDER_ID}") has no card in the DOM — selector ${selector} matched nothing. The connections card grid changed; update lib/selectors.mjs.`,
+    `Provider "${BUNDLE_LABEL}" (id "${BUNDLE_PROVIDER_ID}") has no card in the DOM — selector ${selector} matched nothing within ${CARD_MOUNT_TIMEOUT}ms. The connections card grid changed; update lib/selectors.mjs.`,
+    { cause: error },
   );
 }
-const bundleText = (await bundleRow.innerText()).replace(/\s+/g, " ").trim();
 const bundleSuffix = bundleText.match(/\+(\d+) in catalog/);
 note(
   `#184 bundle row: ${BUNDLE_LABEL} advertises its plugin catalog beyond the configured model`,

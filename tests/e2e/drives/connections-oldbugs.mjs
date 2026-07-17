@@ -50,6 +50,11 @@ const bogusKey = (tag) => `sk-opzava-drive-${tag}-${"0".repeat(36)}`;
 // The rejection is only reported after the worker has probed AND rolled the credential back, and
 // the rollback paces one gateway logout per agent — the UI poller allows 10 minutes, so we do too.
 const REJECT_WINDOW_MS = 10 * 60 * 1000;
+// Card-mount tolerance for rowText(): innerText() auto-waits this long for the card to attach
+// before a miss is judged genuine. ~10x the 500ms poll cadence — absorbs a transient remount
+// mid-poll (this runs inside waitForRow/watchForRejection loops), yet fails in seconds, not the
+// 240s/600s deadline. Happy path (card present) returns immediately.
+const CARD_MOUNT_TIMEOUT = 5_000;
 const GATEWAY = process.env.REAL_GATEWAY_CONTAINER ?? "opzava-openclaw-platform-gateway-1";
 const OUT = process.argv[2] ?? artifactDir("connections-oldbugs");
 
@@ -72,18 +77,27 @@ const row = (page, provider) => {
 // Read the row live from the DOM. NEVER reload: a status that only appears after a reload is the
 // #128 bug, so reloading here would hide the very thing under test. A missing card FAILS LOUDLY:
 // the old `.catch(() => "")` turned "no such element" into "it says nothing", which let the
-// prior-run cleanup loop below run zero iterations after #181's port, silently. A zero-match now
-// throws naming the provider and selector, so this class of rot cannot pass silently again.
+// prior-run cleanup loop below run zero iterations after #181's port, silently. Deterministic, per
+// #238: innerText() is a query, so it auto-waits up to CARD_MOUNT_TIMEOUT only for the card to
+// ATTACH (no visibility check) — correct here because the tabs are Radix TabsContent without
+// forceMount (model-providers-panel.tsx:189), so an inactive tier is unmounted, not hidden, and a
+// card on the wrong tab times out rather than returning "". A transient remount mid-poll is
+// absorbed within that window; only the timeout is rethrown below naming the provider and selector
+// (cause chained), never swallowed to "" (the rot that let cleanup run zero iterations for two
+// days); any other error — a strict-mode violation, a closed page — is rethrown untouched.
 async function rowText(page, provider) {
   const card = row(page, provider);
-  if ((await card.count()) === 0) {
-    const id = PROVIDER_ID[provider];
-    const selector = providerCard(id);
+  const id = PROVIDER_ID[provider];
+  const selector = providerCard(id);
+  try {
+    return (await card.innerText({ timeout: CARD_MOUNT_TIMEOUT })).replace(/\s+/g, " ").trim();
+  } catch (error) {
+    if (error.name !== "TimeoutError") throw error;
     throw new Error(
-      `Provider "${provider}" (id "${id}") has no card in the DOM — selector ${selector} matched nothing. The connections card grid changed; update lib/selectors.mjs.`,
+      `Provider "${provider}" (id "${id}") has no card in the DOM — selector ${selector} matched nothing within ${CARD_MOUNT_TIMEOUT}ms. The connections card grid changed; update lib/selectors.mjs.`,
+      { cause: error },
     );
   }
-  return (await card.innerText()).replace(/\s+/g, " ").trim();
 }
 
 async function waitForRow(page, provider, matcher, timeoutMs) {
