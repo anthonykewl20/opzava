@@ -9,6 +9,13 @@
 > never Sprint-eligible. Permanent code or configuration remediation is a linked Bug or Technical
 > Task DevTicket that independently passes Ready, execution, Review, and Done.
 
+> **WF-233 coordination amendment:** Operational mitigation remains this PRD's `RemediationAction`;
+> a redacted Incident fact may only request Dev Board coordination. Dev Board independently
+> authorizes holds/pause/preemption, reuses WF-230/WF-232 containment, and requires Todo/fresh claim
+> plus explicit Sprint Resume. Severity, request priority, successful remediation, or Incident
+> resolution never directly mutates Sprint state. See
+> `docs/plan/research/wf233-incident-sprint-coordination.md`.
+
 ## Problem
 
 Opzava has locked ADRs for the error-to-incident pipeline, pure-per-tenant Gateway tenancy, billing
@@ -377,6 +384,13 @@ Net-new screens to design:
 - Current ADMIN `pm.Card` projections are migration inputs only. Until cutover they may dual-read
   the Incident, but new writes must target the authoritative Incident lifecycle and must not deepen
   Project Management ownership.
+- A `RemediationAction` may request an exact Dev Board selection hold or interruption through the
+  Secret-Safe cross-context outbox, but it cannot stop a Runner, release a lease, insert Sprint
+  scope, or claim that all targets were contained. Multi-target coordination keeps independent
+  per-target WF-230/#229 dispositions and truthful partial failure.
+- Operational success/failure, Incident resolution/reopen, and linked fix Done never consume a
+  Sprint Resume command. The Human Owner/Admin must separately revalidate current Plan, holds,
+  containment, dependencies, Review WIP, Runner/capacity, health, and Absolute Stops.
 
 ### Blast-radius classes and gates
 

@@ -189,6 +189,16 @@ The current `/tasks` and `/issues` routes, existing Task aggregate, manual issue
 task tools, and environment-token adapter remain legacy as-built behavior until the migration
 manifest replaces them. They must not be extended from Q17 or implementation issues #147–#157.
 
+Sprint/Incident/ordinary-work coordination is a narrow Dev Board write-side seam, not another
+dispatcher. `SprintCoordination` owns only the approved Plan binding, coordinator epoch, selection
+holds/waits, per-Runner Sprint entitlement, and strict next-member selection. Incident lifecycle
+remains Notifications/Admin-Observability authority; a versioned redacted Incident fact is a command
+request only. Any already-admitted target reuses WF-230's phase-specific containment owner and
+WF-232's signed checkpoint/stop-or-quarantine facts, then returns to Todo for a fresh claim after
+safe proof. Review execution and exit remain #229-owned. The exact target contract is
+[WF-233](docs/plan/research/wf233-incident-sprint-coordination.md); it is planning authority, not
+implemented behavior.
+
 For the deep, module-level documentation behind this map, see
 [docs/architecture/](docs/architecture/README.md). It documents every Module, Seam, and
 port-to-Adapter count, grades each seam real or hypothetical, and lists prioritized deepening

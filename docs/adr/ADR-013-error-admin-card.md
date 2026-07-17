@@ -14,6 +14,13 @@
 > Later degradation may create/link an Incident, but neither lifecycle mutates or resolves the
 > other.
 
+> **WF-233 coordination amendment:** Notifications/Admin-Observability may emit one redacted,
+> versioned Incident coordination request with exact affected refs through its outbox. Dev Board
+> reauthorizes selection hold, pause, or preemption; Incident severity/priority never grants those
+> actions. Every live target uses WF-230/WF-232 containment and returns to Todo only after proof,
+> then requires a fresh claim. Incident resolution never resumes a Sprint. Exact target contract:
+> `docs/plan/research/wf233-incident-sprint-coordination.md`.
+
 Status: Accepted
 
 Opzava will own a lean incident pipeline inside the Notifications/Admin-Observability bounded

@@ -2,6 +2,12 @@
 
 > **Incident/Dev Board amendment (2026-07-15):** The standalone Issues page is no longer a target product surface. `ErrorGroup`/Incident remains a separate Notifications/Admin-Observability aggregate with lifecycle **Detected → Triaged → Mitigating → Monitoring → Resolved → Postmortem**. It may project into the Dev Board **Incidents** view for operator convenience, but it is not a persisted DevTicket Type and is never Sprint-eligible. A permanent code fix is a separately linked DevTicket of Type Bug or Technical Task under PRD-019. Current `/issues` code is a legacy migration input; see `docs/plan/dev-board-migration-manifest.md`.
 
+> **WF-233 coordination amendment:** An Incident may send Dev Board a Secret-Safe, versioned,
+> explicitly scoped coordination request. Incident `S0`–`S3`, requested `P0`/`P1`, or model text is
+> not pause/preemption authority. Dev Board owns holds and commands, live execution reuses WF-230/
+> WF-232 containment, and Resume is separately authorized; Incident resolution never resumes Sprint
+> automation. See `docs/plan/research/wf233-incident-sprint-coordination.md`.
+
 ## Problem
 
 Opzava has locked decisions for tenant isolation, gateway access, error capture, Incident projection, RBAC/RLS, metering, approvals, and workflow limits, but the admin observability product surface is not yet specified end to end.
@@ -249,6 +255,13 @@ Net-new screens to design:
 - An incident projection may expose an optional GitHub reference, but GitHub is not Incident authority. GitHub development facts for linked remediation work follow ADR-017.
 - Incident detail must show backing `ErrorGroup`, source events, related logs, alerts, remediation actions, Activity, comments, assignments, audit, and linked DevTickets.
 - Ask Admin Opzava may investigate or propose remediation only within its authorized low-risk or approval-gated scope; it cannot convert an incident into broad admin authority.
+- An authorized Incident coordination request must be redacted and bind exact Incident version,
+  affected refs, requested action/priority, evidence ref, source audit, idempotency, and expiry. Dev
+  Board may accept it as a selection hold or approval-gated pause request only; it must not import
+  Incident lifecycle, infer approval, or represent the Incident as Sprint work.
+- Incident Resolved/reopened and linked remediation DevTicket Done are correlation facts only. They
+  may prompt Dev Board reevaluation, but only the current proof-gated `ResumeSprint` command may
+  restart selection.
 
 ### Security audit, approvals, users, and roles
 

@@ -14,6 +14,11 @@ The WF-232 Runner trust-protocol amendment landed at `4d88495700993e901b8c5bbb0e
 until #237 consumes and freezes it. This activates target architecture only; the Runner protocol
 remains unimplemented.
 
+The WF-233 coordination amendment is the target planning contract in
+`docs/plan/research/wf233-incident-sprint-coordination.md`. It keeps Incident authority separate,
+defines strict Sprint selection and governed interruption through existing WF-230/WF-232/#229
+owners, and adds no product implementation claim.
+
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
 
@@ -526,6 +531,47 @@ releases its implementation lease, capacity, and worktree subject to admission. 
 independently limited to three; at the limit, no new implementation work is claimed and Slack
 notifies the Admin, without killing leases already in progress. Scope changes use an approved Plan
 revision. Sprint history is immutable and is mirrored to a GitHub Milestone plus tracking issue.
+
+Implement Sprint scheduling as a narrow versioned `SprintCoordination` component, not a generic
+dispatcher. It owns the exact approved Plan binding, coordinator epoch, source-bound selection
+holds/waits, Runner preset/capability-policy binding, and the Active Sprint's single serial-capacity
+entitlement. Activation while existing ordinary leases consume the required capacity remains Queued
+behind one versioned barrier; it never kills those leases, and the barrier prevents replacement
+ordinary admissions from starving activation. Balanced is available only when verified safe capacity
+is at least two; Custom remains capability/policy-bounded.
+
+The deterministic selector recomputes under exact Plan/graph/Ready/Review-WIP/Runner/health
+versions: eligible dependency/Goal-proven blocking rework, then the first never-admitted remaining
+Plan member, then ordinary-bottom rework. A selected ineligible member creates one typed wait and
+stops; the selector never scans ahead. A member whose Review Handoff finalized permits a later
+independent implementation, while a dependent waits until that blocker is Done. Sprint completion
+still requires every current Plan member Done. Ordinary DevTickets retain their own explicit
+claimant authority and are never auto-selected.
+
+Notifications/Admin-Observability may deliver a redacted, versioned Incident coordination request,
+but Dev Board reauthorizes every hold, pause, or preemption. Incident `S0`–`S3` severity and Dev
+Board coordination `P0`/`P1` priority are distinct and neither grants approval. A blocking Proposal
+may install a selection hold; it never mutates the Plan or stops current work. Acceptance
+creates/links Backlog work, and joining the Sprint still requires an approved Plan revision.
+Incident resolution, linked-fix Done, Slack delivery, or restored Runner heartbeat never resumes a
+Sprint directly.
+
+A pause first advances the coordinator epoch and invalidates unconsumed selection. Any already-
+admitted claim uses WF-230's exact phase-specific owner: pre-start loss, start rejection, truthful
+Blocked/Runner containment, Material Revision interruption, or #229 Review containment. A
+coordination record may reference those owners but cannot create another lease, containment request,
+release decision, or finalizer. `checkpoint_not_recorded` continues stop/quarantine. Only complete
+process/worktree/GitHub/grant/tunnel containment permits Blocked to close to Todo; continuation then
+requires a fresh claim, lease, fence, nonce, and start receipt. Multi-target requests remain visibly
+partial until each independently fenced target reaches its own disposition. No local lease fails
+over to cloud.
+
+Review WIP remains the global WF-230/#229 gate. At three, new Sprint and ordinary implementation
+admission waits without terminating active work. A monotonic gate-open epoch re-evaluates current
+waits under fresh authorization and versions; it neither grants an ordinary claim nor lets a Sprint
+consume ordinary entitlement. Review changes-requested reopens selection in blocking-top or
+ordinary-bottom placement. If a later Sprint claim already won, hold further selection and require
+separate governed preemption rather than admitting rework concurrently or killing work silently.
 
 Admin Overview may project capacity, lease use, and waiting reasons under PRD-020, but it owns none
 of the Dev Board admission, preset, lease, Sprint, or Review state described here.

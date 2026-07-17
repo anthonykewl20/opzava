@@ -10,6 +10,11 @@
 > #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes
 > and freezes it. This is target-contract authority, not implemented Dev Board behavior.
 
+> **WF-233 amendment status:** The Incident/Sprint/ordinary-work coordination target is specified by
+> `docs/plan/research/wf233-incident-sprint-coordination.md`. It preserves Incident and Review
+> authority, strict serial Sprint selection, proof-gated interruption, no failover, and fresh-claim
+> resume. This is planning authority only; the behavior is not implemented.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -481,6 +486,43 @@ implementations without losing identifiers, comments, evidence, or worklogs.
      order, so that history remains truthful.
 185. As a DevTicket owner, I want release membership, failure, rollback, or supersession to leave my
      Card Done, so that development completion is not conflated with environment state.
+186. As a Sprint planner, I want Sprint activation to place a capacity barrier behind already-
+     admitted ordinary work instead of killing it or letting replacement claims starve the Sprint,
+     so that the approved Goal starts fairly and safely.
+187. As an execution agent, I want strict Sprint selection to choose proven blocking rework, then
+     the first never-admitted remaining Plan member, then ordinary-bottom rework, and stop on an
+     ineligible selected member, so that `autonomous_serial` never skips inconvenient work.
+188. As an ordinary-work claimant, I want a free Runner slot to preserve my explicit claim boundary,
+     so that Sprint or WIP retries cannot create ordinary assignments on my behalf.
+189. As an incident operator, I want an Incident to request a redacted P0/P1 coordination action
+     without becoming a DevTicket or Sprint member, so that operational authority remains separate.
+190. As a Human Owner, I want severity, priority, and an agent's blocking assessment to request
+     attention without granting pause, preemption, scope, or approval, so that high urgency does not
+     bypass governance.
+191. As a Sprint planner, I want a blocking Proposal to stop future selection while preserving live
+     work until a separately authorized interruption, so that the human can decide without silent
+     Plan mutation or process termination.
+192. As an interrupted assignee, I want phase-correct checkpoint, fencing, stop/quarantine, grant/
+     tunnel cleanup, and worktree reconciliation before my Card returns to Todo, so that no stale
+     process or lease competes with the fresh claim.
+193. As an Opzava administrator, I want a multi-target interruption to expose each independently
+     fenced target and partial failure, so that one safe process never disguises another unknown
+     process.
+194. As a Sprint planner, I want Runner recovery and Incident resolution to require a separate
+     `ResumeSprint` command with complete current preflight, so that heartbeat or lifecycle drift
+     cannot restart autonomy.
+195. As a Sprint planner, I want Review changes-requested to reopen deterministic Sprint selection,
+     while a later already-admitted member is held rather than silently killed, so that rework never
+     produces two Sprint implementations.
+196. As an Opzava administrator, I want Review-WIP gate reopening to retry Sprint and ordinary waits
+     under fresh versions and their own entitlement/authority, so that no retry stampede,
+     starvation, or claimant substitution occurs.
+197. As an auditor, I want pause, hold, preemption, per-target containment, resume, and Slack
+     delivery cross-linked across their owning ledgers without a fabricated global order, so that
+     every interruption is attributable and truthful.
+198. As an Opzava administrator, I want the full Incident/Sprint coordination story proven on the
+     real local Docker stack without model output as the correctness oracle, so that user-visible
+     behavior—not narration—passes the gate.
 
 ## Implementation Decisions
 
@@ -864,6 +906,39 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Preserve immutable Sprint history for Completed, Cancelled, and Aborted outcomes, including final
   Plan, dates, reason, unfinished scope, interruptions, metrics, Docs snapshot, GitHub refs, and
   audit. Paused remains an Active condition.
+- Implement `SprintCoordination` as a narrow Sprint-owned component with approved Plan binding,
+  coordinator epoch, selection holds/waits, Runner preset/capability-policy refs, and one serial
+  Sprint capacity entitlement. It must not own DevTicket leases/lanes, Incident lifecycle, Runner
+  processes, or Review verdicts.
+- Keep activation Queued behind one versioned capacity barrier when existing ordinary leases occupy
+  the required entitlement. Preserve those leases, prevent replacement ordinary admissions from
+  starving activation, and atomically activate only after every current preflight gate passes.
+- Recompute strict selection from exact current versions: eligible dependency/Goal-proven blocking
+  rework, then the first never-admitted remaining Plan member, then ordinary-bottom rework. If the
+  selected candidate is dependency-, hold-, WIP-, capacity-, health-, or authority-ineligible, wait
+  on that candidate and never scan ahead.
+- Admit Incident coordination only from a Secret-Safe, versioned Notifications/Admin-Observability
+  fact. Treat `S0`–`S3` severity, `P0`/`P1` coordination priority, and a model's blocking assessment
+  as inputs rather than approval. A selection hold stops future Sprint selection only; Plan mutation
+  and live-work preemption remain separate governed commands.
+- Route every already-admitted pause/preemption target through WF-230's exact phase owner and
+  WF-232's typed containment facts. Coordination may reference Pre-Start Admission Loss, Start
+  Rejection Containment, Blocked/Runner Containment, Material Revision interruption, or #229 Review
+  containment, but may not create a competing lease, stop request, release decision, or finalizer.
+  Return interrupted work Todo only after complete proof, then require a fresh claim/lease/fence/
+  nonce/start receipt.
+- Track a multi-target interruption as one immutable request plus independent per-target owner
+  dispositions. Preserve partial/unknown state, keep affected Sprint selection held, and never infer
+  global success from one target or notification.
+- Resume an Active Paused Sprint only through an authorized `ResumeSprint` command that revalidates
+  Plan/Ready/dependencies, holds, containment, Review WIP, Runner/preset/capacity, Reviewer/local
+  Docker, GitHub, secret refs, health, and Absolute Stops. Incident resolution, linked-fix Done,
+  Slack delivery, liveness, or a Reconciliation Observation can trigger reevaluation only.
+- Consume Review-WIP and verdict effects without re-owning them. A gate-open epoch retries current
+  waits under fresh authority; ordinary work retains its original claimant. Changes-requested
+  recomputes blocking-top/bottom rework. If a later Sprint claim already won, hold selection and
+  require separately authorized preemption rather than a second Sprint implementation or silent
+  kill. The full contract is `docs/plan/research/wf233-incident-sprint-coordination.md`.
 - Provide top-level views `Summary`, `List`, `Board`, `Sprints`, `Docs`, `Development`, and
   `Releases`. Summary prioritizes attention, active work, and changes before metrics. List is one
   canonical dataset grouped by Work Area by default and regroupable by Type, Sprint, lane, Human
@@ -1070,6 +1145,20 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   dependencies, exclusive-resource conflicts, separate branch/worktree, visible declared-scope
   collision warning, agent-remediated merge conflict, and rerun checks/Review. Assert no preset can
   admit a second Active Sprint or a second concurrent Sprint DevTicket.
+- Test WF-233 coordination without a model: exact selector tiers and no scan-ahead; queued
+  activation barrier versus ordinary replacement; pause versus pre-claim/provisioning/start/Review;
+  duplicate, stale, reordered, expired, and cross-tenant Incident requests; blocking-Proposal hold
+  and Plan revision; multi-target partial containment; `checkpoint_not_recorded`;
+  WIP-three/gate-open retry fairness; changes-requested versus later start; preset downgrade; Runner
+  loss/reconciliation; Incident resolve/reopen; and explicit Resume. Use real Postgres/RLS
+  concurrency, signed Runner/Slack fixtures, actual process/worktree containment, and assert no
+  Incident identity enters a DevTicket Type, Sprint member, or GitHub Sprint mirror.
+- Drive the same coordination through one authenticated browser story on the production-equivalent
+  local Docker stack: Balanced one-Sprint-plus-one-ordinary work, WIP backpressure, version-bound
+  Incident interruption approval, proof-gated Todo/fresh claim, blocking Proposal, separate
+  remediation DevTicket/Plan revision, changes-requested race, local Runner disconnect/no failover,
+  explicit Resume, and immutable completion. Screenshots, direct database mutation, or model
+  narration are not acceptance evidence.
 - Test the Runner protocol without a model: cross-language canonical signed vectors with explicit
   self-excluding digest/signature preimages and parser/body limits; real TLS/WSS reconnect and
   command replay; real Postgres/RLS outbox, inbox, epoch, sequence, and revocation transactions; a
