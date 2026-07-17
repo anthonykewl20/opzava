@@ -9,6 +9,14 @@
 
 > **WF-232 amendment status:** Runner/Dev Board command-provenance additions landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`; #232 is closed, and map #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes and freezes it. This is target-contract authority, not implemented assistant behavior.
 
+> **Prepared WF-216 amendment:** [WF-216](../plan/research/wf216-ask-admin-delegation-contract.md)
+> separates ephemeral conversation support, managed `AgentEmployee` work, and governed DevTicket
+> execution. It is inactive until its commit lands, #216 closes with verification, and map #210
+> explicitly designates it current input for #220. The inactive clauses are exactly the marked
+> WF-216 goal/non-goal, stories 71–76, the Conversation-support delegation section, the marked
+> touchpoint/implementation/parity rows, the marked acceptance bullets, and the marked testing
+> bullets below. Product code is not implemented.
+
 ## Problem
 
 Opzava needs two assistant conversation surfaces that feel like part of the product instead of a thin wrapper around OpenClaw sessions.
@@ -34,6 +42,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Ship Ask Admin Opzava as the platform-ops assistant for admin/full users, centered on the ADR-013 Incident lifecycle, redacted evidence, and constrained remediation actions.
 - Make assistant responses stream live tokens with clear "working", "delegating", "tool check", "approval needed", "completed", and "failed/degraded" states.
 - Route work to department AI employees when a specialist is appropriate, while preserving Ask Opzava as the coordinator facade.
+- **Prepared WF-216 (inactive):** Let Ask Admin request bounded, non-mutating analysis from an isolated support child through one product-owned, durable, authorized delegation interface without exposing native OpenClaw session controls.
 - Surface approvals inline in assistant chats, with the same approval rows, policy gates, and audit trail used by project/workflow surfaces.
 - Keep project-scoped knowledge explicit: each delegated turn must resolve authorized project/org corpus overlays server-side.
 - Preserve final assistant messages, summaries, approvals, hand-offs, reports, and remediation outcomes as Opzava-owned durable records/projections.
@@ -49,6 +58,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Build Project Management boards, cards, goals, to-dos, docs, schedules, discovery, or project Updates beyond assistant entry points and projected assistant output. Those belong to the Project Management surface (`pm.Card`, deferred).
 - Build AI employee provisioning, persona editing, department management, standing orders, or autonomy-tier administration beyond using the ADR-008 model.
 - Build Knowledge Management ingestion, corpus rebuild, OKF import, embedding, or memory internals beyond resolving authorized context overlays.
+- **Prepared WF-216 (inactive):** Allow conversational support delegation to perform project deliverables, employee responsibilities, DevTicket implementation, acceptance proof, Review, or any governed mutation.
 - Build the full Incident pipeline, error grouping, Incidents view/projection, alert routing, or remediation aggregate internals. Those are ADR-013 and later observability PRDs.
 - Expose OpenClaw session transcripts, raw Gateway DTOs, raw tool output, provider secrets, channel credentials, or Gateway-local config to browser clients.
 - Allow Ask Admin Opzava to perform unapproved destructive, cross-tenant, bulk, secret-changing, or tenant-admin remediation.
@@ -126,6 +136,15 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 69. As a developer, I want assistant conversation behavior tested through application ports and UI composition, so that tests protect user-visible behavior without coupling to OpenClaw internals.
 70. As a developer, I want live stream, webhook completion, and retry paths deduplicated by turn idempotency, so that one assistant answer creates one final message and one set of side effects.
 
+**Prepared WF-216 stories 71–76 (inactive until the amendment lifecycle above completes):**
+
+71. As a platform operator, I want Ask Admin to delegate bounded evidence analysis through one Opzava-owned support tool, so that native session controls and unsafe runtime arguments never become model authority.
+72. As a platform operator, I want conversation support clearly separated from employee work and DevTicket execution, so that a support child cannot impersonate an assignee, move a lane, or satisfy Review.
+73. As a platform operator, I want duplicate, lost, and uncertain support spawns represented by a durable attempt state, so that retries never create silent duplicate children.
+74. As a platform operator, I want support status, cancellation, and result delivery reauthorized at use time, so that an opaque delegation reference or stale conversation access grants no power.
+75. As a security reviewer, I want the v1 support child to have an empty effective tool set and only bounded sanitized prompt evidence, so that it cannot read files, memory, web content, secrets, product data, or invoke nested agents.
+76. As a developer, I want support delegation proven through real Postgres, Gateway-policy, OpenClaw-adapter, realtime, and authenticated-browser seams, so that the contract does not rely on model output or mocks.
+
 ## UX walkthrough
 
 | Mockup | Required UX mapping |
@@ -177,12 +196,31 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Streamed output must be announced through accessible live regions without overwhelming assistive technologies.
 - Mobile layouts must keep the latest streamed content, inline approval, and composer reachable without hiding required actions.
 
+### Conversation-support delegation — prepared WF-216 (inactive)
+
+- Ask Admin's only model-facing delegation tool is `opzava_support_delegate`, with bounded `start`, `status`, and `cancel` actions over an opaque Opzava delegation reference.
+- Native `sessions_spawn`, `sessions_yield`, `subagents`, `sessions_list`, `sessions_history`, `sessions_send`, and mutable `session_status` are adapter-internal or absent; they are never in Ask Admin's effective model tool inventory.
+- The AI Workforce `AssistantDelegationCoordinator` owns one `SupportDelegationAttempt` child record per accepted support request. This record is runtime-support/idempotency state under the conversation, not a project-work allocation, managed-employee assignment/dispatch, or Dev Board aggregate.
+- Canonical states are `reserved`, `dispatching`, `running`, `cancel_requested`, `unknown`, `succeeded`, `failed`, `cancelled`, and `expired`. Only a reservation proven never dispatched may expire. A deadline after dispatch requests cancellation and waits for authoritative runtime proof.
+- Start and cancellation commands use durable natural keys and full request fingerprints. Identical replay returns the existing result; a fingerprint collision has no effect.
+- V1 binds one durable support slot to each parent human turn and permits at most one nonterminal support attempt per conversation. A second same-turn tool call returns the same semantic attempt or rejects a collision; a later turn cannot replace an `unknown` or other nonterminal predecessor.
+- Reservation and dispatch intent must commit before the native call. A deterministic native handle is correlation only. V1 never respawns an unknown logical request; it admits only exact-generation observations or cancellation until terminal, and any later attempt requires a new human turn and command key.
+- Every human start, status, cancel, and result projection must verify the current principal, tenant, conversation access, delegation reference, record version, and effective policy. Authenticated runtime observations instead verify the broker/Gateway route, extension identity/version, dispatch generation, native correlation, event sequence/hash, and schema before admitting facts; they never use a delegation reference as a bearer capability or require a still-live human session to record truth.
+- V1 support children have an exactly empty effective tool set proven through deny-all `tools.deny: ["*"]`, isolated context, required sandbox, a dedicated sterile role/workspace/bootstrap with `skills: []` and no memory/MCP/network, fixed server-selected model/policy, depth one, and the concrete versioned limits in WF-216.
+- The exact support-tool union exposes only fixed `analyze_provided_evidence`, `compare_options`, and `draft_summary` operation enums over typed authorized evidence refs; it has no free-form task, target, instruction, or action property. Project deliverables, employee responsibilities, DevTicket work, acceptance proof, implementation, and governed mutation therefore cannot be represented and fail schema/admission before dispatch.
+- Native completion is admitted through the coordinator and pushed idempotently into the ordinary conversation/realtime path. The browser and model never poll native session history.
+- Start-once, authenticated result retrieval, cancellation without `operator.admin`, lifecycle push, signed product result-admission receipt-gated acknowledgement, recoverable cancel/archive pending effects, non-evicting dispatch tombstones, and bounded native hard purge require the narrow `extensions/opzava-support-delegation` Mainframe extension and Runtime-Control Adapter; raw Gateway session methods and evictable keyed runtime state are not fallbacks.
+- Child output is untrusted evidence for the parent to sanitize and verify. It cannot authorize an action, satisfy a behavioral contract, close work, or become Review evidence.
+- Support cancellation affects only the `SupportDelegationAttempt`; it never cancels an `Assignment`, stops a DevTicket, releases an Execution Lease, pauses a Sprint, or resolves an Incident.
+- User-visible attempt content follows conversation retention/deletion. Required immutable audit retains only safe command/policy/lifecycle facts and opaque correlations, never raw prompts, provider payloads, chain-of-thought, secrets, native transcripts, or Gateway DTOs.
+
 ### Delegation to department employees
 
 - Ask Opzava must route work to specialist `AgentEmployee` records when ADR-008 routing policy finds a better employee than the coordinator.
 - Delegation admission must check tenant lifecycle, RBAC, project access, department policy, autonomy tier, tool policy, approval requirements, rate/spend/concurrency caps, idempotency, and knowledge scope.
 - Delegated project work must create or reuse `AgentDispatch` when it originates from a project card, to-do, workflow step, approval, or assistant-created project task.
 - AI Workforce must create `Assignment` records for selected employees and report assignment status back to the assistant conversation.
+- When an `AgentEmployee` is the Execution Assignee of a DevTicket, AI Workforce must create/cross-link the applicable `AgentDispatch` and `Assignment`; Dev Board still independently owns Ready, Claim Attempt, Runner/lease/fence, signed start, lanes, Review, and Done.
 - The conversation must show selected employee persona attribution for delegated output, reports, approvals, and hand-offs.
 - Multi-specialist work must appear as one coordinated user request with multiple employee statuses, not as anonymous parallel assistant messages.
 - Department default autonomy must follow ADR-008: Finance and Customer Management/CRM default to T1 draft/approval; Marketing and Support may use T2 only where channel binding and policy allow; T3 remains narrow and non-mutating unless explicitly pre-approved.
@@ -268,6 +306,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 | Project context and corpus overlays | Knowledge Management with Project Management authorization | Project corpus refs, org corpus refs, corpus revision, source/document refs, authorized snippets and citations | `KnowledgeSourcePort`, `KnowledgeIndexPort`, `AuthorizationPort`, `EventBusPort` |
 | Delegation and assignment | AI Workforce | Routing to department employees, `Assignment`, optional `AgentDispatch`, employee status, selected persona, runtime refs | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
 | Project work dispatch | Project Management with AI Workforce | Card/to-do/workflow target refs, `AgentDispatch`, status projections, evidence/output refs, review state | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort` |
+| Prepared WF-216 — conversation support delegation (inactive) | AI Workforce | `SupportDelegationAttempt`, start/cancel idempotency, safe status/result projection, native-runtime correlations | `AuthorizationPort`, `AssistantSupportRuntimePort`, `RealtimeTransportPort`, `EventBusPort` |
 | Live token streaming | Gateway Broker through AI Workforce | Runtime session start/continue, token deltas, turn completion, cancellation, retry, stream deduplication | `OpenClawGatewayPort`, `RealtimeTransportPort` |
 | Inline approvals | Department Workflows with contributing contexts | Approval row, draft/action summary, decision command, request-changes command, approval refs, audit projection | `AuthorizationPort`, `OpenClawGatewayPort`, `EventBusPort`, `RealtimeTransportPort` |
 | Activity hand-offs and assistant completions | Internal Collaboration and Notifications/Admin-Observability | Activity rows, mention/hand-off refs, unread state, notification rows, push eligibility, deep links | `AuthorizationPort`, `EventBusPort`, `RealtimeTransportPort`, `PushNotificationPort` |
@@ -285,6 +324,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Treat live tokens as ephemeral stream events until the assistant turn is finalized into one durable message/turn.
 - Route browser actions through Opzava application commands; browser clients never call OpenClaw, never provide trusted Gateway routes, and never hold operator credentials.
 - Use ADR-008 `AgentEmployee`, `Assignment`, and `AgentDispatch` for delegated work instead of adding assistant-specific parallel workflow concepts.
+- **Prepared WF-216 (inactive):** Keep `SupportDelegationAttempt` as a support-only child of `AssistantConversation`; use the product-owned coordinator/tool for bounded conversation analysis and never promote it to employee/project/DevTicket work.
 - Use existing approval rows and workflow/project approval commands for inline approval actions; chat cards are projections and command launchers.
 - Resolve project/org corpus overlays server-side through Knowledge Management for each delegated turn.
 - Use Notifications/Admin-Observability as the owner of Ask Admin Opzava Incident lifecycle/projections and remediation action cards.
@@ -303,6 +343,7 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 | Ask Admin Opzava conversation | Opzava-owned with native runtime harness | Opzava owns admin transcript, incident refs, remediation proposals, approvals, and audit. OpenClaw diagnostics/remediation are accessed only through the broker. |
 | Live token streaming | Native harnessed | Token chunks are streamed from OpenClaw through ADR-009. They become durable Opzava state only on finalized assistant turns, summaries, reports, approvals, or projections. |
 | Delegate employee execution | Native harnessed | OpenClaw delegate agents, workspaces, `agentDir`, sessions, tools, and runs are native. Opzava owns `AgentEmployee`, routing policy, `Assignment`, `AgentDispatch`, audit, and product projections. |
+| Prepared WF-216 — ephemeral conversation support (inactive) | Opzava-owned with constrained native runtime | AI Workforce owns authorization, idempotency, attempt lifecycle, cancellation, retention, audit, and safe projections; Runtime-Control owns the adapter. OpenClaw owns the isolated child run. Ask Admin sees only `opzava_support_delegate`; the child has no effective tools in v1. |
 | Hot-path assistant authority | Native harnessed with Opzava admission | Ask Opzava uses the ADR-003 hot-path broker token for normal runtime work after Opzava authorization and policy checks. |
 | Admin remediation authority | Native harnessed through jobs | `operator.admin` is used only by short-lived audited platform-ops jobs. Ask Admin Opzava never turns a chat turn into direct broad admin authority. |
 | Inline approvals | Opzava-owned with runtime refs | Opzava approval rows and audit are the source of truth. OpenClaw approval refs may be reconciled where runtime exec/plugin gates are involved. |
@@ -327,6 +368,10 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Live token streaming shows progressive assistant output/status and finalizes into one durable assistant turn.
 - Stream retry, reconnect, webhook completion, and duplicate events do not duplicate assistant messages, approvals, Activity rows, project Updates, or remediation actions.
 - Delegated work shows the selected AI employee persona and creates/reuses the appropriate `Assignment` and `AgentDispatch` records.
+- **Prepared WF-216 acceptance (inactive):** Ask Admin support delegation shows an Opzava-owned support lifecycle without employee attribution, DevTicket lane effects, or native session identifiers.
+- **Prepared WF-216 acceptance (inactive):** Duplicate or uncertain support start/cancel outcomes never create a blind replacement; unknown runtime ownership stays visible until authoritative reconciliation.
+- **Prepared WF-216 acceptance (inactive):** Support child output is sanitized and labeled non-authoritative, and cannot mutate product state or satisfy completion/Review gates.
+- **Prepared WF-216 acceptance (inactive):** The exact-scope Mainframe extension can replay one dispatch, retrieve and cancel only its plugin-owned session without `operator.admin`, push authenticated monotonic lifecycle facts, and hard-purge owned native prompt/session/result artifacts within 24 hours.
 - Policy denied, approval required, provisioning required, gateway unavailable, circuit open, and missing corpus states render as normal assistant states.
 - Ask Admin Opzava renders inside the pinned Admin container owned by PRD-020 with the platform-ops digest, trace/tool card, inline action card, suggestions, and composer behavior owned by this PRD.
 - Ask Admin Opzava can summarize Incident context from Notifications/Admin-Observability projections.
@@ -351,6 +396,11 @@ The solution is an Opzava-owned assistant conversation product surface backed by
 - Project assistant tests must cover project scoping, corpus revision selection, no-assistant empty state, unavailable employee, project output refs, preview modal, approval decisions, and Guest-Client filtering.
 - Streaming tests must cover queued/working/delegating/finalizing/completed/failed states, reconnect backfill, duplicate frames, webhook completion race, retry, cancellation, and one-final-message idempotency.
 - Delegation tests must cover department routing, autonomy-tier defaults, `Assignment` creation, `AgentDispatch` reuse, specialist persona attribution, policy denial, missing channel binding, rate/spend/concurrency denial, and gateway unavailable states.
+- **Prepared WF-216 test (inactive):** Support-delegation contract tests must cover exact Ask Admin and child effective-tool inventories; duplicate/colliding start and cancel commands; second start in the same human turn; a new turn while the predecessor is nonterminal; worker restart; lost spawn response; ambiguous current/recent runtime state; no-blind-respawn; reservation-only expiry; post-dispatch deadline; cancellation/completion races; duplicate/out-of-order observations; and push/reconnect dedupe.
+- **Prepared WF-216 test (inactive):** Support-delegation authorization tests must cover cross-tenant/user access, guessed refs, revoked role/conversation access, stale policy, result redaction, and recipient reauthorization.
+- **Prepared WF-216 test (inactive):** Hostile-input tests must try native agent/model/runtime/cwd/thread/context overrides, attachments, secrets, tool widening, prompt injection, project work, DevTicket implementation, GitHub/Runner mutation, and nested delegation; all must fail or remain inert before runtime authority widens.
+- **Prepared WF-216 test (inactive):** Extension tests must prove exact `operator.write` method scope, non-evicting transactional dispatch/tombstone storage, expected-version races, stable dispatch replay, fail-closed storage backpressure, crash/restart after durable cancel/archive pending states, no cancellation before verified native acknowledgement, signed product result-admission receipt verification, plugin-owned result/cancel isolation, monotonic authenticated lifecycle events, deny-all after sterile bootstrap/skill/MCP discovery, exact and lost coordinator acknowledgement, archive, 24-hour hard purge, and fail-closed cleanup attention.
+- **Prepared WF-216 test (inactive):** A real local-stack journey must prove that Ask Admin can start/status/cancel bounded support, while an explicit request to implement Todo ticket #407 uses the Dev Board command/Runner path and moves to In Progress only after the exact accepted signed start receipt.
 - Approval tests must cover approve, request changes, stale/superseded approval, expired approval, unauthorized approval, duplicate clicks, runtime approval-ref reconciliation, audit rows, and downstream Activity/Updates state.
 - Knowledge-scope tests must cover server-side project corpus resolution, browser-supplied corpus rejection, cross-project summary redaction, revoked project access, stale corpus labels, and authorized citation/source links.
 - Ask Admin Opzava tests must cover incident summary, redacted diagnostics, admin trace disclosure, remediation proposal rendering, dry-run result, approval required, two-step confirmation, job submission, and result projection.
