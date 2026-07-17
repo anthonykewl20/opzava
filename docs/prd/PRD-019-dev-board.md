@@ -1464,9 +1464,9 @@ implementations without losing identifiers, comments, evidence, or worklogs.
   failed-review remediation Blocked/Review WIP-release/linked-Todo/resume path for Changes Requested
   plus the threshold-qualified persistent-Inconclusive branch approved under those exact authority
   versions. Race Human Owner transfer and Admin authority revocation before adoption finalization,
-  remediation Block, reconciliation approval, and Done; require revocation/stale disposition and no
-  lane/WIP/proof/resource effect. Without that approval, prove Inconclusive stays Review and is
-  never relabelled. After Blocked commits, race a dependency mutation that would make remediation
+  remediation blocking, reconciliation authorization, and Done; require revocation/stale disposition
+  and no lane/WIP/proof/resource effect. Without that approval, prove Inconclusive stays Review and
+  is never relabelled. After Blocked commits, race a dependency mutation that would make remediation
   depend on the reviewed ticket and prove the durable Wait Edge rejects it until successful resume
   closes the edge. Require exact provider-confirmed `development` result before Done. Also race
   competing prepares from active requirement absence: a prepared/cancelling-Handoff winner creates

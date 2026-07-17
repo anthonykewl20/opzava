@@ -641,7 +641,7 @@ disposition before suppressing, while terminal Review exit consumes the proof. P
 exact merge into `development` gates Done. Early/external/mismatched merge creates a fail-closed
 conflict. Only an actual result in `development` may use external-result reconciliation;
 wrong-target results require a governed candidate plus ordinary pre-merge Review. External-result
-reconciliation additionally requires explicit new #230 durable prepare/finalize/ cancel handoff and
+reconciliation additionally requires explicit new #230 durable prepare/finalize/cancel handoff and
 Done command variants, ordinary adoption through a distinct pre-admission intent only from
 non-Sprint Todo/In Progress with atomic consumption of its exact Needs Human Approval exception
 token approved by the exact current Human Owner identity/version acting through the exact current
@@ -652,7 +652,7 @@ binding. A `code_producing` result binds current Provider Result Deepening Captu
 plus immutable governed Docs `provider_result` artifact/signed Runner receipt IDs/hashes; a
 `non_code` result binds the exact current version-bound non-code fact plus explicit
 Capture/artifact/receipt absence. Both bind current policy/mandatory-manifest checks, current
-Secret-Safe Repository Preflight/security- scan pointer generations plus accepted IDs/hashes,
+Secret-Safe Repository Preflight/security-scan pointer generations plus accepted IDs/hashes,
 stale-disposition CAS, and Absolute Stop locks. Authorization approval locks and rechecks the exact
 branch and CAS-stales/revokes on drift; Done rechecks it again. The path also requires an exact
 failed-review remediation Blocked/Review WIP-release path for Changes Requested or a
@@ -664,14 +664,14 @@ Ready/Todo promotion before special resume. The Blocked transition locks graph/P
 rejects a remediation ticket that depends directly/transitively on the reviewed ticket or is
 otherwise unclaimable. It persists a Post-Merge Remediation Wait Edge that participates in every
 later cycle check until resume closes it. Human Owner transfer or Admin authority revocation before
-adoption, remediation Block, reconciliation approval, or Done CAS-revokes/stales the applicable
-human record with no lane/WIP/proof effect. #229 refines #230's umbrella `ReviewMergeAuthorization`
-placeholder into separate requirement/proof, PR-ready/draft saga, singleton per-PR mutex,
-discriminated Merge Authorization Requirement, both authorization kinds, merge/provider, and
-remediation records plus an explicit command/proof matrix. The full prepared candidate is
-`docs/plan/research/wf229-review-gate-contract.md`; it becomes current only after the reviewed
-landing, the exact #229 evidence comment and closure, and #228 designation of the exact landed memo
-plus governing-doc revisions. Until implemented, Done fails closed.
+adoption, remediation blocking, reconciliation authorization, or Done CAS-revokes/stales the
+applicable human record with no lane/WIP/proof effect. #229 refines #230's umbrella
+`ReviewMergeAuthorization` placeholder into separate requirement/proof, PR-ready/draft saga,
+singleton per-PR mutex, discriminated Merge Authorization Requirement, both authorization kinds,
+merge/provider, and remediation records plus an explicit command/proof matrix. The full prepared
+candidate is `docs/plan/research/wf229-review-gate-contract.md`; it becomes current only after the
+reviewed landing, the exact #229 evidence comment and closure, and #228 designation of the exact
+landed memo plus governing-doc revisions. Until implemented, Done fails closed.
 
 The existing-Review External Result Review Preparation locks the exact Handoff plus its branch-
 specific pointer. A prepared/cancelling Handoff requires explicit-null Attempt fields and explicit

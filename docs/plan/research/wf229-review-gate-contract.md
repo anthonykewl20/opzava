@@ -1008,11 +1008,12 @@ ambiguous terminal.
    Review Exit Containment Proof, exact latest Evidence Disposition ID/version with status
    `current`, current Inspection Record/lease/tunnel explicit-none or authenticated closure
    versions, exact current Mark Pull Request Ready Request/`confirmed_ready` provider generation,
-   exact approved Request/Authorization plus their current Human Owner identity/version when
-   `required`, or their explicit absence when `not_required`, the singleton Per-PR Provider Action
-   Mutex, and GitHub health/reconciliation facts. Human records and the governed outbox reference
-   and lock the exact proof and disposition; they do not consume either. #230's `AdmitDone` consumes
-   the proof only at terminal Review exit.
+   exact approved Request/Authorization plus the exact current Human Owner identity/version acting
+   through the exact current Admin authority identity/version when `required`, or their explicit
+   absence when `not_required`, the singleton Per-PR Provider Action Mutex, and GitHub health/
+   reconciliation facts. Human records and the governed outbox reference and lock the exact proof
+   and disposition; they do not consume either. #230's `AdmitDone` consumes the proof only at
+   terminal Review exit.
 2. Reconfirm the ready PR identity/generation, exact head/base/merge-base/merge result, required
    GitHub checks and repository reviews after ready, no return-to-draft, no force-push/base drift,
    and no Absolute Stop.
@@ -1036,8 +1037,12 @@ ambiguous terminal.
    the same `current` record, current policy owner/mandatory-manifest eligibility, the same current
    preflight/security-scan pointer generations and accepted result IDs/hashes, and every other
    current authority fact including the same confirmed-ready generation/repository-review facts and
-   current Human Owner identity/version when human Authorization was required. Only then may it
-   atomically decrement Review WIP and move Review to Done.
+   the exact current Human Owner identity/version acting through the exact current Admin authority
+   identity/version when human Authorization was required. Only then may it atomically decrement
+   Review WIP and move Review to Done. Human Owner transfer or Admin authority revocation before
+   this final CAS rejects the transition with zero proof consumption, Review Membership mutation,
+   Review WIP decrement, or Done effect; immutable merge and authorization history remain auditable
+   and provider truth follows governed reconciliation rather than stale authority.
 
 If reservation, dispatch, or `AdmitDone` observes that the package's policy or mandatory-manifest
 eligibility is no longer current, the same command CAS-appends a stale Evidence Disposition and
@@ -1231,7 +1236,7 @@ containment set closes:
 3. `FinalizeAdoptExternalResultForReview` has its own semantic key and atomically rechecks the exact
    current Human Owner identity/version acting through the exact current Admin authority
    identity/version and its bound approval, the exact completed current Provider Result Deepening
-   Capture/artifact/ receipt/Docs binding for the authenticated provider-result commit/tree or its
+   Capture/artifact/receipt/Docs binding for the authenticated provider-result commit/tree or its
    exact current non-code applicability fact plus explicit Capture/artifact/receipt absence, current
    preflight/security-scan generations, Ready, dependency graph/completions, lane/queue, assignment,
    Claim Attempt, Execution Lease/fence/capacity/worktree, Pre-Start Admission Loss, Start Rejection
@@ -1405,7 +1410,7 @@ returns the recorded request; mismatched replay is rejected. Create/reject/expir
 atomically appends its deduplicated safe notification intent. Reject/expiry/revocation retains
 Review/Review WIP and the synchronization conflict; a later request requires current-fact
 revalidation plus a new nonce/rationale, and silence never approves. Slack may carry only the same
-bounded exact approve/reject action and cannot reinterpret reconciliation as merge approval.
+bounded exact approve/reject action and cannot reinterpret reconciliation as Merge Authorization.
 
 Its `pending → approved` transaction locks/revalidates every Authorization binding, including the
 exact current Human Owner identity/version acting through the exact current Admin authority
@@ -1437,10 +1442,14 @@ branch, Capture/artifact/receipt, non-code-fact/absence, or scan/preflight drift
 Evidence Disposition and advances the current pointer before returning with no Done, just as the
 ordinary merge path does; the conflict and Review/Review WIP remain. Otherwise it consumes the
 proof, Request, and Authorization, decrements Review WIP, resolves the conflict with violation
-provenance, and admits Done. Expiry, role/owner/evidence/aggregate/applicability/scan drift, replay,
-or a losing version rejects without Done. Its idempotency identity binds all named owner-fact IDs
-and hashes, policy/manifest/applicability/scan versions, and aggregate version. No external-result
-path is enabled until these #230 extensions and their behavioral tests ship.
+provenance, and admits Done. Human Owner transfer or Admin authority revocation before this CAS
+atomically revokes the still-applicable reconciliation Request with a safe `authority_drift` cause,
+appends an unused/stale disposition for its immutable Authorization, and preserves Review, active
+Review Membership/WIP, the proof, resources, and every consumption counter. Other expiry, evidence/
+aggregate/applicability/scan drift, replay, or a losing version rejects without Done. Its
+idempotency identity binds all named owner-fact IDs and hashes, policy/manifest/applicability/scan
+versions, and aggregate version. No external-result path is enabled until these #230 extensions and
+their behavioral tests ship.
 
 If GitHub is unhealthy or unverifiable at any point, preparation/reconciliation/Done opens or
 retains the Absolute Stop and waits fail-closed.
@@ -1551,7 +1560,7 @@ authority.
 | Persistent `provider_result` Inconclusive lacks its threshold-qualified exact-authority remediation Request            | Preserve immutable Inconclusive and retain Review/Review WIP. Do not coerce Changes Requested, open Blocked/Wait Edge, consume proof, or decrement WIP.                                                                                                                                                                                                             |
 | Selected post-merge remediation depends on the reviewed ticket or graph/Plan drifts                                    | Reject without Blocked/Review WIP release; lock both tickets and current graph/Plan, require an independently claimable remediation ticket, and retry only after a safe graph/Plan decision.                                                                                                                                                                        |
 | A later dependency mutation would make remediation depend on the blocked reviewed ticket                               | The active Post-Merge Remediation Wait Edge participates in the canonical cycle check, so reject the mutation; the edge closes only atomically with successful `ResumeExternalResultReview`.                                                                                                                                                                        |
-| External reconciliation approval is replayed, rejected, expired, revoked, or races Done                                | One distinct request/version wins; retain Review/Review WIP/conflict on non-approval, notify safely, and consume the current request/authorization/proof exactly once only with reconciled Done.                                                                                                                                                                    |
+| External reconciliation authorization is replayed, rejected, expired, revoked, or races Done                           | One distinct request/version wins; retain Review/Review WIP/conflict on non-approval, notify safely, and consume the current request/authorization/proof exactly once only with reconciled Done.                                                                                                                                                                    |
 | External result targets Blocked, Sprint member, archived, or Done history                                              | Reject adoption; use the existing owner command or remediation Proposal/Incident. Matching Done attestation is an idempotent no-op; history never reopens.                                                                                                                                                                                                          |
 | Preview expires or Runner/inspection lease is lost                                                                     | Revoke tunnel and label preview unavailable; historical evidence remains, but no stale preview is presented as current.                                                                                                                                                                                                                                             |
 | Raw evidence expires after Done                                                                                        | Preserve the durable decision-time package plus linked authorization, provider attestation, disposition, containment, and completion minimum.                                                                                                                                                                                                                       |
