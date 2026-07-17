@@ -637,11 +637,15 @@ Provisional Socket
   ├─ admitted Enforcer key exists → signed time-anchor exchange
   │    ├─ accepted → connection_ready { available } → Current
   │    └─ unavailable → connection_ready { unavailable } → DiagnosticsOnly
-  │         → bounded time-anchor retry → accepted anchor promotes the same epoch to Current
+  │         → remaining policy-bound anchor attempts
+  │              ├─ accepted → promotes the same epoch to Current
+  │              └─ exhausted/deadline → ClosedAnchorUnavailable; socket closes
   └─ no admitted Enforcer key → connection_ready { unavailable,
        enforcer_key_not_admitted } → DiagnosticsBootstrap
        → one capability challenge/submission/ACK → narrow Enforcer key admission
-       → signed time-anchor exchange → accepted anchor promotes the same epoch to Current
+       → policy-bound anchor attempts
+            ├─ accepted → promotes the same epoch to Current
+            └─ exhausted/deadline → ClosedAnchorUnavailable; socket closes
 ```
 
 1. The Runner opens the dedicated WSS role/path and sends an unsigned bounded `runner_hello`
@@ -676,15 +680,24 @@ Provisional Socket
    replies with signed `connection_ready` under that exact epoch/transcript, accepted trust bundle,
    and available or unavailable anchor result. An available binding atomically marks the epoch
    `Current`; an unavailable binding marks it `DiagnosticsOnly`, which permits only bounded time-
-   anchor retry and live ACK/trust control frames. A later accepted retry promotes the same epoch
-   without a second `connection_ready`. On a first enrollment, where no Enforcer key can yet sign
-   the echo, the Runner instead replies immediately with unavailable reason
-   `enforcer_key_not_admitted`; admission of that `connection_ready` marks the epoch
+   anchor retry under the exact per-connection budget below and live ACK/trust control frames. A
+   later accepted retry promotes the same epoch without a second `connection_ready`; budget or
+   deadline exhaustion atomically records `time_anchor_retry_exhausted`, marks the epoch
+   `ClosedAnchorUnavailable`, and closes the socket with no authority. On a first enrollment, where
+   no Enforcer key can yet sign the echo, the Runner instead replies immediately with unavailable
+   reason `enforcer_key_not_admitted`; admission of that `connection_ready` marks the epoch
    `DiagnosticsBootstrap`, not `Current`. No command delivery or Runner fact is accepted before
    `connection_ready`, and that bootstrap state permits only the closed first-capability/ACK/anchor
    exception below. No execution, containment authority, reconciliation, trust rotation, provider
    action, grant/preview action, or other Registry order is available until an accepted time anchor
    atomically promotes this same epoch to `Current`.
+
+`ClosedAnchorUnavailable` is terminal for that connection epoch. A still-valid enrollment with a
+still-admitted Enforcer key may open a fresh provisional socket and receive a new connection epoch
+with a new independent anchor budget; it never revives the closed epoch. A first-enrollment
+bootstrap that admitted a valid Enforcer key follows that same fresh-connection rule after anchor
+exhaustion. An expired submission or invalid/unverifiable Enforcer key admits no key and instead
+requires the secure recovery/re-enrollment path.
 
 The ceremony objects are closed schemas. `runner_hello` contains exactly `protocolVersion`,
 `messageKind="runner.hello"`, `runnerId`, `enrollmentEpoch`, `keyId`, `bootIncarnation`,
@@ -852,9 +865,10 @@ time-anchor cycle without granting authority:
    policy and Adapter-authorization versions, and expiry.
 4. On the first bootstrap only, admission of the proved Enforcer outcome key permits the specialized
    signed time-anchor exchange. An accepted anchor atomically promotes the epoch from
-   `DiagnosticsBootstrap` to `Current`; a bounded transient anchor failure leaves it diagnostics-
-   only for the allowed retry, while an expired submission or unverifiable key closes the epoch into
-   secure recovery/re-enrollment. Only after promotion does a `capability_manifest_admitted` or
+   `DiagnosticsBootstrap` to `Current`; a transient anchor failure leaves it diagnostics-only only
+   within the shared per-connection attempt/deadline budget, whose exhaustion closes that epoch,
+   while an expired submission or unverifiable key closes the epoch into secure
+   recovery/re-enrollment. Only after promotion does a `capability_manifest_admitted` or
    `capability_manifest_rejected` Semantic Runner Order, signed by the purpose-authorized server
    semantic-order key, bind the submission and admission/reason code. Execution Admission may use
    only the current persisted Capability Admission; a Runner cannot claim eligibility from the
@@ -1185,16 +1199,16 @@ hello feature, tenant field, or implementation default.
 The shared v1 enum registry is closed. `retryClass` is `terminal`, `retry_after_reauthorize`,
 `retry_after_health`, or `retry_after_human`. `safeReasonCode`/`reasonCode` is one of `none`,
 `expired`, `revoked`, `malformed`, `unsupported_version`, `unsupported_capability`,
-`enforcer_key_not_admitted`, `stale_epoch`, `stale_fence`, `sequence_gap`, `sequence_collision`,
-`nonce_replay`, `policy_denied`, `capability_unavailable`, `human_input_required`,
-`process_unknown`, `grant_failed`, `containment_failed`, `provider_unhealthy`, or
-`internal_unavailable`. `capabilityState` is `available`, `unavailable`, or `unknown`;
-`assuranceClass` is `verified_adapter`, `self_reported`, or `unsupported_or_unverifiable`;
-`resourceKind` is `process`, `worktree`, `container`, `port`, `grant`, or `preview`; resource
-`disposition` is `active`, `removed`, `stopped`, `quarantined`, or `unknown`;
-`containmentDisposition` is `stopped`, `quarantined`, or `unknown`; `localDisposition` is `removed`,
-`not_found`, or `removal_failed`. `probeKind` is `runner_build`, `adapter_build`, `tool_version`,
-`managed_enforcement`, `enforcer_key`, `containment`, `repository`, `docker_review`,
+`enforcer_key_not_admitted`, `time_anchor_retry_exhausted`, `stale_epoch`, `stale_fence`,
+`sequence_gap`, `sequence_collision`, `nonce_replay`, `policy_denied`, `capability_unavailable`,
+`human_input_required`, `process_unknown`, `grant_failed`, `containment_failed`,
+`provider_unhealthy`, or `internal_unavailable`. `capabilityState` is `available`, `unavailable`, or
+`unknown`; `assuranceClass` is `verified_adapter`, `self_reported`, or
+`unsupported_or_unverifiable`; `resourceKind` is `process`, `worktree`, `container`, `port`,
+`grant`, or `preview`; resource `disposition` is `active`, `removed`, `stopped`, `quarantined`, or
+`unknown`; `containmentDisposition` is `stopped`, `quarantined`, or `unknown`; `localDisposition` is
+`removed`, `not_found`, or `removal_failed`. `probeKind` is `runner_build`, `adapter_build`,
+`tool_version`, `managed_enforcement`, `enforcer_key`, `containment`, `repository`, `docker_review`,
 `preview_transport`, or `secret_broker`; `subjectKind` is `runner`, `adapter`, `tool`,
 `managed_enforcement_adapter`, `enforcer`, `repository`, `docker`, `preview`, or `secret_broker`;
 `resultCode` is `pass`, `fail`, `unknown`, or `unsupported`. Execution modes are exactly
@@ -1396,7 +1410,7 @@ mismatch rejects the order before journaling. `payload` is a closed union select
 | `arm_lease_enforcer`                     | `enforcerAuthoritySequence`, `enforcerAuthorityNonce`, `autonomousContainmentId`, `containmentHandleDigest`, `authorityIssuedAt`, `authorityNotAfter`, `authorityDurationMs`, `timeAnchorId`, `timePolicyVersion`, `commandTrustBundleVersion`                                                                                                              |
 | `renew_lease_enforcer`                   | `enforcerAuthoritySequence`, `enforcerAuthorityNonce`, `previousAuthorityOrderHash`, `authorityIssuedAt`, `authorityNotAfter`, `authorityDurationMs`, `timeAnchorId`, `timePolicyVersion`, `commandTrustBundleVersion`                                                                                                                                      |
 | `fence_lease_enforcer`                   | `enforcerAuthoritySequence`, `enforcerAuthorityNonce`, `previousAuthorityOrderHash`, `containmentRequestId`, `containmentReasonCode`, `terminalFence`                                                                                                                                                                                                       |
-| `start_execution`                        | `processRegistrationId`, `processRegistrationVersion`, `launchAttemptId`, `registrationFactDigest`, `enforcerArmedFactDigest`, `secretActivationFactDigests`, `adapterPlanDigest`                                                                                                                                                                           |
+| `start_execution`                        | `processRegistrationId`, `processRegistrationVersion`, `launchAttemptId`, `registrationFactDigest`, `enforcerArmedFactDigest`, `secretActivationFactDigest`, `adapterPlanDigest`                                                                                                                                                                            |
 | `checkpoint_execution`                   | `checkpointRequestId`, `checkpointSchemaVersion`, `artifactPolicyVersion`, `deadlineAt`                                                                                                                                                                                                                                                                     |
 | `checkpoint_and_stop_or_quarantine`      | `containmentRequestId`, `checkpointSchemaVersion`, `containmentReasonCode`, `stopDeadlineAt`, `quarantinePolicyVersion`                                                                                                                                                                                                                                     |
 | `revoke_local_grant`                     | `grantDispositionRequestId`, `grantHandleIds`, `reasonCode`, `deadlineAt`                                                                                                                                                                                                                                                                                   |
@@ -1466,6 +1480,11 @@ shown for the selected row are forbidden. `expectedExecutionFactSequenceByLease[
 `grantHandleIds`, `previewDeliveryIds`, and the two top-level handle arrays contain opaque UUIDs
 only. A reconciliation observation must equality-match both expected arrays and cannot omit a lease
 or Enforcer key that appears in the request/server cursor set.
+
+`start_execution.secretActivationFactDigest` equals the one admitted whole-set
+`secret_grants_activated` fact for the exact process registration/launch attempt and
+`grantSetDigest`, including the typed empty-set success. It is singular: no per-handle activation
+digest array, second activation result, or omitted zero-grant result is valid.
 
 `continuationBinding` is exactly `{ kind:"fresh" }` or
 `{ kind:"adopted", checkpointId, checkpointLineageHash, lastServerConfirmedReceiptSequence }`.
@@ -1722,13 +1741,15 @@ to `rejected_terminal`. The latest signed snapshot is durably replayable on the 
 connection even if the original delivery was lost; only its outer delivery binding changes.
 Reconnect cursor exchange repeats these same server-confirmed cursors and latest ACK revisions, so
 live ACK and reconnect recovery cannot disagree. The closed `DiagnosticsBootstrap` frame allowlist
-is only the original or byte-identical replayed `capability_manifest_submission` transport frame,
-its Fact Admission ACK Delivery, and—after narrow Enforcer Key Admission—the specialized
-`time_anchor_probe`, `time_anchor_echo`, and `time_anchor_accepted` ceremony frames. The already-
-admitted connection/trust frames that created the state may be ACKed, but no trust rotation,
-heartbeat, reconciliation, second capability challenge, action order, or other persistent fact is
-permitted. Managed Harness output follows the ordinary execution-fact ACK path only in `Current`; a
-transport ACK or socket write is never fact admission.
+is only one original `capability_manifest_challenge` delivery envelope bound to the persisted
+challenge/order identity and its exact transport ACK; the original or byte-identical replayed
+`capability_manifest_submission` transport frame and its Fact Admission ACK Delivery; and—after
+narrow Enforcer Key Admission—the specialized `time_anchor_probe`, `time_anchor_echo`, and
+`time_anchor_accepted` or terminal `time_anchor_exhausted` ceremony frames. The already-admitted
+connection/trust frames that created the state may be ACKed, but no trust rotation, heartbeat,
+reconciliation, second capability challenge, action order, or other persistent fact is permitted.
+Managed Harness output follows the ordinary execution-fact ACK path only in `Current`; a transport
+ACK or socket write is never fact admission.
 
 ### Runner-to-server transport frames and semantic facts
 
@@ -2233,14 +2254,15 @@ The connection ceremony also completes a signed NTP-style exchange directly with
 supervised Enforcer, relayed but not authored by the Runner daemon. An existing enrollment completes
 it before becoming `Current`; a first enrollment completes it only after the bounded
 `DiagnosticsBootstrap` capability submission has proved and admitted the Enforcer outcome key. The
-probe/echo/accept frames are the only post-submission bootstrap frames, and acceptance atomically
-promotes the epoch; no capability result or execution order precedes them. Its persisted
-`timeAnchorId` binds server send/receive instants, Enforcer monotonic receipt/send counters, probe
-nonce, the exact signed time policy and digest, a policy-capped conservative
-`transportUncertaintyMs`, and expiry. `timePolicy` is the closed object
-`{ timePolicyVersion, maxTimeAnchorRoundTripMs, fixedTransportMarginMs, maxTransportUncertaintyMs, maxClockDriftPpm, maxAnchorAgeMs }`;
+probe/echo/accept-or-exhaust frames are the only post-submission bootstrap frames; acceptance
+atomically promotes the epoch, while exhaustion closes it with no authority. No capability result or
+execution order precedes either terminal outcome. Its persisted `timeAnchorId` binds server
+send/receive instants, Enforcer monotonic receipt/send counters, probe nonce, the exact signed time
+policy and digest, a policy-capped conservative `transportUncertaintyMs`, and expiry. `timePolicy`
+is the closed object
+`{ timePolicyVersion, maxAnchorAttempts, anchorRetryWindowMs, maxTimeAnchorRoundTripMs, fixedTransportMarginMs, maxTransportUncertaintyMs, maxClockDriftPpm, maxAnchorAgeMs }`;
 every value after the version is a canonical unsigned-decimal millisecond/count string under its
-configured narrower range. `timePolicyDigest` is
+configured narrower range; `maxAnchorAttempts` is in `1..8`. `timePolicyDigest` is
 `SHA256(UTF8("opzava.runner.time-policy.digest.v1\0") || RFC8785(timePolicy))`. Let
 `serverRoundTripMs=unixMs(serverReceiveAt)-unixMs(serverSendAt)`. It must be nonnegative and no
 greater than `timePolicy.maxTimeAnchorRoundTripMs`; otherwise no anchor is issued. The accepted
@@ -2248,28 +2270,51 @@ value is exactly `transportUncertaintyMs=serverRoundTripMs+timePolicy.fixedTrans
 must not exceed `timePolicy.maxTransportUncertaintyMs`, using checked arithmetic. Execution cannot
 arm/renew without a current anchor.
 
-The three closed schemas are exact:
+Each connection epoch has one non-overlapping anchor-attempt sequence. For an already admitted
+Enforcer key, `anchorRetryStartedAt=connection_accepted.serverTime`; for first enrollment it is the
+server `admittedAt` of the narrow Enforcer Key Admission. The server computes
+`anchorRetryDeadlineAt=anchorRetryStartedAt+timePolicy.anchorRetryWindowMs` with checked arithmetic
+and persists both. `anchorAttemptSequence` is a canonical unsigned-decimal string starting at `"1"`,
+increasing by exactly one, and never exceeding `timePolicy.maxAnchorAttempts`. The initial
+existing-key exchange is attempt 1; post-key bootstrap also starts at 1. Each attempt has a unique
+`timeAnchorId` and 256-bit `probeNonce`; no next probe may be issued until the prior attempt is
+accepted, rejected, or timed out. An attempt starts only when server time is no later than the exact
+deadline. Acceptance promotes the epoch. Failure of the maximum attempt, or reaching the deadline
+before another allowed attempt, emits the typed terminal frame below and atomically changes that
+epoch to `ClosedAnchorUnavailable` before socket close. No attempt, deadline, or failure can carry
+over to a new connection epoch.
+
+The four closed schemas are exact:
 
 - `runner.time_anchor_probe` is exactly
-  `{ protocolVersion, messageKind:"runner.time_anchor_probe", timeAnchorId, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, timePolicy, timePolicyDigest, serverTimeAnchorKeyId, probeSignature }`.
+  `{ protocolVersion, messageKind:"runner.time_anchor_probe", timeAnchorId, anchorAttemptSequence, anchorRetryStartedAt, anchorRetryDeadlineAt, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, timePolicy, timePolicyDigest, serverTimeAnchorKeyId, probeSignature }`.
 - `runner.time_anchor_echo` is exactly
-  `{ protocolVersion, messageKind:"runner.time_anchor_echo", timeAnchorId, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, enforcerMonotonicAtReceiptMs, enforcerMonotonicAtSendMs, enforcerWallObservedAt, timePolicyDigest, echoSignature }`.
+  `{ protocolVersion, messageKind:"runner.time_anchor_echo", timeAnchorId, anchorAttemptSequence, anchorRetryStartedAt, anchorRetryDeadlineAt, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, enforcerMonotonicAtReceiptMs, enforcerMonotonicAtSendMs, enforcerWallObservedAt, timePolicyDigest, echoSignature }`.
 - `runner.time_anchor_accepted` is exactly
-  `{ protocolVersion, messageKind:"runner.time_anchor_accepted", timeAnchorId, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, enforcerMonotonicAtReceiptMs, enforcerMonotonicAtSendMs, enforcerWallObservedAt, serverReceiveAt, transportUncertaintyMs, timePolicy, timePolicyDigest, anchorExpiresAt, serverTimeAnchorKeyId, acceptedSignature }`.
+  `{ protocolVersion, messageKind:"runner.time_anchor_accepted", timeAnchorId, anchorAttemptSequence, anchorRetryStartedAt, anchorRetryDeadlineAt, runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, probeNonce, serverSendAt, enforcerMonotonicAtReceiptMs, enforcerMonotonicAtSendMs, enforcerWallObservedAt, serverReceiveAt, transportUncertaintyMs, timePolicy, timePolicyDigest, anchorExpiresAt, serverTimeAnchorKeyId, acceptedSignature }`.
+- `runner.time_anchor_exhausted` is exactly
+  `{ protocolVersion, messageKind:"runner.time_anchor_exhausted", runnerId, enrollmentEpoch, connectionEpoch, transcriptHash, enforcerKeyId, lastAttemptBinding, anchorRetryStartedAt, anchorRetryDeadlineAt, failedAt, reasonCode:"time_anchor_retry_exhausted", serverTimeAnchorKeyId, exhaustedSignature }`,
+  where `lastAttemptBinding` is exactly `{ kind:"none" }` when the deadline elapsed before attempt 1
+  or `{ kind:"last", lastTimeAnchorId, lastAnchorAttemptSequence }` for the terminal attempted
+  sequence.
 
 No signature from an earlier object is embedded in a later schema; no other field is allowed.
 
 The purpose-authorized `serverTimeAnchorKey` from the pinned trust bundle signs
 `UTF8("opzava.runner.time-anchor-probe.v1\0") || RFC8785(probeWithoutSignature)` and
-`UTF8("opzava.runner.time-anchor-accepted.v1\0") || RFC8785(acceptedWithoutSignature)`; the admitted
-Enforcer outcome key signs
-`UTF8("opzava.runner.time-anchor-echo.v1\0") || RFC8785(echoWithoutSignature)`. All three bind
-Runner/enrollment/connection epoch, negotiated transcript hash, anchor ID, probe nonce, and their
-respective server/Enforcer-monotonic timestamps. The Enforcer captures both counters from its own
-clock and verifies the accepted echo values, policy object/digest, exact round-trip plus
-fixed-margin calculation, and cap before persisting; the daemon cannot supply or rewrite them.
-Replay, changed timestamp/policy, wrong Enforcer key, missing response, policy-limit violation, or
-another connection epoch rejects the anchor.
+`UTF8("opzava.runner.time-anchor-accepted.v1\0") || RFC8785(acceptedWithoutSignature)`, and signs
+the terminal frame under
+`UTF8("opzava.runner.time-anchor-exhausted.v1\0") || RFC8785(exhaustedWithoutSignature)`; the
+admitted Enforcer outcome key signs
+`UTF8("opzava.runner.time-anchor-echo.v1\0") || RFC8785(echoWithoutSignature)`. Probe, echo, and
+acceptance bind Runner/enrollment/connection epoch, negotiated transcript, attempt sequence, budget
+start/deadline, anchor ID, probe nonce, and their respective server/Enforcer timestamps. Exhaustion
+binds that same epoch/budget plus the exact last-attempt-or-none union and terminal reason. The
+Enforcer captures both counters from its own clock and verifies the accepted echo values, policy
+object/digest, exact round-trip plus fixed-margin calculation, and cap before persisting; the daemon
+cannot supply or rewrite them. Replay, overlapping/noncontiguous attempt, changed timestamp/policy/
+budget, wrong Enforcer key, missing response, policy-limit violation, or another connection epoch
+rejects the anchor.
 
 The Lease Enforcer verifies the server-signed control lease/fence generation against the pinned
 command trust bundle and translates authority to a local monotonic deadline using that current
@@ -3013,10 +3058,12 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   multi-fact containment order with both checkpoint outcomes, zero-grant activation, and delivered/
   autonomous checkpoint request-ID equality. Reject every crossed kind, multiplicity, ordering, and
   request-ID vector; prove `checkpoint_not_recorded` still proceeds through cleanup and one terminal
-  containment outcome.
-- Publish exact time-anchor probe/echo/accepted and Enforcer deadline vectors at zero/max drift,
-  zero/max anchor age, slow/fast monotonic clocks, round-trip/margin cap, overflow, expiry, and
-  duplicate/collision boundaries. The derived deadline must never exceed server authority.
+  containment outcome. Prove `start_execution.secretActivationFactDigest` equals exactly the one
+  admitted whole-set success fact for both nonempty and empty grant sets.
+- Publish exact time-anchor probe/echo/accepted/exhausted and Enforcer deadline vectors at every
+  allowed attempt boundary, deadline edge, zero/max drift, zero/max anchor age, slow/fast monotonic
+  clocks, round-trip/margin cap, overflow, expiry, overlap, gap, duplicate, and collision boundary.
+  The derived deadline must never exceed server authority.
 - Publish parser-limit boundary vectors for every byte, depth, member, string, feature, ref, and
   inventory limit. Reject one-over, compressed, fragmented-over-limit, unknown-field, and inline
   raw-artifact variants before signature admission. Include uint64 maximum/one-over, leading-zero,
@@ -3032,13 +3079,22 @@ This research ticket specifies tests; it does not claim an unbuilt protocol pass
   replay. Replay proof/nonces on another socket, mutate negotiation, lose `connection_accepted`, and
   report a cursor ahead of server truth; none may skip delivery or revive an epoch.
 - On a first enrollment with no admitted Enforcer key, prove `connection_ready` enters
-  `DiagnosticsBootstrap`; permit only one capability challenge/submission and its ACK delivery,
-  evaluate expiry by server receive time, admit the proved Enforcer key, complete the signed time
-  anchor, and only then promote to `Current`. With an existing admitted key, require anchor outcome
-  before `connection_ready`; unavailable enters `DiagnosticsOnly`, and only a bounded accepted retry
-  promotes the same epoch. A late/invalid first submission receives only its sequence-closing ACK
-  before terminal secure recovery/re-enrollment. Reject a second challenge, any other order/fact,
-  any worktree/grant/process/provider effect, and every execution admission before promotion.
+  `DiagnosticsBootstrap`; permit only one capability-challenge delivery plus its exact transport
+  ACK, one submission plus its Fact Admission ACK Delivery, evaluate expiry by server receive time,
+  admit the proved Enforcer key, complete the signed time anchor, and only then promote to
+  `Current`. With an existing admitted key, require anchor outcome before `connection_ready`;
+  unavailable enters `DiagnosticsOnly`, and only acceptance within the exact signed attempt/deadline
+  budget promotes the same epoch. A late/invalid first submission receives only its sequence-closing
+  ACK before terminal secure recovery/re-enrollment. Reject a second challenge, any other
+  order/fact, any worktree/grant/process/provider effect, and every execution admission before
+  promotion.
+- For existing-key `DiagnosticsOnly` and post-key `DiagnosticsBootstrap`, exhaust the exact signed
+  attempt count and separately cross the server-time deadline before attempt 1 and between attempts.
+  Require contiguous non-overlapping attempt sequences with unique IDs/nonces, one signed
+  `time_anchor_exhausted`, atomic `ClosedAnchorUnavailable`, socket close, and zero authority. A
+  valid enrollment/key may try only through a fresh connection epoch and fresh budget; an
+  invalid/unverifiable bootstrap key must use secure recovery/re-enrollment. Reject budget
+  carry-forward or revival of the closed epoch.
 - Assert `serverConfirmedDeliveryAckCursor` and the effective
   `deliveryReplayAfterCursor=min(reported, confirmed)` separately for behind/equal/ahead reports;
   reject every unknown/cross-family feature literal and non-intersection selection.
