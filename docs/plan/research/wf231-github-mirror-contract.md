@@ -6,6 +6,13 @@ is closed, and the parent map plus migration manifest designate this memo curren
 until #237 consumes and freezes it. This is target-contract authority, not implementation authority
 or product code.
 
+> **Prepared, inactive WF-232 compatibility amendment:** the artifact-ingress/reference-only handoff
+> additions in this memo are not part of the landed WF-231 contract at the SHA above and create no
+> implementation authority yet. They activate only after WF-232 is reviewed, landed, closed, and
+> designated current input by #228; until then, the previously landed WF-231 authority remains
+> current. The complete amendment is recorded together below so activation cannot expose a partially
+> migrated raw-bundle path.
+
 ## Decision summary
 
 1. One Opzava-owned **GitHub Installation Binding** and one immutable **GitHub Repository Binding**
@@ -206,7 +213,7 @@ facts, source hashes, observed/recorded times, and evidence refs.
 | Sync Conflict                  | exact field/scope/base/Opzava/provider versions and safe values/refs; blocking class; monotonic conflict version; `open`, `decision_required`, `resolution_pending_mirror`, or `resolved`; resolution command/hash/ref and confirmation                                                                                                                                                                                            | sync/conflict            |
 | Integration Health Snapshot    | dimension statuses, evidence, scope, evaluated policy version, last-good ref, reconciliation proof                                                                                                                                                                                                                                                                                                                                 | sync/health              |
 | Actions Request Receipt        | unique `(issuer, jti)` and workspace/repository/family/nonce; audience/subject; workflow refs/SHAs; run/attempt/actor/event/ref/requested SHA; family-specific target and verified Provider Observation refs; canonical request hash; disposition; exactly one downstream Provider Observation, DevTicket command receipt, or owning-domain Needs Human Approval Request/command receipt                                           | sync/activity            |
-| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new SHA/bundle hash/nonce/expiry; broker claim/fence; provider attempt and confirmation; never token value                                                                                                                                                                                                                                                                                        | runner/sync              |
+| Authorized Git Ref Update      | exact #232 lease/purpose/ref/old/new commit/tree SHA; `artifactAdmissionId`; immutable `objectBundleArtifactRef`; `objectManifestDigest`, `objectBundleDigest`, and `artifactAdmissionDigest`; `publicationPreparationId`/publication nonce; broker claim/fence; preparation/admission expiry; provider attempt and confirmation; never raw bytes, Runner-local paths, or token value                                              | runner/sync              |
 | GitHub Disconnect Saga         | unique binding generation selects exactly one saga; caller idempotency key/request hash are replay/collision metadata; outbound fence/drain; provider uninstall/revocation/expiry state including `provider_outcome_unknown` or `revocation_required`; local cleanup; terminal disposition; reconnect generation                                                                                                                   | sync/health/config       |
 
 The App Registration Ref is environment/platform configuration, not tenant data. Only the
@@ -272,9 +279,13 @@ platform secret ref or secret-ref version.
 agent branch pushes. An installation token is repository/permission scoped—not branch scoped—and a
 raw write-capable token never reaches a Runner, worktree, credential helper, environment, or log.
 The trusted Git transport broker validates the signed #232 lease, purpose, exact ref, expected old
-SHA, proposed new SHA, pack/bundle hash, nonce, expiry, and current base/head before performing one
-provider push. Provider branch rulesets remain defense in depth, not the sole application fence. If
-a deployment chooses a separate approved credential provider with equivalently enforceable ref
+SHA, proposed new commit/tree SHA, publication preparation/nonce, artifact admission ID/digest,
+object-manifest/bundle digests, immutable artifact ref, admission/preparation expiry, and current
+base/head before performing one provider push. It resolves the artifact only through the
+tenant-bound admission service, streams and independently re-hashes the bytes, validates the object
+graph against the admitted manifest/tree/new SHA, and never accepts raw WSS bytes or a Runner-local
+path. Provider branch rulesets remain defense in depth, not the sole application fence. If a
+deployment chooses a separate approved credential provider with equivalently enforceable ref
 constraints, reduce App Contents to read and record that capability choice.
 
 Subscribed event families are limited to the selected repository and needed lifecycle:
@@ -974,10 +985,11 @@ is `Needs Human Approval`, never “policy bypassed.”
 2. Dev Board authorizes the exact remediation under current contract, lease/capacity, conflict,
    health, and Review policy. The integration never starts an agent.
 3. #232 provisions a fenced Runner attempt in an isolated worktree/branch with one-use command
-   nonce, exact permitted head branch, and signed receipts/checkpoints. The Runner submits a signed
-   exact-ref update/bundle to the trusted Git transport broker; it never receives the raw
-   write-capable installation token and has no authority to merge the base branch or change workflow
-   state.
+   nonce, exact permitted head branch, and signed receipts/checkpoints. The Runner first uploads the
+   canonical object bundle through the separately bounded signed/scanned artifact-ingress ceremony,
+   then submits only the admitted immutable artifact ref/digests and exact publication preparation
+   identity to the trusted Git transport broker. It never receives the raw write-capable
+   installation token and has no authority to merge the base branch or change workflow state.
 4. Base/head or PR state drift before push cancels/supersedes the attempt. The Runner rebases/merges
    the current base, resolves agent-authored conflicts, runs affected real checks, and pushes only
    the authorized head.
@@ -988,10 +1000,17 @@ is `Needs Human Approval`, never “policy bypassed.”
 
 `Authorized Git Ref Update` has its own durable compare-and-reconcile lifecycle. Before transport,
 one transaction locks the current provider observation and exact #232 remediation attempt, verifies
-the expected old SHA, and records `prepared` with ref, old/new SHAs, bundle hash, lease/fence,
-one-use nonce, expiry, request hash, and broker claim. Dispatch advances that same record to
-`attempted`; same-key/same-hash retries return it and never launch another remediation run or
-provider push.
+the expected old SHA, and records `prepared` with exact ref/old/new commit/tree SHAs,
+`artifactAdmissionId`, `objectBundleArtifactRef`, `objectManifestDigest`, `objectBundleDigest`,
+`artifactAdmissionDigest`, `publicationPreparationId`/publication nonce, lease/fence,
+preparation/admission expiry, request hash, and broker claim. Preparation is legal only after the
+artifact admission is current, unexpired, tenant/repository/lease/fence-equal, server-scanned, and
+immutable. Dispatch advances that same record to `attempted` only after the broker fetches and
+independently re-hashes the admitted artifact and validates its object graph; same-key/same-hash
+retries return it and never upload another artifact, launch another remediation run, or perform
+another provider push. The artifact is retained while the publication is `prepared`, `attempted`, or
+`push_outcome_unknown`; expiry/deletion before a terminal provider observation is a visible
+failed/unknown disposition and never authorizes a blind retry.
 
 A lost response, timeout after send, or broker crash before confirmation enters
 `push_outcome_unknown` and fences the remediation attempt. The only next effect is fresh exact-ref
@@ -1191,9 +1210,12 @@ deterministic raw fixtures signed with test secret versions—not mocked verific
   intent is provably `cancelled_before_send`, no ordinary post-fence token mint/outbox claim occurs,
   possibly sent effects remain drained/unknown, no local-cleanup success occurs before provider
   revocation/expiry confirmation, and no second binding generation exists while unresolved;
-- repeated Authorized Git Ref Update delivery/finalization around a lost push response, proving
-  intended-new-SHA confirmation, bounded unresolved old-SHA state, third-SHA conflict, and exactly
-  one remediation run/update record with no blind repush;
+- repeated Authorized Git Ref Update preparation/delivery/finalization around a lost push response,
+  proving the admission ID, immutable artifact ref, manifest/bundle/admission digests, publication
+  preparation/nonce, and ref/commit/tree identities remain equal end to end; independently re-hash
+  the fetched artifact; then prove intended-new-SHA confirmation, bounded unresolved old-SHA state,
+  third-SHA conflict, and exactly one remediation run/update record with no re-upload or blind
+  repush;
 - concurrent `ResolveSyncConflict` same/different-hash replay, two-owner decisions, stale provider/
   domain/conflict versions, decision-required owner commands, pending-mirror drift, and stale outbox
   finalization, proving one decision/intent and no premature shadow advance;
@@ -1258,9 +1280,11 @@ second production repository. Drive real API mutations and actual signed deliver
   Observations by deployment/status identity, repository, run, ref/SHA, and environment; prove each
   family writes only its designated downstream record, and reject uncorroborated facts, generic
   governed commands, and deployment/rollback/release mutations;
-- fault-inject a lost Authorized Git Ref Update response and separately observe intended new SHA,
-  unchanged old SHA, and a third-party third SHA; prove confirmation, bounded unresolved escalation,
-  and visible ref conflict respectively, with one remediation run and no automatic second push;
+- admit and scan one immutable object-bundle artifact, reject changed/expired/cross-tenant refs and
+  digest/object-graph substitutions at the broker, then fault-inject a lost Authorized Git Ref
+  Update response and separately observe intended new SHA, unchanged old SHA, and a third-party
+  third SHA; prove confirmation, bounded unresolved escalation, and visible ref conflict
+  respectively, with one remediation run and no automatic second push;
 - prove a Runner cannot obtain a raw write-capable installation token or push a ref outside the
   broker-authorized exact old/new SHA update, even when it controls its local credential helpers.
 

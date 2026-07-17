@@ -680,11 +680,12 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Never expose a raw write-capable installation token to a Runner or worktree. Raw bundle bytes use
   only signed/scanned artifact ingress; ref-only WSS carries the admitted artifact reference and
   digests. A trusted Git transport broker fetches/re-hashes the artifact, validates the signed
-  lease, nonce, exact ref, old/new SHAs, and pack/bundle hash, then performs the single authorized
-  provider push; repository rulesets are defense in depth. A lost response enters the same
-  Authorized Git Ref Update record: exact intended SHA confirms, unchanged old SHA stays bounded
-  unresolved without blind retry, and any third SHA becomes a visible ref conflict requiring fresh
-  authorization. No reconciliation path launches a duplicate remediation run.
+  lease, nonce, exact ref, old/new commit/tree SHAs, artifact admission/reference plus manifest/
+  bundle/admission digests, and publication preparation identity, then performs the single
+  authorized provider push; repository rulesets are defense in depth. A lost response enters the
+  same Authorized Git Ref Update record: exact intended SHA confirms, unchanged old SHA stays
+  bounded unresolved without blind retry, and any third SHA becomes a visible ref conflict requiring
+  fresh authorization. No reconciliation path launches a duplicate remediation run.
 - Accept Actions-originated requests only through a short-lived GitHub OIDC protocol bound to an
   Opzava-specific audience, immutable repository, allowlisted workflow/reusable-workflow and SHA,
   run/attempt, actor/event, ref/SHA, family-specific target/expected versions, payload hash, and
@@ -1090,10 +1091,11 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Test material Revision while Todo credential provisioning is pending as live containment: fence
   the claim/lease, revoke pending or active credential/tunnel authority, retain capacity/worktree,
   and delay Backlog apply until no-process or stopped/quarantined proof plus every confirmation.
-  Verify only a zero-grant Todo with no live claim/grant/tunnel uses the idle atomic path.
-  Separately test disconnect/key/lease loss while still provisioning: prove no start was enqueued,
-  remain Todo with a visible failed request and no Blocked Episode, hold resources until every
-  confirmation, and race the same locks against final activation/start enqueue.
+  Verify a zero-grant Todo still completes reserved registration, Enforcer arm, and one empty-set
+  activation fact before `start_pending`; it must never use the idle atomic path or enqueue start
+  directly. Separately test disconnect/key/lease loss while still provisioning: prove no start was
+  enqueued, remain Todo with a visible failed request and no Blocked Episode, hold resources until
+  every confirmation, and race the same locks against admitted Runner activation/start enqueue.
 - Test Review Handoff separately from reviewer capacity: accepted exact checkpoint/receipt
   atomically freezes/fences the candidate, enters Review / Preparing Review, and increments
   membership-only WIP; implementation lease, capacity, and worktree remain held until no-process or
