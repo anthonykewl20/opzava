@@ -10,6 +10,13 @@
 > #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes
 > and freezes it. This is target-contract authority, not implemented Dev Board behavior.
 
+> **WF-235 amendment status:** Archive, retention, exceptional redaction, tombstone, and revocation
+> details in
+> [`wf235-archive-retention-redaction-revocation.md`](../plan/research/wf235-archive-retention-redaction-revocation.md)
+> are a resolution candidate. They become current planning input only after verified #235 resolution
+> and explicit designation by map #228 or the migration manifest; they do not claim implemented
+> behavior.
+
 ## Problem Statement
 
 Opzava platform development is currently split across an internal Tasks board and a separate GitHub
@@ -412,13 +419,16 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 160. As an auditor, I want planning decisions, Dev Board activity, runner execution/checkpoints, and
      synchronization/outbox/conflicts kept as four distinct ledgers, so that narrative, workflow,
      runtime, and integration evidence remain intelligible.
-161. As an Opzava administrator, I want archive to be the normal reversible removal path, so that
-     durable development history is not casually deleted.
-162. As a compliance operator, I want raw logs and large artifacts governed by configurable
-     retention, so that high-volume evidence does not grow without limit.
+161. As an Opzava administrator, I want archive to remain a reversible owner-governed overlay and
+     restore to remove stale authority, so that durable history survives without silently reviving
+     Ready, assignment, Sprint, lease, or redacted content.
+162. As a compliance operator, I want every eligible record immutably bound at ingestion to a
+     prospective retention policy with holds, pins, CAS admission, and truthful per-target outcomes,
+     so that bounded raw data expires without deleting durable history or claiming false erasure.
 163. As a security operator, I want exceptional redaction coordinated across Opzava and GitHub with
-     a non-sensitive audit tombstone, so that exposed secrets can be removed without pretending no
-     record existed.
+     immediate exact-content suppression, scoped authorization, separate local/upstream revocation,
+     and a non-sensitive audit tombstone, so that active exposure stops without pretending no record
+     existed or granting retention workflow authority.
 164. As an Opzava administrator, I want implementation capacity configured per enrolled Runner with
      Focused, Balanced, and capability-bounded Custom presets, so that one machine's admission
      policy does not become an organization-global slot.
@@ -938,10 +948,48 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Separate four ledgers: planning decisions; immutable Dev Board activity/history; runner
   execution/checkpoints; and synchronization/outbox/conflicts. Cross-link them by stable refs, but
   do not collapse their different ordering, retention, or authority semantics.
-- Use reversible archive as the default removal action. Preserve contracts, comments, worklogs,
-  Sprint history, approvals, relied-upon Review evidence, and audit. Apply configurable retention to
-  raw logs and large transient artifacts. For legal or secret-exposure removal, coordinate redaction
-  in Opzava and GitHub and retain a non-sensitive tombstone.
+- Use reversible archive as the default removal overlay under the existing aggregate owner: WF-230
+  for Proposal/DevTicket, #233 for Sprint, and #234 for Docs. Archive is never TTL, delete, or Done.
+  V1 projects archived non-Done by writing a safe managed archive marker, removing the active
+  `status:` lane label, and closing the GitHub Issue with provider `state_reason=not_planned`
+  through the WF-231 outbox. Archived Done adds the marker but preserves `status:done` and the
+  provider's completed-close fact. Restoring non-Done removes the marker, reopens, and writes
+  `status:backlog` through normal reconciliation; restoring Done removes the marker and preserves
+  Done plus the completed closed fact. Local archive/restore may remain mirror-pending or unknown,
+  so provider-dependent gates wait. Non-Done DevTicket restore returns to Backlog without reviving a
+  prior Ready approval, assignment, claim, lease, Sprint membership, Runner authority, or redacted
+  bytes. This #235 resolution-candidate refinement is for #237 and is not built.
+- Put retention records behind the `DevBoard.RetentionPolicy` deep module without making it a fifth
+  ledger. It owns immutable prospective `RetentionPolicyVersion` ingestion bindings, append-only
+  prospective reclassification, `RetentionHold`, CAS-bound `ExpiryManifest`,
+  `ExceptionalRedactionCase`, one-use `RedactionActionAuthorization`, content-only
+  `PayloadSuppressionBarrier`, safely keyed `AuditTombstone`, and `EvidenceRelianceRevoked`. It owns
+  no workflow, Review, Release, Runner, GitHub disconnect, credential, lease, tunnel, preview,
+  provider, publication, or backup lifecycle.
+- Classify records exhaustively as durable/no-TTL, bounded raw, or never-persist raw. Contracts,
+  comments/worklogs, Sprint/approval/conflict decisions, relied-upon evidence, and durable audit do
+  not expire with raw telemetry. Policy changes are prospective only and never shorten/backdate an
+  ingestion binding. Secret-Safe Ingress keeps suspected-secret values out of domain rows, logs,
+  queues, mirrors, exports, evidence, search, and model context; best-effort memory scrub is not
+  erasure proof.
+- Admit expiry only through exact CAS when no pin, `RetentionHold`, active reliance, replay/gap, or
+  provider-unknown predicate applies. Preserve per-target succeeded, unknown, manual, unsupported,
+  and residual-exposure outcomes. A `PayloadSuppressionBarrier` blocks exact content read, reliance,
+  mirror, restore, re-ingestion, and rebuild only; it cannot mutate workflow or claim provider
+  deletion, and unknown targets never blind-retry.
+- On suspected-secret exposure, automatically perform only the exact minimum supported provider
+  edit/delete required for Absolute Stop containment. Broader legal/destructive scope requires an
+  Admin step-up plus one-use exact-target authorization. Unsupported/manual/unknown/residual
+  exposure stays visible and keeps the stop unresolved. Retain a safe keyed `AuditTombstone` and key
+  history, never a raw/reversible copy or false global-erasure claim.
+- When removed evidence was relied upon, append `EvidenceRelianceRevoked` and let the
+  evidence-owning aggregate invalidate current contract/approval/gate/package bindings. Preserve
+  historical Done and Released facts with explicit assurance-compromised state and
+  Incident/follow-up linkage. Keep local disposal and upstream revocation as separate owner-issued
+  legs; artifact, preview, and publication bindings remain pins until their owner releases them.
+- Restore backups only in isolation and replay an independently replicated erasure/suppression
+  stream before any restored content is served, mirrored, indexed, restored into authority, or
+  relied on. A gap or unknown target keeps the restored content unavailable.
 - Migrate with expand-contract and bounded dual-read. Verify record counts, identity mapping,
   comments, evidence, workflow mapping, GitHub links, and route behavior before switching writes.
   Redirect `/tasks` and `/issues` to `/dev-board` only after verified cutover, then retire legacy
@@ -1130,9 +1178,25 @@ implementations without losing identifiers, comments, evidence, or worklogs.
 - Test `/tasks` and `/issues` redirects only after a cutover flag or completed migration state.
   Before cutover, legacy reads remain available for reconciliation and no redirect may hide missing
   DevTickets.
-- Test archival, retention, and exceptional redaction behavior: archive/restore, immutable
-  relied-upon evidence, raw-log expiry, GitHub coordinated redaction, and preserved non-sensitive
-  tombstone.
+- Test archival, retention, exceptional redaction, and revocation deterministically without a model:
+  owner-specific archive; non-Done marker + lane-label removal + `not_planned` close; Done marker +
+  preserved `status:done`/completed close; non-Done marker removal + reopen + `status:backlog`; Done
+  marker removal with closed-completed preserved; pending/unknown reconciliation and provider-gate
+  wait; Backlog restore with no authority/redacted-byte resurrection; immutable ingestion bindings
+  and prospective-only policy; exact-CAS expiry; pin/hold/reliance/replay/gap/provider-unknown
+  races; per-target partial/unknown/manual/unsupported outcomes; idempotent retries; safe keyed
+  tombstones; and separate local/upstream revocation legs.
+- Drive real Postgres/RLS/outbox plus object store/search/export/backup adapters; use a GitHub
+  scratch repository to prove exact minimum secret containment, broader-scope step-up, provider
+  truth, and unsupported/manual residual exposure. Prove Secret-Safe Ingress keeps the canary out of
+  every persistence, transport, mirror, evidence, search, export, and model seam; prove a
+  suppression barrier blocks read/reliance/mirror/restore/re-ingestion/rebuild without changing
+  workflow.
+- Test `EvidenceRelianceRevoked` through each owning domain: active approvals/gates/packages become
+  unusable, while Done/Released history remains with assurance-compromised and Incident/follow-up
+  evidence. Restore a backup into isolation, replay the independently replicated erasure stream,
+  reject a missing/gapped/unknown replay, then complete one real authenticated local-Docker user
+  archive/restore and exceptional-redaction flow.
 - Test the two Absolute Stops separately from ordinary Needs Human Approval. Secret-exposure and
   unverifiable-GitHub states must reject bypass attempts through UI, Slack, GitHub labels, agent
   tools, runner receipts, and direct command APIs.

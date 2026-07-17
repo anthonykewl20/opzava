@@ -14,6 +14,12 @@ The WF-232 Runner trust-protocol amendment landed at `4d88495700993e901b8c5bbb0e
 until #237 consumes and freezes it. This activates target architecture only; the Runner protocol
 remains unimplemented.
 
+The WF-235 archive/retention/redaction/revocation amendment is a resolution candidate. Its detailed
+mechanism contract is
+[`wf235-archive-retention-redaction-revocation.md`](../plan/research/wf235-archive-retention-redaction-revocation.md);
+it becomes current planning input only after verified #235 resolution and explicit designation by
+map #228 or the migration manifest. It does not claim implementation.
+
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
 
@@ -563,6 +569,68 @@ than silently erasing history.
 
 Cross-link these ledgers by stable IDs without pretending they have one ordering or retention
 policy.
+
+Use `DevBoard.RetentionPolicy` as a deep coordinator for retention records only. It owns immutable
+prospective `RetentionPolicyVersion` ingestion bindings, append-only prospective reclassification,
+`RetentionHold`, CAS-bound `ExpiryManifest` admission/dispositions, `ExceptionalRedactionCase`,
+one-use secure `RedactionActionAuthorization`, content-only `PayloadSuppressionBarrier`, safely
+keyed `AuditTombstone`, and `EvidenceRelianceRevoked` facts. These records live in and cross-link
+the four ledgers; they do not create a fifth ledger or global order. The coordinator owns no
+Absolute Stop, DevTicket/Sprint/Doc/Review/Release lifecycle, GitHub Disconnect Saga, Runner,
+credential, lease, tunnel, preview, publication, provider, or backup authority.
+
+Archive remains an overlay executed by its established owner: WF-230 Proposal/DevTicket commands,
+#233 Sprint commands, and #234 Docs commands. It is never TTL/delete/Done. For a non-Done DevTicket,
+the V1 GitHub projection writes a safe managed archive marker, removes the active `status:` lane
+label, and closes the Issue with provider `state_reason=not_planned` through the WF-231 outbox. For
+a Done DevTicket, archive adds the marker while preserving `status:done` and the provider's
+completed- close fact. Restore of non-Done removes the marker, reopens the Issue, and writes
+`status:backlog` through normal reconciliation; restore of Done removes the marker while preserving
+Done and the completed closed fact. Local archive/restore may remain mirror-pending or unknown, and
+every gate requiring provider confirmation waits for reconciliation. Restore returns a non-Done
+DevTicket to Backlog without resurrecting a former Ready approval, assignment, claim, lease, Sprint
+membership, Runner authority, or redacted bytes; each other aggregate restores only through its
+owner under the same no-resurrection rule. This is a #235 resolution-candidate refinement for #237,
+not implemented behavior.
+
+Bind each eligible record at ingestion to exactly one exhaustive class: durable/no-TTL, bounded raw,
+or never-persist raw. Policy change is prospective and append-only; it never shortens or backdates
+an existing binding. Secret-Safe Ingress ensures suspected-secret values never enter a domain row,
+log, queue, mirror, export, evidence package, search index, or model context. Only a safe reference
+enters containment; best-effort ephemeral-buffer scrubbing is not durable deletion proof.
+
+Expiry requires exact compare-and-swap over the record/policy binding and fails closed while any
+pin, `RetentionHold`, active reliance, replay/gap, or provider-unknown predicate remains. An
+`ExpiryManifest` reports each target as succeeded, unknown, manual, unsupported, or residual
+exposure. A `PayloadSuppressionBarrier` immediately blocks only the exact content from read,
+reliance, mirror, restore, re-ingestion, and rebuild paths; it cannot mutate workflow or provider
+lifecycle. Unknown/manual/unsupported/residual targets remain visible and are never blind-retried.
+
+For suspected-secret exposure, the exact minimum supported provider edit/delete needed to stop
+active exposure is automatic Absolute Stop containment. Broader legal, destructive, or scope-
+widening action requires Admin step-up and a one-use `RedactionActionAuthorization`. Unsupported,
+manual, unknown, or residual exposure keeps the Absolute Stop unresolved. Provider request
+acceptance is never deletion proof, no retained record may falsely claim global erasure, and an
+`AuditTombstone` uses a safe keyed commitment plus retained key history rather than a raw or
+reversible copy.
+
+If removed or suppressed evidence was relied upon, append `EvidenceRelianceRevoked` and have the
+owning aggregate invalidate current contract/approval/gate/package bindings. Historical Done and
+Released facts remain immutable but carry assurance-compromised status plus an Incident or governed
+follow-up. Local disposal and upstream revocation are separate owner-issued, independently observed
+legs; retention cannot disconnect GitHub or revoke a Runner/credential/lease/tunnel/preview itself.
+Artifact, preview, and publication bindings are explicit pins until their owner releases them.
+
+Restore backups only into an isolated environment. Before serving, mirroring, indexing, restoring,
+or relying on restored content, replay the independently replicated erasure/suppression stream and
+prove all target dispositions against the restored snapshot. A missing stream, gap, unknown target,
+or revoked reliance keeps restored content unavailable.
+
+Conformance must be deterministic and model-free: real Postgres/RLS/CAS/outbox behavior, object
+store/search/export/backup adapters, GitHub scratch-provider edits/deletes and unsupported/manual
+outcomes, race/replay/idempotency, secret-canary absence, isolated backup restore, and one real
+authenticated local-Docker user flow. The exact resolution-candidate contract and test matrix live
+in the WF-235 memo; #237 must consume it only after #235 is independently verified.
 
 Migrate from current Tasks and Issues through expand-contract. Preserve Task UUIDs, card numbers,
 GitHub links, comments, steps, watchers, evidence, quality records, activity, and timestamps.
