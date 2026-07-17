@@ -175,7 +175,7 @@ its Q2-to-Q7 dependency and authorization correction is reflected in the blockin
 | #229 — Grill and lock the independent Review Gate contract                                                      | Resolve independent reviewer execution, Review WIP, the exclusive shared-Docker lease, locked-SHA evidence, approval, retry, merge, and Done boundaries                                                                                                                                                                                                                                                                                                                                                                             | —                                              |
 | #230 — Reconcile DevTicket commands, claims, Blocked, revisions, dependencies, and archive                      | **Resolved 2026-07-16.** [`wf230-devticket-command-model.md`](research/wf230-devticket-command-model.md) locks the aggregate/module split, trusted command envelope, versioned Ready and exception decisions, claim/start and interruption/loss sagas, dependency/queue concurrency, archive/history distinction, event catalog, and four-ledger ownership.                                                                                                                                                                         | —                                              |
 | #231 — Reconcile GitHub bootstrap, two-way sync, delivery facts, Actions exceptions, and conflict remediation   | **Resolved and closed 2026-07-17; landed at `1db502d722ca33285148251a7660695868ad6a30` and current until #237 consumes/freezes it.** [`wf231-github-mirror-contract.md`](research/wf231-github-mirror-contract.md) defines provider App/installation/repository identity, secure installation and webhook ingress, deterministic three-way mirror reconciliation, unknown-mutation recovery, delivery-fact correlation, Actions request limits, #229/#232 remediation seams, health recovery, and legacy credential/outbox cutover. | #230                                           |
-| #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | **Prepared 2026-07-17; pending reviewed landing, tracker comment/closure, and parent-map pointer.** [`wf232-runner-control-protocol.md`](research/wf232-runner-control-protocol.md) proposes enrolled local/cloud identity, connection/capability ceremonies, typed signed delivery/receipt/Enforcer authority, pre-spawn/grant/process containment, exact-ref handoff, reconnect/no-failover, Slack/Ask Admin/MCP provenance, and deterministic real-seam validation.                                                              | #230                                           |
+| #232 — Reconcile Runner, Slack Personal Assistant, Ask Admin, and secret trust seams                            | **Resolved and closed 2026-07-17; landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd` and current for #233/#235/#237 until #237 consumes/freezes it.** [`wf232-runner-control-protocol.md`](research/wf232-runner-control-protocol.md) defines enrolled local/cloud identity, connection/capability ceremonies, typed signed delivery/receipt/Enforcer authority, pre-spawn/grant/process containment, exact-ref handoff, reconnect/no-failover, Slack/Ask Admin/MCP provenance, and deterministic real-seam validation.           | #230                                           |
 | #233 — Reconcile Incident projections, governed interruption, strict Sprint order, and ordinary-work preemption | Resolve Focused/Balanced/Custom admission, Sprint waiting and serial reservation, ordinary claims, governed pause/preemption, blocking discoveries, and dependency ordering                                                                                                                                                                                                                                                                                                                                                         | #230, #232                                     |
 | #234 — Complete the governed Docs type, planning-log, and invalidation matrix                                   | Resolve PRD/planning/research document authority, version binding, mirroring, and links to DevTickets                                                                                                                                                                                                                                                                                                                                                                                                                               | #230, #231                                     |
 | #235 — Lock archive, retention, exceptional redaction, tombstone, and revocation behavior                       | Resolve durable history, secret/redaction boundaries, imported records, and four-ledger retention across command, GitHub, and Runner seams                                                                                                                                                                                                                                                                                                                                                                                          | #230, #231, #232                               |
@@ -198,22 +198,21 @@ after that they become frozen planning evidence rather than parallel implementat
 #231 is closed and #228 plus this manifest designate it current input for #234, #235, and #237 until
 #237 consumes and freezes it.
 
-After reviewed landing, tracker comment/closure, and the matching #228 context pointer, this
-manifest will designate `research/wf232-runner-control-protocol.md` current input for #233, #235,
-and #237 until #237 synthesizes and independently audits its enrolled Runner, command/receipt, Lease
+`research/wf232-runner-control-protocol.md` landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`;
+#232 is closed, and #228 plus this manifest designate it current input for #233, #235, and #237
+until #237 synthesizes and independently audits its enrolled Runner, command/receipt, Lease
 Enforcer/containment, secret-grant, reconnect, Slack/Ask Admin/MCP provenance, and local/cloud
 boundaries into the final tracer-bullet graph. Its `research/wf232-runner-vendor-evidence.md`
-appendix remains supporting evidence only. Before that sequence it is a prepared candidate, not
-current input. After #237, both freeze as planning evidence rather than parallel implementation
-authority.
+appendix remains supporting evidence only. After #237, both freeze as planning evidence rather than
+parallel implementation authority.
 
-Runner/trust investigation #232 has prepared exact enrolled-endpoint, hard-safe-capability,
-transport, receipt, Lease Enforcer, containment, secret, and reconnect boundaries for the required
-landing/closure/map sequence. Preset scheduling, reservation, waiting, pause, and preemption remain
-owned by Sprint/admission investigation #233. Reviewer execution and the exclusive shared local
-Docker lease remain owned by Review investigation #229. The selected Admin Variant A prototype is
-projection evidence only; PRD-020 may display these states but cannot settle or own their
-implementation details.
+Runner/trust investigation #232 defines exact enrolled-endpoint, hard-safe-capability, transport,
+receipt, Lease Enforcer, containment, secret, and reconnect boundaries for those downstream planning
+children. Preset scheduling, reservation, waiting, pause, and preemption remain owned by
+Sprint/admission investigation #233. Reviewer execution and the exclusive shared local Docker lease
+remain owned by Review investigation #229. The selected Admin Variant A prototype is projection
+evidence only; PRD-020 may display these states but cannot settle or own their implementation
+details.
 
 ### Superseded/quarantined Q17 issues #147–#157
 

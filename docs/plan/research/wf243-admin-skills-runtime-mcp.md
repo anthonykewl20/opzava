@@ -827,18 +827,20 @@ machine signatures, replayed/expired nonces, unapproved build hashes, unsupporte
 mode mismatch, absent hook/proxy coverage, failed deny canaries, revoked enrollment, and direct
 bypass attempts.
 
-### Managed output requirements for #232/#237
+### Managed output contract adopted by #232 for #237
 
-Opzava management covers output as well as configuration. The detailed protocol below is an explicit
-downstream requirement for Runner/trust Wayfinder
-[#232](https://github.com/anthonykewl20/opzava/issues/232) and final Dev Board ticket-graph
-synthesis [#237](https://github.com/anthonykewl20/opzava/issues/237); WF-243 does not claim
-ownership of the Runner output protocol.
+Opzava management covers output as well as configuration. The detailed requirements below were
+adopted by the landed Runner/trust protocol at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`;
+[#232](https://github.com/anthonykewl20/opzava/issues/232) is closed, and map #228 designates that
+protocol current planning input for #233, #235, and final Dev Board ticket-graph synthesis
+[#237](https://github.com/anthonykewl20/opzava/issues/237) until #237 consumes and freezes it.
+WF-243 remains an evidence and requirements source, not competing Runner output-protocol authority
+or implementation authority.
 
-Those owners must specify that the Runner captures typed, tenant/workspace/execution-scoped
-envelopes for status transitions, agent worklog entries, command and test evidence, summaries,
-failures, and bounded artifact references. Dev Board/execution-ledger owners remain durable product
-truth; the harness is only the producer and local retry buffer.
+The landed Runner protocol specifies typed, tenant/workspace/execution-scoped envelopes for status
+transitions, agent worklog entries, command and test evidence, summaries, failures, and bounded
+artifact references. Dev Board/execution-ledger owners remain durable product truth; the harness is
+only the producer and local retry buffer.
 
 Every envelope carries a monotonically ordered producer sequence, stable event/artifact ID, pinned
 harness/skill/MCP/policy revision, timestamp, redaction result, and content hash. Upload is
@@ -1018,9 +1020,10 @@ This Wayfinder child is resolved only if downstream specifications preserve all 
     denial canaries. #244 consumes that trust contract for Admin enrollment/setup/status,
     compatibility presentation, and repair. The provisional Runner-local adapter then proves lease,
     name, schema, policy, entitlement, and approval on every call; it is not a hosted MCP service.
-18. The output-envelope requirements are handed to #232/#237: status, worklogs, command/test
-    evidence, summaries, failures, and bounded artifacts are redacted, revision-pinned, durably
-    acknowledged, idempotently replayable, and visibly incomplete when required evidence is missing.
+18. Landed #232 adopted the output-envelope requirements, and #237 must consume/freeze them into
+    implementation tickets: status, worklogs, command/test evidence, summaries, failures, and
+    bounded artifacts are redacted, revision-pinned, durably acknowledged, idempotently replayable,
+    and visibly incomplete when required evidence is missing.
 19. Opzava never overwrites the user's global local-agent configuration and never exposes Gateway
     operator/admin credentials to browsers, harnesses, skills, or MCP servers.
 20. No public hosted Opzava MCP/OAuth service is created; `openclaw mcp serve` and the legacy Task
@@ -1070,13 +1073,14 @@ This Wayfinder child is resolved only if downstream specifications preserve all 
   attached to PRD-019/ADR-017 DevTicket Execution Leases, and equivalent PRD-005-owned Ask
   Admin/assistant session-and-turn manifests. Both require schema/content hashes, call-time
   enforcement, unchanged-only continuity, owner-specific drain/reconciliation, and real tests;
-- keep Managed Harness Profile configuration separate from Execution Lease/Runner state; require
-  #232's server-verified signed-challenge, approved-build/client/mode matrix, and attested
-  Runner-owned local enforcement adapter before activation; and constrain #244 to consuming that
-  trust contract for Admin enrollment/setup/status/compatibility presentation and repair;
-- carry the Managed Harness output-envelope, durable acknowledgment, replay, artifact-limit,
-  ordering/deduplication, redaction/quarantine, and incomplete-evidence contract into Runner and Dev
-  Board tickets #232/#237 as a downstream requirement, not a WF-243-owned protocol;
+- keep Managed Harness Profile configuration separate from Execution Lease/Runner state; require the
+  landed #232 protocol's server-verified signed challenge, approved-build/client/mode matrix, and
+  attested Runner-owned local enforcement adapter before activation; and constrain #244 to consuming
+  that trust contract for Admin enrollment/setup/status/compatibility presentation and repair;
+- record that landed #232 adopted the Managed Harness output-envelope, durable acknowledgment,
+  replay, artifact-limit, ordering/deduplication, redaction/quarantine, and incomplete-evidence
+  contract, and require #237 to consume/freeze it into implementation tickets rather than treating
+  WF-243 as competing Runner protocol authority;
 - consume plan/entitlement/suspension decisions from their owner and include read-only, hard-denial,
   mandatory security deprovision, tenant-authorized cold teardown without runtime/probe, recovery,
   and real E2E contracts;

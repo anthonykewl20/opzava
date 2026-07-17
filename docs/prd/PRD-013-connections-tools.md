@@ -1,9 +1,9 @@
 # PRD-013: Connections, providers, channels, tools, and the connect wizard
 
 > **WF-232 amendment status:** Runner enrollment, capability, coordination, and trust-protocol
-> details added by WF-232 are a prepared inactive candidate until reviewed #232 landing, tracker
-> closure, and the matching #228 parent-map pointer designate them current. Existing accepted
-> setup behavior remains current; these staged additions do not activate early.
+> details landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`; #232 is closed, and map #228
+> designates its protocol current planning input for #233, #235, and #237 until #237 consumes and
+> freezes it. This is target-contract authority, not implemented setup behavior.
 
 > **Dev Board execution setup amendment (2026-07-15):** The target Admin setup also enrolls the local execution environment used by Dev Board. It covers a GitHub App health/webhook/outbox panel; an enrolled local machine; an explicit **Codex Desktop / Codex CLI / Claude Code** selector; runner lease, heartbeat, disconnect, reconcile, and resume state; the user's local Docker stack and expiring preview tunnel; reviewer tool and model selection; and the Slack Personal Assistant. These are target requirements, not claims about the current implementation. Today's Connections flow remains a legacy OAuth/manual projection until migrated under PRD-019, ADR-017, and `docs/plan/dev-board-migration-manifest.md`.
 

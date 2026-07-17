@@ -9,9 +9,9 @@ WF-231-added GitHub vocabulary belongs to the landed and closed mirror contract 
 current planning input until #237 consumes and freezes it; this status does not claim
 implementation.
 
-WF-232-added Runner vocabulary is a prepared inactive amendment until reviewed #232 landing, tracker
-closure, and the matching #228 parent-map pointer designate it current. Its presence here does not
-activate the candidate protocol or claim implementation.
+WF-232-added Runner vocabulary belongs to the landed and closed protocol at
+`4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`. Map #228 designates it current planning input for #233,
+#235, and #237 until #237 consumes and freezes it; this status does not claim implementation.
 
 | Term                                       | Means                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Not to be confused with                                                                                                                                                                                            |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

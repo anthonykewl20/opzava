@@ -6,10 +6,9 @@
 > target-contract authority, not a claim that product behavior is implemented.
 
 > **WF-232 amendment status:** Runner enrollment, capability, command, fact, containment, and
-> coordination details added by WF-232 are a prepared inactive candidate until reviewed #232
-> landing, tracker closure, and the matching #228 parent-map pointer designate them current.
-> Existing accepted Dev Board behavior remains current; these staged additions do not activate
-> early.
+> coordination details landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`; #232 is closed, and map
+> #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes
+> and freezes it. This is target-contract authority, not implemented Dev Board behavior.
 
 ## Problem Statement
 

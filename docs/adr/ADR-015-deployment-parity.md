@@ -14,9 +14,10 @@ registry, and the sealed Release Manifest makes staging and production deploy th
 without rebuild. Local development may still use Compose `build:` directives, but local images are
 never release artifacts.
 
-The WF-232 Runner-ingress amendment in this document is a **prepared inactive candidate** until
-reviewed landing, tracker closure, and the matching parent-map #228 pointer. The previously accepted
-ADR remains current; staging this amendment does not activate it early.
+The WF-232 Runner-ingress amendment landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`; #232 is
+closed, and map #228 designates its protocol current planning input for #233, #235, and #237 until
+#237 consumes and freezes it. This activates target architecture only; the Runner ingress remains
+unimplemented.
 
 Opzava will use one canonical `docker-compose.yml` with Compose profiles as the source of truth for
 both local development and live Dokploy deployment. Local runs the same stack with its own Traefik,
@@ -108,7 +109,7 @@ not create a second public listener or expose an inbound laptop, SSH, Docker-soc
 OpenClaw Gateway port. Browser, Runner, and OpenClaw-operator traffic must not reuse authentication
 credentials, authorization middleware, or message schemas merely because Traefik terminates them on
 one public listener. Local and Dokploy parity tests must exercise the same Runner routing and TLS
-boundary. The proposed trust and frame contract is prepared in
+boundary. The target trust and frame contract is defined in
 [`wf232-runner-control-protocol.md`](../plan/research/wf232-runner-control-protocol.md).
 
 ### Deferred multi-tenant Gateway decision

@@ -5,10 +5,10 @@
 · map [#228](https://github.com/anthonykewl20/opzava/issues/228)<br> **Date:** 2026-07-16<br>
 **Status:** resolved design input; no product code or production schema is implemented by this memo
 
-> **WF-232 compatibility amendment:** The Process Registration → Enforcer arm → typed grant-
-> activation → start ordering below is a prepared inactive correction until reviewed #232 landing,
-> tracker closure, and the matching #228 pointer designate it current. WF-230's existing accepted
-> aggregate authority remains current meanwhile.
+> **Landed WF-232 compatibility amendment:** The Process Registration → Enforcer arm → typed grant-
+> activation → start ordering below landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd` with closed
+> #232. Map #228 designates the protocol current planning input for #233, #235, and #237 until #237
+> consumes and freezes it. This amendment remains target-contract authority, not implementation.
 
 ## Decision summary
 

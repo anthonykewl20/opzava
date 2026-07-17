@@ -6,12 +6,11 @@ is closed, and the parent map plus migration manifest designate this memo curren
 until #237 consumes and freezes it. This is target-contract authority, not implementation authority
 or product code.
 
-> **Prepared, inactive WF-232 compatibility amendment:** the artifact-ingress/reference-only handoff
-> additions in this memo are not part of the landed WF-231 contract at the SHA above and create no
-> implementation authority yet. They activate only after WF-232 is reviewed, landed, closed, and
-> designated current input by #228; until then, the previously landed WF-231 authority remains
-> current. The complete amendment is recorded together below so activation cannot expose a partially
-> migrated raw-bundle path.
+> **Landed WF-232 compatibility amendment:** the artifact-ingress/reference-only handoff additions
+> landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd` with closed #232. Map #228 designates the
+> protocol current planning input for #233, #235, and #237 until #237 consumes and freezes it. The
+> additions create target-contract authority only, not implementation authority or product code;
+> WF-231 remains current under its own landed status above.
 
 ## Decision summary
 

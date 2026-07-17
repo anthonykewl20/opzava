@@ -9,9 +9,10 @@ The WF-231 GitHub mirror amendment landed at `1db502d722ca33285148251a7660695868
 closed and the parent map plus migration manifest designate it current planning input until #237
 consumes and freezes it. This activates target architecture, not unbuilt product behavior.
 
-The WF-232 Runner trust-protocol amendment is likewise a **prepared inactive candidate** until
-reviewed landing, tracker closure, and the matching parent-map #228 pointer designate it current.
-The previously accepted ADR remains current; staging this amendment does not activate it early.
+The WF-232 Runner trust-protocol amendment landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`;
+#232 is closed, and map #228 designates its protocol current planning input for #233, #235, and #237
+until #237 consumes and freezes it. This activates target architecture only; the Runner protocol
+remains unimplemented.
 
 This ADR explicitly supersedes the following material **as active guidance for Opzava
 platform-development work**, while retaining it as historical evidence:
@@ -408,7 +409,7 @@ removes lease grants, and stops or quarantines the exact process containment set
 records a Reconciliation Observation and contains stale authority; continuation requires a new
 `ClaimAndStart`, lease, fence, nonce, and start receipt. An old lease is never resurrected. These
 rules, the enrollment/capability/tool matrix, signed frame contract, secret-grant boundary,
-Slack/Ask Admin/MCP provenance rules, and deterministic conformance suite are proposed in
+Slack/Ask Admin/MCP provenance rules, and deterministic conformance suite are defined in
 [`wf232-runner-control-protocol.md`](../plan/research/wf232-runner-control-protocol.md).
 
 Before spawn, Execution Admission must accept a pre-spawn Process Registration/containment

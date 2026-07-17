@@ -1,8 +1,11 @@
 # WF-232 vendor evidence appendix: local harness and coordination constraints
 
-> **Status:** Supporting vendor-evidence appendix for the prepared inactive
-> [WF-232 Runner protocol](wf232-runner-control-protocol.md). This appendix is neither an ADR nor an
-> implementation brief; the prepared candidate memo wins if an inference here conflicts with it.
+> **Status:** Supporting vendor-evidence appendix for the landed
+> [WF-232 Runner protocol](wf232-runner-control-protocol.md) at
+> `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`. This appendix is neither an ADR nor an implementation
+> brief; the protocol memo wins if an inference here conflicts with it. Map #228 designates the
+> protocol—not this appendix independently—current planning input until #237 consumes and freezes
+> it.
 >
 > **Evidence captured:** 2026-07-17 (Asia/Manila).
 >
@@ -22,10 +25,10 @@ DevTicket, activity history, worklog, or GitHub mirror?
 This memo deliberately separates three kinds of statement:
 
 - **Vendor fact** means the cited provider or pinned source documents the behavior.
-- **Opzava inference** means a proposed constraint derived from those facts. It is not a provider
-  promise and becomes authoritative only if the active Wayfinder synthesis adopts it.
-- **Evidence gap** means the available primary sources do not establish enough behavior to lock a
-  protocol.
+- **Opzava inference** means a constraint derived from those facts. It is not a provider promise or
+  independent authority; it is authoritative only where the landed protocol adopts it.
+- **Evidence gap** means the available primary sources do not establish enough behavior to make a
+  provider-backed claim; the landed protocol must defer or fail closed at that boundary.
 
 The current Opzava domain boundary remains the one in [PRD-019](../../prd/PRD-019-dev-board.md),
 [ADR-017](../../adr/ADR-017-dev-board-authority-sync-execution.md), and the current
@@ -650,9 +653,10 @@ PR. Opzava command authorization runs first; local tool/exec policy then narrows
   machine, controller build, adapter version, supported harness/auth state, repository/worktree
   reachability, local Docker state where required, and control-channel freshness.
 
-## 7. Evidence-backed provisional protocol constraints
+## 7. Evidence-backed protocol inferences
 
-The following are **Opzava inferences for #232 synthesis**, not vendor facts and not yet locked:
+The following are **supporting Opzava inferences behind the landed #232 protocol**, not vendor facts
+or independent implementation authority:
 
 ### 7.1 Identities that must remain separate
 
@@ -828,7 +832,7 @@ child-process adapter (`codex exec` or `claude -p`), applies a policy no wider t
 admission, emits authenticated ordered receipts, resolves only approved named-secret references
 locally, and pauses on loss without automatic failover. OpenClaw can coordinate and host compatible
 runtime adapters; GitHub and Slack remain verified, idempotent external transports; local Docker
-remains a privileged local Review capability. The prepared protocol candidate proposes the target
+remains a privileged local Review capability. The landed protocol defines the target
 command/signature/containment boundaries; preview transport details, provider terms, and real
 harness/transport conformance remain implementation evidence obligations rather than authority that
 can be inferred from vendor documentation.

@@ -7,7 +7,7 @@
 > existing Ask Admin design is not being redesigned here; old rail and surrounding shell details are
 > migration evidence only.
 
-> **WF-232 amendment status:** Runner/Dev Board command-provenance additions in this PRD are a prepared inactive candidate until reviewed #232 landing, tracker closure, and the matching parent-map #228 pointer designate them current. Existing accepted assistant behavior remains current; these staged additions do not activate early.
+> **WF-232 amendment status:** Runner/Dev Board command-provenance additions landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`; #232 is closed, and map #228 designates its protocol current planning input for #233, #235, and #237 until #237 consumes and freezes it. This is target-contract authority, not implemented assistant behavior.
 
 ## Problem
 

@@ -1,7 +1,8 @@
 # WF-232 — enrolled Runner and coordination trust protocol
 
-Status: **Prepared resolution candidate for Wayfinder #232; pending reviewed landing, tracker
-comment/closure, and parent-map pointer. Product code is not implemented.**
+Status: **Resolved and closed Wayfinder #232; landed at `4d88495700993e901b8c5bbb0e29bfcfbf6f5ccd`.
+Map #228 designates this memo current planning input for #233, #235, and #237 until #237 consumes
+and freezes it. Product code is not implemented.**
 
 Date: 2026-07-17
 
@@ -72,17 +73,18 @@ from silently becoming Opzava authority.
 
 The supporting [vendor-evidence appendix](wf232-runner-vendor-evidence.md) preserves the broader
 first-party research trace and explicit evidence gaps. It is evidence, not a second contract; this
-prepared candidate and its staged canonical projections win if an inference in that appendix
-differs. Neither is current input before the required landing/tracker/map sequence.
+landed protocol and its canonical projections win if an inference in that appendix differs. Map #228
+designates this protocol—not the appendix independently—current planning input until #237 consumes
+and freezes it.
 
-| Class                              | Meaning                                                                                                                                                                                        | Sources used here                                                                                             |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Locked Opzava target**           | Accepted product/architecture decision that this ticket consumes rather than reopens                                                                                                           | PRD-019; ADR-017; DBF-001–207; WF-230; migration manifest; parent map #228                                    |
-| **WF-232 candidate decision**      | New Runner seam decision synthesized here; acceptance authority is the Human Owner's recorded planning approval plus the root orchestrator's future reviewed #232 landing/tracker/map sequence | This memo, DBF-238–249, and the canonical amendments linked from the migration manifest                       |
-| **Current repository fact**        | Behavior present on `development` at `1db502d722ca33285148251a7660695868ad6a30`                                                                                                                | Exact paths in the as-built inventory below                                                                   |
-| **Current vendor fact**            | First-party documented or locally probed behavior as of 2026-07-17                                                                                                                             | Official links and installed-client probes below                                                              |
-| **Conditional Adapter capability** | Behavior Opzava may use only after a supported Adapter/version/mode probe proves it                                                                                                            | Tool capability matrix and effective-policy rules below                                                       |
-| **Deferred unknown**               | Not sufficiently stable or evidenced for v1 authority                                                                                                                                          | Hardware integrity attestation; generic desktop UI automation; multi-repository execution; automatic failover |
+| Class                              | Meaning                                                                                                                                                                   | Sources used here                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Locked Opzava target**           | Accepted product/architecture decision that this ticket consumes rather than reopens                                                                                      | PRD-019; ADR-017; DBF-001–207; WF-230; migration manifest; parent map #228                                    |
+| **WF-232 landed decision**         | Runner seam decision accepted through Human Owner approval and the reviewed #232 landing/tracker/map sequence; still target-contract rather than implementation authority | This memo, DBF-238–249, and the canonical amendments linked from the migration manifest                       |
+| **Current repository fact**        | Behavior present on `development` at `1db502d722ca33285148251a7660695868ad6a30`                                                                                           | Exact paths in the as-built inventory below                                                                   |
+| **Current vendor fact**            | First-party documented or locally probed behavior as of 2026-07-17                                                                                                        | Official links and installed-client probes below                                                              |
+| **Conditional Adapter capability** | Behavior Opzava may use only after a supported Adapter/version/mode probe proves it                                                                                       | Tool capability matrix and effective-policy rules below                                                       |
+| **Deferred unknown**               | Not sufficiently stable or evidenced for v1 authority                                                                                                                     | Hardware integrity attestation; generic desktop UI automation; multi-repository execution; automatic failover |
 
 ### Locked inputs
 
@@ -3338,9 +3340,8 @@ The same reviewed change promotes only the minimum durable contract:
   one-public-ingress wording in ADR-015;
 - it adds a concise invariant/pointer amendment to ADR-017, PRD-019, PRD-013, PRD-005, and the
   foundation ledger rather than copying the full wire protocol;
-- it prepares this memo for explicit **current input** designation in the migration manifest only
-  after reviewed landing, tracker comment/closure, and the matching parent-map pointer; that pointer
-  must remain until #237 consumes it;
+- it records this memo's explicit **current input** designation in map #228 and the migration
+  manifest for #233, #235, and #237 until #237 consumes and freezes it;
 - it adds the official vendor/RFC sources to `docs/plan/official-docs.md` for implementation
   revalidation;
 - it synchronizes only stale status markers for already-landed/closed WF-236 so the active map and
@@ -3348,14 +3349,14 @@ The same reviewed change promotes only the minimum durable contract:
   amends the Release contract and creates no #236 implementation authority;
 - it preserves frozen EXECUTION/grilling/consensus records and quarantined issue bodies.
 
-## Prepared resolution
+## Resolution
 
-This candidate resolves Wayfinder #232 with an outbound, separately authenticated Runner role on
-Opzava's single public broker WSS ingress; secure key-possession enrollment; versioned software
-compatibility evidence; durable typed command delivery; domain-separated signed ordered receipts;
-independently supervised Lease Enforcer, worktree/process/grant containment; fresh-claim-only
-recovery; and provenance-only Slack, Ask Admin, MCP, and OpenClaw adapters. Execution Admission
-remains the sole owner of DevTicket authority.
+This landed planning contract resolves Wayfinder #232 with an outbound, separately authenticated
+Runner role on Opzava's single public broker WSS ingress; secure key-possession enrollment;
+versioned software compatibility evidence; durable typed command delivery; domain-separated signed
+ordered receipts; independently supervised Lease Enforcer, worktree/process/grant containment;
+fresh-claim-only recovery; and provenance-only Slack, Ask Admin, MCP, and OpenClaw adapters.
+Execution Admission remains the sole owner of DevTicket authority.
 
 The protocol is deliberately transport- and harness-agnostic but not vague: Codex Desktop, Codex
 CLI, Claude Code, local machines, and cloud services satisfy one exact conformance contract through
