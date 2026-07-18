@@ -1,8 +1,15 @@
 # ADR-018: web→broker principal trust
 
-Status: Proposed
+Status: Accepted
 
-> Decision brief for GitHub issue #194. This ADR is **Proposed**, not Accepted: it records the evidence and a recommendation so the owner can decide. The recommendation departs from all three options the issue lists, for reasons the evidence below makes plain. Nothing is implemented against it yet.
+> **Decision (accepted 2026-07-18 by the owner, implemented in #194).** Take **Option 0 now** and **Option 3 before the fleet exists**, as recommended below.
+> - **Option 0 — implemented in #194.** The acting-principal carried web→broker is narrowed to **`tenantId` alone** — the only field the broker verifies (against its pinned tenant, twice). `orgId`, `workspaceId`, `userId`, and `roleKeys` are deleted from `OpenClawActingPrincipal`, `AssertedPrincipalBlock`, the wire body, and the sole caller. **`sessionId` is also dropped**, not kept-and-disclaimed: the Consequences below note that keeping it merely moves the trap, and the brief's own fallback — "drop `sessionId` too and correlate on `turnId`, which is Opzava-generated and needs no trust" — is the path taken. Both independent reviewers of the implementation flagged a kept-but-unread `sessionId` as a latent trap (a future consumer could read the already-present ingress field with no schema change), so the boundary now carries exactly one field, the verified one. Nothing narrowed-away is transmitted, so it cannot be forged, and a future consumer must add the field back — which forces the verification question at that moment. Correlation of a turn uses `turnId`.
+> - **Option 3 — deferred to the ADR-002 per-tenant provisioning path**, which is itself deferred (there is one broker and one `BROKER_INTERNAL_TOKEN` today, so no fleet exists yet). Per-tenant token scoping must be minted/rotated/revoked with the instance and belongs in that path; it is the only measure that addresses the shared-token fleet trigger and must be settled before the fleet is built.
+> - **Option 2 — deferred** to the first genuine consumer of user identity at the broker; it is the designated answer then and needs no new data dependency.
+> - **Option 1 — rejected** on blast-radius grounds (it would give the broker a live credential to the data of record).
+> - **ADR-003 disposition — conform, not amend the intent.** The accepted derive-never-accept mandate is retained as the target mechanism for the multi-tenant/dynamic-provisioning future; under today's pure-per-tenant (one-static-Gateway-per-tenant) topology, config-pinned single-tenant routing is recorded as the accepted realization of that invariant. A conformance note to that effect is added to ADR-003.
+>
+> The original decision brief is preserved verbatim below as the evidence of record.
 
 The `gateway-broker` authenticates the caller's service token and then reads the acting principal from the request body, shape-checking it and nothing more. This ADR proposes to **remove the four principal fields nothing reads** rather than verify them, and records that the current implementation deviates from ADR-003's already-accepted routing mandate.
 

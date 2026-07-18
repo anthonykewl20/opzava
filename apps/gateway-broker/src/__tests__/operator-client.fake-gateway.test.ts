@@ -6,13 +6,7 @@ import type {
   StartAssistantStreamReceipt,
   ToolInventorySnapshot,
 } from "@opzava/ports";
-import {
-  makeOrgId,
-  makeTenantId,
-  makeUserId,
-  makeWorkspaceId,
-  type Result,
-} from "@opzava/shared-kernel";
+import { makeTenantId, type Result } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -38,9 +32,6 @@ import { StaticGatewayRoutingTable } from "../routing/routes.js";
 
 const routeId = "platform-openclaw" as OpenClawGatewayRouteId;
 const tenantId = makeTenantId("tenant-platform");
-const orgId = makeOrgId("org-platform");
-const workspaceId = makeWorkspaceId("workspace-admin");
-const userId = makeUserId("user-admin");
 const pairedDeviceToken = "paired-device-token";
 
 const managers: GatewayConnectionManager[] = [];
@@ -165,10 +156,6 @@ function startInput(idempotencyKey = `idem-${randomUUID()}`): StartAssistantStre
     idempotencyKey,
     actingPrincipal: {
       tenantId,
-      orgId,
-      workspaceId,
-      userId,
-      roleKeys: ["admin"],
     },
   };
 }

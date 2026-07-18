@@ -10,16 +10,19 @@ import type {
   OpenClawToolCallId,
   StartAssistantStreamInput,
 } from "@opzava/ports";
-import type { OrgId, TenantId, UserId, WorkspaceId } from "@opzava/shared-kernel";
+import type { TenantId } from "@opzava/shared-kernel";
 
 interface AssertedPrincipalBlock {
-  /** Correlation only; the broker does not verify this value against a session. */
-  readonly sessionId: string;
+  /**
+   * The only principal field crossing the web→broker boundary. It is checked
+   * against this broker's pinned tenant at route acquisition (connection-manager)
+   * and again at the broker-internal boundary (operator-client); a caller whose
+   * tenant does not match is rejected. No user/org/workspace/role identity is
+   * accepted here: the BFF owns the verified session and all user-level
+   * attribution. Correlate on the Opzava-generated `turnId`, never on a
+   * caller-supplied identifier.
+   */
   readonly tenantId: TenantId;
-  readonly orgId: OrgId;
-  readonly workspaceId: WorkspaceId;
-  readonly userId: UserId;
-  readonly roleKeys: readonly string[];
 }
 
 interface InternalAssistantStreamRequest {
@@ -93,15 +96,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stringArrayValue(value: unknown): readonly string[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const values = value.filter((entry): entry is string => typeof entry === "string");
-  return values.length === value.length ? values : null;
-}
-
 function sameToken(expected: string, candidate: string): boolean {
   const expectedHash = createHash("sha256").update(expected).digest();
   const candidateHash = createHash("sha256").update(candidate).digest();
@@ -144,40 +138,26 @@ async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Pro
 }
 
 /**
- * These claims are asserted by a holder of the trusted internal token. This
- * parser only checks their shape; it does not verify them against any session,
- * so that token holder can assert any tenant principal.
+ * Reads the single principal field the broker accepts: `tenantId`. It is asserted
+ * by a holder of the trusted internal token and is not proof of authority on its
+ * own — the broker verifies it by requiring it to equal this instance's pinned
+ * tenant (see the tenant checks in connection-manager and operator-client). Any
+ * other keys in the body (e.g. from an older web build) are ignored, so they can
+ * neither be consumed nor forwarded.
  */
 function parseAssertedPrincipal(value: unknown): AssertedPrincipalBlock | null {
   if (!isRecord(value)) {
     return null;
   }
 
-  const sessionId = stringValue(value["sessionId"]);
   const tenantId = stringValue(value["tenantId"]);
-  const orgId = stringValue(value["orgId"]);
-  const workspaceId = stringValue(value["workspaceId"]);
-  const userId = stringValue(value["userId"]);
-  const roleKeys = stringArrayValue(value["roleKeys"]);
 
-  if (
-    sessionId === null ||
-    tenantId === null ||
-    orgId === null ||
-    workspaceId === null ||
-    userId === null ||
-    roleKeys === null
-  ) {
+  if (tenantId === null) {
     return null;
   }
 
   return {
-    sessionId,
     tenantId: tenantId as TenantId,
-    orgId: orgId as OrgId,
-    workspaceId: workspaceId as WorkspaceId,
-    userId: userId as UserId,
-    roleKeys,
   };
 }
 
@@ -240,10 +220,6 @@ function toActingPrincipal(
 ): StartAssistantStreamInput["actingPrincipal"] {
   return {
     tenantId: input.principal.tenantId,
-    orgId: input.principal.orgId,
-    workspaceId: input.principal.workspaceId,
-    userId: input.principal.userId,
-    roleKeys: input.principal.roleKeys,
   };
 }
 
@@ -356,9 +332,14 @@ async function handleAssistantStream(
     return;
   }
 
-  // The internal token authenticates its holder, not the principal claims in
-  // this body. The holder can assert any tenant; binding the asserted principal
-  // to the route prevents accidental omission, not impersonation by that holder.
+  // The internal token authenticates its holder, not the body. The only
+  // principal field accepted is `tenantId`; binding it to the route rejects a
+  // misroute to a foreign tenant (defence in depth — #199 caught a real one).
+  // It is not impersonation defence: a holder of the internal token can act for
+  // the tenant this broker fronts, and that is the accepted, inherent trust in
+  // the BFF — nothing here defends against it. ADR-018 Option 3 (per-tenant
+  // scoped tokens, deferred to the ADR-002 provisioning path) only limits the
+  // fleet-wide blast radius of a *stolen* token; it does not change this trust.
   response.writeHead(200, {
     "cache-control": "no-store, no-transform",
     connection: "keep-alive",

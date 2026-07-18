@@ -254,9 +254,6 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
       turnId: "assistant-turn-1",
       actingPrincipal: {
         tenantId: "org-1",
-        orgId: "org-1",
-        workspaceId: "workspace-1",
-        userId: "user-1",
       },
     });
     expect(finalizeCalls).toBe(1);

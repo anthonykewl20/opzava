@@ -1,5 +1,5 @@
 import type { OpenClawGatewayRouteId, StartAssistantStreamInput } from "@opzava/ports";
-import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
+import { makeTenantId } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -94,10 +94,6 @@ function startInput(input: {
     idempotencyKey: `idem-${randomUUID()}`,
     actingPrincipal: {
       tenantId: makeTenantId(input.tenantId),
-      orgId: makeOrgId(`org-${input.tenantId}`),
-      workspaceId: makeWorkspaceId(`workspace-${input.tenantId}`),
-      userId: makeUserId(`user-${input.tenantId}`),
-      roleKeys: ["admin"],
     },
   };
 }

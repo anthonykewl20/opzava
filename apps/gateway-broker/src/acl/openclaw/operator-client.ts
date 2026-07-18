@@ -341,8 +341,14 @@ export class OpenClawOperatorClient {
     input: StartAssistantStreamInput,
   ): Promise<Result<StartAssistantStreamReceipt>> {
     // Route handles perform the primary check at acquisition. Repeating it at
-    // this broker-internal boundary catches an accidental bypass or refactor;
-    // it cannot stop an internal-token holder from asserting another principal.
+    // this broker-internal boundary catches an accidental bypass or refactor.
+    // The acting principal is now `tenantId` alone, so a foreign tenant is
+    // rejected here. What no check here defends against is a holder of the
+    // internal token acting for the tenant this broker fronts — that trust in
+    // the BFF is inherent and accepted (a compromised BFF already holds the DB
+    // and session store). ADR-018 Option 3 (per-tenant scoped tokens) is a
+    // separate, deferred control that only limits the fleet-wide blast radius
+    // of a *stolen* token; it does not change this single-tenant trust.
     if (input.actingPrincipal.tenantId !== this.route.tenantId) {
       // The browser denial is deliberately opaque; both ids keep stale OPENCLAW_GATEWAY_TENANT_ID
       // versus seeded-org drift diagnosable in logs.

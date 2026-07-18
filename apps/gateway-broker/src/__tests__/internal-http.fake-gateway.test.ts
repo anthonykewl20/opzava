@@ -2,7 +2,7 @@ import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 
 import type { OpenClawGatewayRouteId } from "@opzava/ports";
-import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
+import { makeTenantId } from "@opzava/shared-kernel";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FakeOpenClawGateway, type FakeGatewayMode } from "../acl/openclaw/fake-gateway.js";
@@ -13,9 +13,6 @@ import { StaticGatewayRoutingTable } from "../routing/routes.js";
 
 const routeId = "platform-openclaw" as OpenClawGatewayRouteId;
 const tenantId = makeTenantId("tenant-platform");
-const orgId = makeOrgId("org-platform");
-const workspaceId = makeWorkspaceId("workspace-admin");
-const userId = makeUserId("user-admin");
 const pairedDeviceToken = "paired-device-token";
 
 const managers: GatewayConnectionManager[] = [];
@@ -83,12 +80,7 @@ function requestBody(idempotencyKey = `idem-${randomUUID()}`) {
     prompt: "Create a task",
     idempotencyKey,
     principal: {
-      sessionId: "session-1",
       tenantId,
-      orgId,
-      workspaceId,
-      userId,
-      roleKeys: ["admin"],
     },
   };
 }
@@ -230,6 +222,48 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       expect(response.status).toBe(200);
       expect(responseBody).toContain("gatewayBroker.tenantMismatch");
       expect(gateway.connectionCount).toBe(0);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("ignores legacy identity keys in the principal block and streams on tenantId alone", async () => {
+    // Deploy-order / backward-compat guard: an older web build still sends
+    // sessionId/orgId/workspaceId/userId/roleKeys. The narrowed parser must
+    // accept the request on tenantId alone and silently ignore the extras — it
+    // must never consume or forward them (ADR-018 Option 0).
+    const { broker } = await createFixture();
+    const internalToken = randomUUID();
+    const server = createBrokerInternalHttpServer({
+      gatewayPort: broker,
+      internalToken,
+    });
+    const baseUrl = await listen(server);
+
+    const legacyBody = {
+      ...requestBody("legacy-extra-keys-idempotency"),
+      principal: {
+        tenantId,
+        sessionId: "legacy-session",
+        orgId: "attacker-org",
+        workspaceId: "attacker-workspace",
+        userId: "attacker-user",
+        roleKeys: ["superadmin"],
+      },
+    };
+
+    try {
+      const response = await fetch(`${baseUrl}/internal/assistant/stream`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${internalToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(legacyBody),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(readSseTypes(response)).resolves.toContain("assistant.final");
     } finally {
       await closeServer(server);
     }

@@ -1,4 +1,4 @@
-import type { OrgId, TenantId, UserId, WorkspaceId } from "@opzava/shared-kernel";
+import type { TenantId } from "@opzava/shared-kernel";
 import type { OpaqueExternalRef, Result } from "@opzava/shared-kernel";
 
 export type OpenClawGatewayRouteId = string & {
@@ -69,10 +69,6 @@ export type OpenClawStreamEvent =
 
 export interface OpenClawActingPrincipal {
   readonly tenantId: TenantId;
-  readonly orgId: OrgId;
-  readonly workspaceId: WorkspaceId;
-  readonly userId: UserId;
-  readonly roleKeys: readonly string[];
 }
 
 export interface StartAssistantStreamInput {
@@ -123,11 +119,14 @@ export interface OpenClawGatewayRoute {
 
 export interface OpenClawGatewayPort {
   /**
-   * The only tenant-scoped Gateway acquisition path. Binding the route to a
-   * principal here prevents accidental omission of that check from current or
-   * future handle methods. This is not impersonation defence: a holder of the
-   * shared internal token can assert any tenant principal because those claims
-   * are not verified against a session.
+   * The only tenant-scoped Gateway acquisition path. The acting principal
+   * carries a single field, `tenantId`; binding the route to it prevents
+   * accidental omission of the tenant check from current or future handle
+   * methods. This is not impersonation defence: a holder of the internal token
+   * can act for the tenant it fronts — the accepted, inherent trust in the BFF.
+   * (ADR-018 Option 3, per-tenant scoped tokens, is a separate deferred control
+   * that only bounds the fleet-wide blast radius of a stolen token.) No user/org/
+   * workspace/role identity crosses this boundary — the BFF owns the verified session.
    */
   forPrincipal(input: {
     readonly routeId: OpenClawGatewayRouteId;

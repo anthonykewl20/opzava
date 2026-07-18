@@ -15,7 +15,6 @@ import { DomainError, err, makeOpaqueExternalRef, ok, type Result } from "@opzav
 interface BrokerGatewayConfig {
   readonly baseUrl: string;
   readonly internalToken: string;
-  readonly principalSessionId: string;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -273,12 +272,7 @@ export function createBrokerOpenClawGatewayPort(config: BrokerGatewayConfig): Op
                 prompt: input.prompt,
                 idempotencyKey: input.idempotencyKey,
                 principal: {
-                  sessionId: config.principalSessionId,
                   tenantId: binding.actingPrincipal.tenantId,
-                  orgId: binding.actingPrincipal.orgId,
-                  workspaceId: binding.actingPrincipal.workspaceId,
-                  userId: binding.actingPrincipal.userId,
-                  roleKeys: binding.actingPrincipal.roleKeys,
                 },
                 ...(input.sessionRef === undefined ? {} : { sessionRef: input.sessionRef }),
               }),

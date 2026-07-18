@@ -77,7 +77,6 @@ function defaultDependencies(): AskAdminTurnPostDependencies {
       return createBrokerOpenClawGatewayPort({
         baseUrl: brokerEnv.BROKER_INTERNAL_URL,
         internalToken: brokerEnv.BROKER_INTERNAL_TOKEN,
-        principalSessionId: context.sessionId,
       });
     },
     runtime: runtimeControlServices,
@@ -265,10 +264,6 @@ function streamInput(
 function actingPrincipal(context: AppSessionContext): StartAssistantStreamInput["actingPrincipal"] {
   return {
     tenantId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["tenantId"],
-    orgId: context.orgId as StartAssistantStreamInput["actingPrincipal"]["orgId"],
-    workspaceId: context.workspaceId as StartAssistantStreamInput["actingPrincipal"]["workspaceId"],
-    userId: context.user.id as StartAssistantStreamInput["actingPrincipal"]["userId"],
-    roleKeys: context.roleKeys,
   };
 }
 
