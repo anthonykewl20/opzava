@@ -414,12 +414,53 @@ describe("slice 2.5b Opzava MCP server", () => {
         }),
       );
       expect(
-        (retriedQuality["result"] as { qualityReview: { checks: { id: string }[] } })
-          .qualityReview.checks[0]?.id,
+        (retriedQuality["result"] as { qualityReview: { checks: { id: string }[] } }).qualityReview
+          .checks[0]?.id,
       ).toBe(
-        (firstQuality["result"] as { qualityReview: { checks: { id: string }[] } })
-          .qualityReview.checks[0]?.id,
+        (firstQuality["result"] as { qualityReview: { checks: { id: string }[] } }).qualityReview
+          .checks[0]?.id,
       );
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("rejects Done through MCP create and update without mutating task state", async () => {
+    const tenant = await adminCreateTenant("done-rejected");
+    const token = await issueToken(tenant, ["tasks:read", "tasks:write"]);
+    const connection = await connectMcp(token);
+
+    try {
+      const created = await connection.client.callTool({
+        name: "opzava_tasks_create",
+        arguments: { title: "Existing MCP task", status: "todo" },
+      });
+      const createdPayload = parseToolPayload(created);
+      const taskId = (createdPayload["result"] as { task: { id: string } }).task.id;
+
+      const rejectedCreate = await connection.client.callTool({
+        name: "opzava_tasks_create",
+        arguments: { title: "MCP must not create Done", status: "done" },
+      });
+      expect(rejectedCreate).toMatchObject({ isError: true });
+
+      const rejectedUpdate = await connection.client.callTool({
+        name: "opzava_tasks_update",
+        arguments: { taskId, status: "done" },
+      });
+      expect(rejectedUpdate).toMatchObject({ isError: true });
+
+      const rows = await withTenant(tenant.organizationId, async (tx) =>
+        tx.execute(sql`
+          select id, title, status
+          from public.tasks
+          where workspace_id = ${tenant.workspaceId}
+          order by title asc
+        `),
+      );
+      expect(rowsFromExecuteResult(rows)).toEqual([
+        { id: taskId, title: "Existing MCP task", status: "todo" },
+      ]);
     } finally {
       await connection.close();
     }

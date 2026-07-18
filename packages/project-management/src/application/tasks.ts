@@ -1,9 +1,4 @@
-import {
-  mapDatabaseError,
-  sql,
-  withTenant,
-  type TenantTransaction,
-} from "@opzava/adapters";
+import { mapDatabaseError, sql, withTenant, type TenantTransaction } from "@opzava/adapters";
 import type { AuthorizationPort, AuthorizationSubject } from "@opzava/ports";
 import {
   DomainError,
@@ -92,6 +87,10 @@ export interface HumanCommandAttestation {
   readonly confirmedByUserId: string;
   readonly confirmSource: "admin-web";
   readonly confirmNonce: string;
+}
+
+export interface IssueDoneConfirmationInput extends TaskApplicationContext {
+  readonly taskId: string;
 }
 
 export interface MarkTaskDoneInput extends TaskApplicationContext {
@@ -2543,7 +2542,13 @@ export async function addTaskEvidenceFile(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2635,7 +2640,13 @@ export async function addTaskEvidenceLink(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2669,7 +2680,13 @@ export async function listTaskEvidence(
       return ok(await selectEvidence(tx, input.taskId));
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2716,7 +2733,13 @@ export async function ensureTaskQualityReview(
         : ok(review);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2850,7 +2873,13 @@ export async function addQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 
@@ -2958,7 +2987,64 @@ export async function toggleQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
+  }
+}
+
+export async function issueDoneConfirmation(
+  input: IssueDoneConfirmationInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<string>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const result = await tx.execute(sql`
+        insert into public.task_done_confirmation (
+          task_id,
+          organization_id,
+          workspace_id,
+          issued_for_user_id,
+          expires_at
+        )
+        select
+          t.id,
+          t.organization_id,
+          t.workspace_id,
+          ${input.actor.userId},
+          now() + interval '5 minutes'
+        from public.tasks t
+        where t.id = ${input.taskId}
+          and t.workspace_id = ${input.workspaceId}
+        returning id
+      `);
+      const nonce = rowsFromExecuteResult(result)[0]?.["id"];
+      return typeof nonce === "string"
+        ? ok(nonce)
+        : err(taskError("projectManagement.taskNotFound", "Task was not found."));
+    });
+  } catch (error) {
+    return err(databaseError(error));
   }
 }
 
@@ -2998,7 +3084,11 @@ export async function markTaskDone(
   try {
     return await withTenant(input.orgId, async (tx) => {
       const review = await selectQualityReview(tx, input.taskId);
-      if (review === null || review.status !== "approved") {
+      if (
+        review === null ||
+        review.workspaceId !== input.workspaceId ||
+        review.status !== "approved"
+      ) {
         return err(taskDoneRequiresApprovedReview());
       }
 
@@ -3193,7 +3283,13 @@ export async function approveQualityReview(
         : ok(loaded);
     });
   } catch (error) {
-    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+    return err(
+      taskError(
+        "projectManagement.databaseError",
+        "Database operation failed.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 

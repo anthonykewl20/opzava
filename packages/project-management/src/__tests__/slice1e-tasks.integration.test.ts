@@ -23,6 +23,7 @@ import {
   ensureTaskQualityReview,
   getCardDetail,
   getTask,
+  issueDoneConfirmation,
   listTaskEvidence,
   listTasks,
   markTaskDone,
@@ -131,7 +132,7 @@ const denyingAuthorizationPort: AuthorizationPort = {
   },
 };
 
-async function issueDoneConfirmation(input: {
+async function insertDoneConfirmationFixture(input: {
   readonly tenant: TenantFixture;
   readonly taskId: string;
   readonly issuedForUserId?: string;
@@ -435,7 +436,7 @@ describe("slice 1e tasks", () => {
       throw task.error;
     }
     const reviewId = await approveTaskReview(tenant, task.value.id);
-    const nonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
     const command = {
       orgId: tenant.organizationId,
       workspaceId: tenant.workspaceId,
@@ -475,6 +476,70 @@ describe("slice 1e tasks", () => {
     });
   });
 
+  it("consumes one Done confirmation exactly once across concurrent commands", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-concurrent");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Admit one concurrent Done command",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+    await approveTaskReview(tenant, task.value.id);
+
+    const issued = await issueDoneConfirmation({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(issued.ok).toBe(true);
+    if (!issued.ok) {
+      throw issued.error;
+    }
+
+    const command = {
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 6,
+      humanCommand: {
+        confirmedByUserId: tenant.userId,
+        confirmSource: "admin-web" as const,
+        confirmNonce: issued.value,
+      },
+    };
+    const results = await Promise.all([markTaskDone(command), markTaskDone(command)]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toHaveLength(1);
+    expect(results.find((result) => result.ok)).toMatchObject({
+      ok: true,
+      value: { status: "done", position: 6 },
+    });
+    expect(results.find((result) => !result.ok)).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+
+    const state = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select
+          t.status,
+          count(c.id) filter (where c.consumed_at is not null)::int as "consumedCount"
+        from public.tasks t
+        left join public.task_done_confirmation c on c.task_id = t.id
+        where t.id = ${task.value.id}
+        group by t.status
+      `),
+    );
+    expect(rowsFromExecuteResult(state)).toEqual([{ status: "done", consumedCount: 1 }]);
+  });
+
   it("rejects Done without an approved review before consuming the confirmation", async () => {
     const tenant = await adminCreateTenant("done-review-required");
     const task = await createTask({
@@ -487,7 +552,7 @@ describe("slice 1e tasks", () => {
     if (!task.ok) {
       throw task.error;
     }
-    const nonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
 
     const completed = await markTaskDone({
       orgId: tenant.organizationId,
@@ -540,18 +605,21 @@ describe("slice 1e tasks", () => {
     }
     await approveTaskReview(tenant, task.value.id);
 
-    const expiredNonce = await issueDoneConfirmation({
+    const expiredNonce = await insertDoneConfirmationFixture({
       tenant,
       taskId: task.value.id,
       issuedAt: new Date(Date.now() - 2 * 60_000),
       expiresAt: new Date(Date.now() - 60_000),
     });
-    const wrongUserNonce = await issueDoneConfirmation({
+    const wrongUserNonce = await insertDoneConfirmationFixture({
       tenant,
       taskId: task.value.id,
       issuedForUserId: otherTenant.userId,
     });
-    const wrongTaskNonce = await issueDoneConfirmation({ tenant, taskId: otherTask.value.id });
+    const wrongTaskNonce = await insertDoneConfirmationFixture({
+      tenant,
+      taskId: otherTask.value.id,
+    });
     const unknownNonce = randomUUID();
 
     for (const confirmNonce of [expiredNonce, wrongUserNonce, wrongTaskNonce, unknownNonce]) {
@@ -582,7 +650,7 @@ describe("slice 1e tasks", () => {
       humanCommand: {
         confirmedByUserId: otherTenant.userId,
         confirmSource: "admin-web",
-        confirmNonce: await issueDoneConfirmation({ tenant, taskId: task.value.id }),
+        confirmNonce: await insertDoneConfirmationFixture({ tenant, taskId: task.value.id }),
       },
     });
     expect(shapeMismatch).toMatchObject({
@@ -590,7 +658,7 @@ describe("slice 1e tasks", () => {
       error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
 
-    const validNonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+    const validNonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
     const unauthorized = await markTaskDone(
       {
         orgId: tenant.organizationId,
