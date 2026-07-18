@@ -168,11 +168,12 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${GATEWAY_BROKER_PORT:-19088}
       BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN:?BROKER_INTERNAL_TOKEN is required}
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
       OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
       OPENCLAW_GATEWAY_ROUTE_ID: ${OPENCLAW_GATEWAY_ROUTE_ID:-platform-openclaw}
-      # Internal single-tenant default for the seeded Anito org. Override in .env
-      # when the active Opzava org id changes; the broker still rejects caller
-      # tenant drift at runtime.
+      # Internal single-tenant default for the seeded Anito org. The broker
+      # verifies at boot that this resolves to the org in first_owner_setup and
+      # refuses to start (naming both ids) if it has drifted — see #199.
       OPENCLAW_GATEWAY_TENANT_ID: ${OPENCLAW_GATEWAY_TENANT_ID:-93b43f1a-1d25-406d-b52c-8b4fd3cde01d}
       OPENCLAW_DEV_SECRETS_FILE: ${COMPOSE_OPENCLAW_DEV_SECRETS_FILE:-/run/opzava-secrets/openclaw-secrets.json}
       OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID: ${OPENCLAW_DEVICE_TOKEN_VAULT_TENANT_ID:-platform}

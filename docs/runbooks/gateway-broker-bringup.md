@@ -38,6 +38,16 @@ node -e "const { generateKeyPairSync } = require('node:crypto'); const { private
 Use the seeded Anito org id above unless the active Opzava org changes. If it changes, set
 `OPENCLAW_GATEWAY_TENANT_ID` to the authenticated org id that the web session sends to the broker.
 
+The broker verifies at boot that `OPENCLAW_GATEWAY_TENANT_ID` resolves to the org recorded in
+`first_owner_setup` (it reads that singleton over the app-role `DATABASE_URL`, which compose
+supplies from `COMPOSE_DATABASE_URL`). If the env value has drifted from the seeded org — for
+example after a reseed created a new org id while `.env` kept the old one — the broker refuses to
+start and logs a fatal naming both ids (`configuredTenantId` vs `seededOrgId`), so the fix is one
+step: set `OPENCLAW_GATEWAY_TENANT_ID=<seededOrgId>` and recreate the container. If no org has been
+seeded yet, it fails with `gatewayBroker.tenantOrgUnresolved` until first-owner setup completes.
+This does not weaken the runtime #188 tenant cross-check, which still denies any caller whose
+principal tenant differs from the route.
+
 ## Start the compose stack
 
 ```bash

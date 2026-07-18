@@ -1,14 +1,21 @@
 export {
   GatewayConnectionManager,
-  type GatewayConnectionManagerOptions
+  type GatewayConnectionManagerOptions,
 } from "./routing/connection-manager.js";
 export {
   createBrokerInternalHttpServer,
-  type BrokerInternalHttpServerOptions
+  type BrokerInternalHttpServerOptions,
 } from "./internal/http-server.js";
 export {
   StaticGatewayRoutingTable,
   type GatewayAuthMode,
   type GatewayRouteConfig,
-  type GatewayRoutingTable
+  type GatewayRoutingTable,
 } from "./routing/routes.js";
+export {
+  createPostgresTenantOrgLookup,
+  readSeededOrgIdFromPostgres,
+  verifyGatewayBrokerTenantOrg,
+  type TenantOrgLookup,
+  type TenantOrgVerification,
+} from "./runtime/tenant-org-check.js";
