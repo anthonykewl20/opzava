@@ -1,0 +1,70 @@
+{
+  "agents": {
+    "defaults": {
+      "skills": []
+    },
+    "list": [
+      {
+        "id": "ask-admin-opzava",
+        "tools": {
+          "profile": "coding",
+          "allow": [
+            "read",
+            "web_search",
+            "web_fetch",
+            "memory_search",
+            "memory_get",
+            "session_status",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "subagents",
+            "opzava_tasks_list",
+            "opzava_tasks_get",
+            "opzava_tasks_create",
+            "opzava_tasks_update",
+            "opzava_tasks_comments_add",
+            "opzava_tasks_steps_create",
+            "opzava_tasks_steps_toggle",
+            "opzava_tasks_steps_reorder",
+            "opzava_tasks_quality_checks_add",
+            "opzava_tasks_due_set",
+            "opzava_tasks_watchers_set",
+            "opzava_github_state_read",
+            "opzava_connections_health_read"
+          ],
+          "deny": [
+            "write",
+            "edit",
+            "apply_patch",
+            "group:runtime",
+            "group:messaging",
+            "group:ui",
+            "group:automation",
+            "group:nodes",
+            "group:media",
+            "group:agents",
+            "x_search",
+            "gateway",
+            "cron",
+            "heartbeat_respond",
+            "skill_workshop",
+            "image",
+            "image_generate",
+            "music_generate",
+            "video_generate",
+            "tts",
+            "browser",
+            "canvas",
+            "message"
+          ],
+          "fs": {
+            "workspaceOnly": true
+          }
+        }
+      }
+    ]
+  }
+}
