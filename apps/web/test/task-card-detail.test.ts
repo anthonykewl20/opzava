@@ -55,7 +55,6 @@ import {
   type MentionTarget,
 } from "../lib/task-card-mentions";
 import type { AppSessionContext } from "../lib/session";
-import { attestHumanCommand } from "../lib/task-attestation";
 
 const context: AppSessionContext = {
   sessionId: "session-1",
@@ -171,7 +170,6 @@ function actionDependencies(
       ]),
     markCommentsRead: async () => ok([comment({ readByUserIds: ["user-1"] })]),
     issueDoneConfirmNonce: async () => ok("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-    attestHumanCommand,
     markTaskDone: async () => ok(task({ status: "done", position: 8 })),
     toggleStep: async () => ok(step({ done: true })),
     updateTask: async () => ok(task()),
@@ -668,24 +666,22 @@ describe("Task card load and actions", () => {
     });
   });
 
-  it("fails the card Done command when the human attestation is invalid", async () => {
+  it("fails the card Done command when no valid confirmation can be issued", async () => {
+    let markTaskDoneCalled = false;
     const result = await markTaskDoneForCard(
       { taskId: "11111111-1111-4111-8111-111111111111" },
       actionDependencies({
-        attestHumanCommand: (_context, nonce) => ({
-          confirmedByUserId: "assistant-forgery",
-          confirmSource: "admin-web",
-          confirmNonce: nonce,
-        }),
-        markTaskDone: async (input) =>
-          input.humanCommand.confirmedByUserId === context.user.id
-            ? ok(task({ status: "done" }))
-            : err(
-                new DomainError({
-                  code: "projectManagement.taskDoneRequiresHumanAttestation",
-                  message: "Marking a task Done requires the confirmed human Done action.",
-                }),
-              ),
+        issueDoneConfirmNonce: async () =>
+          err(
+            new DomainError({
+              code: "projectManagement.taskDoneRequiresHumanAttestation",
+              message: "Marking a task Done requires the confirmed human Done action.",
+            }),
+          ),
+        markTaskDone: async () => {
+          markTaskDoneCalled = true;
+          return ok(task({ status: "done" }));
+        },
       }),
     );
 
@@ -693,6 +689,7 @@ describe("Task card load and actions", () => {
       ok: false,
       error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
+    expect(markTaskDoneCalled).toBe(false);
   });
 
   it("preserves the current assignee when editing card details", async () => {

@@ -8,7 +8,6 @@ import type {
   EnsureTaskQualityReviewInput,
   IssueCloseOutboxDto,
   TaskEvidenceDto,
-  HumanCommandAttestation,
   TaskQualityReviewDto,
   TaskCommentDto,
   TaskDto,
@@ -182,10 +181,6 @@ export interface TaskCardActionDependencies {
   readonly markCommentsRead: typeof markCommentsRead;
   readonly markTaskDone: typeof markTaskDone;
   readonly issueDoneConfirmNonce: typeof issueDoneConfirmNonce;
-  readonly attestHumanCommand: (
-    context: AppSessionContext,
-    nonce: string,
-  ) => HumanCommandAttestation;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
   readonly addTaskEvidenceFile: typeof addTaskEvidenceFile;
@@ -218,7 +213,6 @@ export const defaultTaskCardActionDependencies: Omit<
   markCommentsRead,
   markTaskDone,
   issueDoneConfirmNonce,
-  attestHumanCommand,
   toggleStep,
   updateTask,
   addTaskEvidenceFile,
@@ -621,7 +615,7 @@ export async function markTaskDoneForCard(
     actor,
     taskId: input.taskId,
     position: nextDonePosition,
-    humanCommand: dependencies.attestHumanCommand(context.value, nonce.value),
+    humanCommand: attestHumanCommand(context.value, nonce.value),
   });
   if (!result.ok) {
     return err(result.error);
