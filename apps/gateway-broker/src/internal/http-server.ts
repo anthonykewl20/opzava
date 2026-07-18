@@ -4,10 +4,8 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type {
   OpenClawGatewayPort,
   OpenClawGatewayRouteId,
-  OpenClawRunRef,
   OpenClawSessionRef,
   OpenClawStreamEvent,
-  OpenClawToolCallId,
   StartAssistantStreamInput,
 } from "@opzava/ports";
 import type { TenantId } from "@opzava/shared-kernel";
@@ -35,50 +33,6 @@ interface InternalAssistantStreamRequest {
   readonly principal: AssertedPrincipalBlock;
   readonly sessionRef?: OpenClawSessionRef;
 }
-
-type InternalAssistantStreamEvent =
-  | {
-      readonly type: "queued";
-      readonly turnId: string;
-    }
-  | {
-      readonly type: "delta";
-      readonly turnId: string;
-      readonly deltaText: string;
-    }
-  | {
-      readonly type: "tool.started";
-      readonly turnId: string;
-      readonly toolCallId: OpenClawToolCallId;
-      readonly toolName: string;
-    }
-  | {
-      readonly type: "tool.call";
-      readonly turnId: string;
-      readonly toolCallId: OpenClawToolCallId;
-      readonly toolName: string;
-      readonly args: Readonly<Record<string, unknown>>;
-    }
-  | {
-      readonly type: "tool.succeeded";
-      readonly turnId: string;
-      readonly toolCallId: OpenClawToolCallId;
-      readonly toolName: string;
-      readonly output: Readonly<Record<string, unknown>>;
-    }
-  | {
-      readonly type: "assistant.final";
-      readonly turnId: string;
-      readonly content: Readonly<Record<string, unknown>>;
-      readonly sessionRef?: OpenClawSessionRef;
-      readonly runRef?: OpenClawRunRef;
-    }
-  | {
-      readonly type: "failed";
-      readonly turnId?: string;
-      readonly code: string;
-      readonly message: string;
-    };
 
 export interface BrokerInternalHttpServerOptions {
   readonly gatewayPort: OpenClawGatewayPort;
@@ -236,50 +190,12 @@ function toGatewayInput(
   };
 }
 
-function normalizeEvent(event: OpenClawStreamEvent): InternalAssistantStreamEvent | null {
-  if (
-    event.type === "queued" ||
-    event.type === "delta" ||
-    event.type === "tool.started" ||
-    event.type === "tool.call"
-  ) {
-    return event;
-  }
-
-  if (event.type === "tool.completed") {
-    return {
-      type: "tool.succeeded",
-      turnId: event.turnId,
-      toolCallId: event.toolCallId,
-      toolName: event.toolName,
-      output: event.output,
-    };
-  }
-
-  if (event.type === "final") {
-    return {
-      type: "assistant.final",
-      turnId: event.turnId,
-      content: event.content,
-      ...(event.sessionRef === undefined ? {} : { sessionRef: event.sessionRef }),
-      ...(event.runRef === undefined ? {} : { runRef: event.runRef }),
-    };
-  }
-
-  if (event.type === "failed") {
-    return {
-      type: "failed",
-      turnId: event.turnId,
-      code: event.code,
-      message: event.message,
-    };
-  }
-
-  if (event.type === "approval.requested") {
-    return null;
-  }
-
-  return null;
+function failedStreamEvent(turnId: string, error: unknown): OpenClawStreamEvent {
+  return {
+    type: "failed",
+    turnId,
+    ...sanitizedError(error),
+  };
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
@@ -287,7 +203,7 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
-function writeSse(response: ServerResponse, event: InternalAssistantStreamEvent): void {
+function writeSse(response: ServerResponse, event: OpenClawStreamEvent): void {
   response.write(`event: ${event.type}\n`);
   response.write(`data: ${JSON.stringify(event)}\n\n`);
 }
@@ -347,44 +263,37 @@ async function handleAssistantStream(
     "x-accel-buffering": "no",
   });
 
-  const route = await options.gatewayPort.forPrincipal({
-    routeId: parsed.routeId,
-    actingPrincipal: toActingPrincipal(parsed),
-  });
-  if (!route.ok) {
-    writeSse(response, {
-      type: "failed",
-      turnId: parsed.turnId,
-      ...sanitizedError(route.error),
-    });
-    response.end();
-    return;
-  }
-
-  const receipt = await route.value.startAssistantStream(toGatewayInput(parsed));
-  if (!receipt.ok) {
-    writeSse(response, {
-      type: "failed",
-      turnId: parsed.turnId,
-      ...sanitizedError(receipt.error),
-    });
-    response.end();
-    return;
-  }
-
+  // The SSE body speaks the canonical OpenClawStreamEvent vocabulary directly —
+  // the BFF parses it back into the same type. The previous `normalizeEvent`
+  // renamed `final`/`tool.completed` to `assistant.final`/`tool.succeeded` only
+  // for the BFF's `toPortEvent` to rename them straight back, a closed
+  // four-hop loop with no effect but three extra names to keep in sync (#165).
+  // `approval.requested` is still dropped here: the admin chat does not surface
+  // approvals over this stream, and the route handler ignores it anyway.
   try {
+    const route = await options.gatewayPort.forPrincipal({
+      routeId: parsed.routeId,
+      actingPrincipal: toActingPrincipal(parsed),
+    });
+    if (!route.ok) {
+      writeSse(response, failedStreamEvent(parsed.turnId, route.error));
+      return;
+    }
+
+    const receipt = await route.value.startAssistantStream(toGatewayInput(parsed));
+    if (!receipt.ok) {
+      writeSse(response, failedStreamEvent(parsed.turnId, receipt.error));
+      return;
+    }
+
     for await (const event of receipt.value.events) {
-      const normalized = normalizeEvent(event);
-      if (normalized !== null) {
-        writeSse(response, normalized);
+      if (event.type === "approval.requested") {
+        continue;
       }
+      writeSse(response, event);
     }
   } catch (error) {
-    writeSse(response, {
-      type: "failed",
-      turnId: parsed.turnId,
-      ...sanitizedError(error),
-    });
+    writeSse(response, failedStreamEvent(parsed.turnId, error));
   } finally {
     response.end();
   }
@@ -454,10 +363,9 @@ export function createBrokerInternalHttpServer(
         return;
       }
 
-      writeSse(response, {
-        type: "failed",
-        ...sanitizedError(error),
-      });
+      // handleAssistantStream owns its own try/catch, so reaching here with
+      // headers already sent is purely defensive. End the body; the client's
+      // drain synthesizes the interrupt failure for the truncated stream.
       response.end();
     });
   });

@@ -33,7 +33,7 @@ import {
   toggleTaskStepAction,
   updateTaskCardAction,
 } from "@/app/(app)/tasks/[cardId]/actions";
-import { parseAskAdminSseBuffer } from "@/lib/ask-admin-stream";
+import { drainAskAdminStream, type AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
 import type { TaskCardAssistantRunView } from "@/lib/task-card-ai-run-view";
 import {
   assistantActivityState,
@@ -772,34 +772,26 @@ export function TaskCardDetail({
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          break;
+      const onStreamEvent = (event: AskAdminClientStreamEvent) => {
+        if (event.type === "tool.started" || event.type === "tool.succeeded") {
+          setAssistantState("assistant_working");
+        } else if (event.type === "finalizing") {
+          setAssistantState("assistant_finalizing");
+        } else if (event.type === "assistant.final") {
+          setAssistantState("idle");
+          router.refresh();
+        } else if (event.type === "failed") {
+          setAssistantState("failed");
+        } else if (event.type === "delta" || event.type === "queued") {
+          setAssistantState("assistant_replying");
         }
+      };
 
-        buffer += decoder.decode(chunk.value, { stream: true });
-        const parsed = parseAskAdminSseBuffer(buffer);
-        buffer = parsed.remainder;
-        for (const event of parsed.events) {
-          if (event.type === "tool.started" || event.type === "tool.succeeded") {
-            setAssistantState("assistant_working");
-          } else if (event.type === "finalizing") {
-            setAssistantState("assistant_finalizing");
-          } else if (event.type === "assistant.final") {
-            setAssistantState("idle");
-            router.refresh();
-          } else if (event.type === "failed") {
-            setAssistantState("failed");
-          } else if (event.type === "delta" || event.type === "queued") {
-            setAssistantState("assistant_replying");
-          }
-        }
-      }
+      // drainAskAdminStream owns the parse/drain/flush loop and synthesizes the
+      // interrupt failure when the body ends without a terminal event, so this
+      // mention dispatch shares the same recovery rule as the chat surfaces
+      // instead of a hand-rolled partial copy (#165).
+      await drainAskAdminStream(response.body, { onEvent: onStreamEvent });
     } catch {
       setAssistantState("failed");
     }

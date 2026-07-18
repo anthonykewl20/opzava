@@ -5,7 +5,7 @@ import {
   type TaskCardAiRunProjection,
   type TaskCardAssistantRunView,
 } from "@/lib/task-card-ai-run-view";
-import { parseAskAdminSseBuffer } from "@/lib/ask-admin-stream";
+import { parseSseBuffer } from "@/lib/sse";
 
 export type TaskCardAssistantActivityState =
   "idle" | "assistant_replying" | "assistant_working" | "assistant_finalizing" | "failed";
@@ -153,10 +153,42 @@ export function encodeTaskCardActivitySse(event: TaskCardActivityEvent): Uint8Ar
   return new TextEncoder().encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
+const TASK_CARD_ACTIVITY_EVENT_TYPES = new Set<string>([
+  "comment-added",
+  "step-toggled",
+  "assistant-state",
+]);
+
+function parseTaskCardActivityEvent(data: string): TaskCardActivityEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const type = (parsed as { readonly type?: unknown }).type;
+  if (typeof type !== "string" || !TASK_CARD_ACTIVITY_EVENT_TYPES.has(type)) {
+    return null;
+  }
+
+  return parsed as TaskCardActivityEvent;
+}
+
 export function parseTaskCardActivitySseBuffer(buffer: string): TaskCardActivitySseParseResult {
-  const parsed = parseAskAdminSseBuffer(buffer);
-  return {
-    events: parsed.events as unknown as readonly TaskCardActivityEvent[],
-    remainder: parsed.remainder,
-  };
+  const { frames, remainder } = parseSseBuffer(buffer);
+  const events: TaskCardActivityEvent[] = [];
+
+  for (const frame of frames) {
+    const event = parseTaskCardActivityEvent(frame.data);
+    if (event !== null) {
+      events.push(event);
+    }
+  }
+
+  return { events, remainder };
 }

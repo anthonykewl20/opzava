@@ -44,10 +44,8 @@ import { Textarea } from "@/components/ui/textarea";
 import type { AskAdminTurnView } from "@/lib/ask-admin-history";
 import {
   applyAskAdminStreamEvent,
+  drainAskAdminStream,
   emptyAskAdminDraft,
-  interruptedAskAdminStreamEvent,
-  isAskAdminTerminalStreamEvent,
-  parseAskAdminSseBuffer,
   type AskAdminClientStreamEvent,
   type AskAdminDraft,
 } from "@/lib/ask-admin-stream";
@@ -679,44 +677,7 @@ export function AskOpzavaChat({
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let sawTerminal = false;
-      let streamDraft = emptyAskAdminDraft();
-
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          break;
-        }
-
-        buffer += decoder.decode(chunk.value, { stream: true });
-        const parsed = parseAskAdminSseBuffer(buffer);
-        buffer = parsed.remainder;
-        for (const streamEvent of parsed.events) {
-          streamDraft = applyAskAdminStreamEvent(streamDraft, streamEvent);
-          applyEvent(streamEvent);
-          sawTerminal = sawTerminal || isAskAdminTerminalStreamEvent(streamEvent);
-        }
-      }
-
-      buffer += decoder.decode();
-      const parsed = parseAskAdminSseBuffer(`${buffer}\n\n`);
-      for (const streamEvent of parsed.events) {
-        streamDraft = applyAskAdminStreamEvent(streamDraft, streamEvent);
-        applyEvent(streamEvent);
-        sawTerminal = sawTerminal || isAskAdminTerminalStreamEvent(streamEvent);
-      }
-
-      if (!sawTerminal) {
-        const interrupted = interruptedAskAdminStreamEvent(
-          streamDraft.status === "idle" ? { ...streamDraft, status: "working" } : streamDraft,
-        );
-        if (interrupted !== null) {
-          applyEvent(interrupted);
-        }
-      }
+      await drainAskAdminStream(response.body, { onEvent: applyEvent });
     } catch {
       applyEvent({
         type: "failed",

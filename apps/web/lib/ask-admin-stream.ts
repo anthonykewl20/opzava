@@ -1,3 +1,5 @@
+import { parseSseBuffer, readSseFrames } from "./sse";
+
 export type AskAdminStreamState =
   | "idle"
   | "queued"
@@ -240,30 +242,86 @@ export function interruptedAskAdminStreamEvent(
   };
 }
 
-function parseEventBlock(block: string): AskAdminClientStreamEvent | null {
-  const dataLine = block
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .find((line) => line.startsWith("data: "));
+const ASK_ADMIN_STREAM_EVENT_TYPES = new Set<string>([
+  "queued",
+  "delta",
+  "tool.started",
+  "tool.succeeded",
+  "tool.failed",
+  "finalizing",
+  "assistant.final",
+  "failed",
+]);
 
-  if (dataLine === undefined) {
-    return null;
-  }
-
+function parseAskAdminStreamEvent(data: string): AskAdminClientStreamEvent | null {
+  let parsed: unknown;
   try {
-    return JSON.parse(dataLine.slice("data: ".length)) as AskAdminClientStreamEvent;
+    parsed = JSON.parse(data);
   } catch {
     return null;
   }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const type = (parsed as { readonly type?: unknown }).type;
+  if (typeof type !== "string" || !ASK_ADMIN_STREAM_EVENT_TYPES.has(type)) {
+    return null;
+  }
+
+  return parsed as AskAdminClientStreamEvent;
 }
 
 export function parseAskAdminSseBuffer(buffer: string): AskAdminSseParseResult {
-  const parts = buffer.split("\n\n");
-  const remainder = parts.pop() ?? "";
-  const events = parts.flatMap((part) => {
-    const parsed = parseEventBlock(part);
-    return parsed === null ? [] : [parsed];
-  });
+  const { frames, remainder } = parseSseBuffer(buffer);
+  const events: AskAdminClientStreamEvent[] = [];
+
+  for (const frame of frames) {
+    const event = parseAskAdminStreamEvent(frame.data);
+    if (event !== null) {
+      events.push(event);
+    }
+  }
 
   return { events, remainder };
+}
+
+/**
+ * Drains a streamed Ask Admin response body end to end: parse, fold each event
+ * into a local draft, forward every event to the sink, and — if the body ends
+ * without a terminal event — synthesize the interrupt failure the browser used
+ * to rebuild three times (see #165).
+ *
+ * The sink owns React state and side effects (router refresh, tool receipts);
+ * this function owns only the byte stream and the recovery rule. A read failure
+ * mid-stream propagates so the caller can map it, exactly as the hand-rolled
+ * loops did.
+ */
+export async function drainAskAdminStream(
+  body: ReadableStream<Uint8Array>,
+  sink: { readonly onEvent: (event: AskAdminClientStreamEvent) => void },
+): Promise<void> {
+  let draft = emptyAskAdminDraft();
+  let sawTerminal = false;
+
+  for await (const frame of readSseFrames(body)) {
+    const event = parseAskAdminStreamEvent(frame.data);
+    if (event === null) {
+      continue;
+    }
+
+    draft = applyAskAdminStreamEvent(draft, event);
+    sawTerminal = sawTerminal || isAskAdminTerminalStreamEvent(event);
+    sink.onEvent(event);
+  }
+
+  if (!sawTerminal) {
+    const interrupted = interruptedAskAdminStreamEvent(
+      draft.status === "idle" ? { ...draft, status: "working" } : draft,
+    );
+    if (interrupted !== null) {
+      sink.onEvent(interrupted);
+    }
+  }
 }

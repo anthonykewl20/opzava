@@ -263,13 +263,13 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
       });
 
       expect(response.status).toBe(200);
-      await expect(readSseTypes(response)).resolves.toContain("assistant.final");
+      await expect(readSseTypes(response)).resolves.toContain("final");
     } finally {
       await closeServer(server);
     }
   });
 
-  it("streams normalized events through the authenticated internal endpoint", async () => {
+  it("streams canonical OpenClaw stream events through the authenticated internal endpoint", async () => {
     const { broker } = await createFixture();
     const internalToken = randomUUID();
     const server = createBrokerInternalHttpServer({
@@ -294,7 +294,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
         "queued",
         "delta",
         "delta",
-        "assistant.final",
+        "final",
       ]);
     } finally {
       await closeServer(server);
@@ -326,7 +326,7 @@ describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => 
         "delta",
         "tool.call",
         "delta",
-        "assistant.final",
+        "final",
       ]);
     } finally {
       await closeServer(server);

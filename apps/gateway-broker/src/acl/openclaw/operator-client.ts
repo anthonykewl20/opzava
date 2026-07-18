@@ -21,7 +21,7 @@ import WebSocket from "ws";
 
 import { AsyncQueue } from "../../rpc/async-queue.js";
 import type { GatewayRouteConfig } from "../../routing/routes.js";
-import { gatewayBrokerError, sanitizeGatewayError } from "./errors.js";
+import { gatewayBrokerError, isTransientGatewayError, sanitizeGatewayError } from "./errors.js";
 import type { BrokerLogger } from "./logger.js";
 import { silentBrokerLogger } from "./logger.js";
 import {
@@ -244,6 +244,10 @@ export class OpenClawOperatorClient {
   private policy: HelloPolicy = defaultPolicy;
   private connected = false;
   private circuitOpenReason: string | undefined;
+  private shutdown = false;
+  private reconnectInFlight: Promise<Result<void>> | undefined;
+  private lastSnapshot: Readonly<Record<string, unknown>> | undefined;
+  private lastSnapshotAt: Date | undefined;
 
   public constructor(options: OpenClawOperatorClientOptions) {
     this.route = options.route;
@@ -265,7 +269,24 @@ export class OpenClawOperatorClient {
     return this.activeStreams.size;
   }
 
+  /**
+   * The hello-ok snapshot the Gateway sends on (re)connect — the "re-snapshot"
+   * half of "reconnect = re-snapshot" (CONTEXT.md). It is re-acquired on every
+   * successful connect/reconnect, giving the recovery rule a concrete artifact
+   * and a home in the broker instead of the browser (#165).
+   */
+  public get snapshot(): Readonly<Record<string, unknown>> | undefined {
+    return this.lastSnapshot;
+  }
+
+  public get snapshotAcquiredAt(): Date | undefined {
+    return this.lastSnapshotAt;
+  }
+
   public disconnect(): void {
+    // Marks an intentional shutdown (idle eviction or disconnectAll) so an
+    // unexpected-close handler does not kick a background reconnect.
+    this.shutdown = true;
     this.connected = false;
     this.createdSessionKeys.clear();
     this.rejectPending(
@@ -302,10 +323,26 @@ export class OpenClawOperatorClient {
       return ok(undefined);
     }
 
+    // Coalesce concurrent reconnect attempts (a new stream racing the background
+    // reconnect-after-death) onto a single connect loop so we never open two
+    // sockets for one route.
+    if (this.reconnectInFlight !== undefined) {
+      return this.reconnectInFlight;
+    }
+
+    const attempt = (this.reconnectInFlight = this.connectWithinBudget());
+    try {
+      return await attempt;
+    } finally {
+      this.reconnectInFlight = undefined;
+    }
+  }
+
+  private async connectWithinBudget(): Promise<Result<void>> {
     const startedAt = this.now();
     let lastError: DomainError | undefined;
 
-    while (this.now() - startedAt <= this.connectBudgetMs) {
+    while (!this.shutdown && this.now() - startedAt <= this.connectBudgetMs) {
       const attempt = await this.connectOnce();
       if (attempt.ok) {
         this.circuitOpenReason = undefined;
@@ -313,6 +350,10 @@ export class OpenClawOperatorClient {
       }
 
       lastError = attempt.error;
+      if (this.shutdown) {
+        break;
+      }
+
       const retryAfter = attempt.error.details?.["retryAfterMs"];
       const retryable = attempt.error.code === "gatewayBroker.gatewayUnavailable";
       if (!retryable || typeof retryAfter !== "number") {
@@ -737,6 +778,10 @@ export class OpenClawOperatorClient {
       maxBufferedBytes: payload.policy.maxBufferedBytes,
       tickIntervalMs: payload.policy.tickIntervalMs,
     };
+    // Re-acquire the connection snapshot on every (re)connect — the re-snapshot
+    // artifact for "reconnect = re-snapshot".
+    this.lastSnapshot = payload.snapshot;
+    this.lastSnapshotAt = new Date();
     return ok(undefined);
   }
 
@@ -1150,6 +1195,34 @@ export class OpenClawOperatorClient {
       gatewayBrokerError("gatewayBroker.connectionClosed", "OpenClaw connection closed."),
     );
     this.failActiveStreams("gatewayBroker.connectionClosed", "OpenClaw connection closed.");
+    this.reconnectAfterTransientDeath();
+  }
+
+  /**
+   * The reconnect = re-snapshot home. On a transient socket death (not an
+   * intentional `disconnect()`), reconnect the operator connection in the
+   * background within the connect budget; a successful reconnect re-acquires the
+   * hello-ok snapshot. In-flight runs cannot be resumed — there is no fetch-state
+   * RPC — so they have already failed above as a transient `connectionClosed`;
+   * this reconnect is for the connection (and the next turn), which is the
+   * doctrine-aligned recovery that previously had no home (#165).
+   */
+  private reconnectAfterTransientDeath(): void {
+    if (this.shutdown) {
+      return;
+    }
+
+    if (!isTransientGatewayError({ code: "gatewayBroker.connectionClosed" })) {
+      return;
+    }
+
+    void this.ensureConnected().then((result) => {
+      if (result.ok || this.shutdown) {
+        return;
+      }
+
+      this.circuitOpenReason = result.error.code;
+    });
   }
 
   private failConnection(error: DomainError): void {

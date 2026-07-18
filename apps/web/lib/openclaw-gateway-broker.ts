@@ -2,15 +2,15 @@ import type {
   OpenClawGatewayHealthSnapshot,
   OpenClawGatewayPort,
   OpenClawGatewayRouteId,
-  OpenClawRunRef,
   OpenClawSessionRef,
   OpenClawStreamEvent,
-  OpenClawToolCallId,
   StartAssistantStreamInput,
   StartAssistantStreamReceipt,
   ToolInventorySnapshot,
 } from "@opzava/ports";
 import { DomainError, err, makeOpaqueExternalRef, ok, type Result } from "@opzava/shared-kernel";
+
+import { readSseFrames } from "./sse";
 
 interface BrokerGatewayConfig {
   readonly baseUrl: string;
@@ -18,57 +18,36 @@ interface BrokerGatewayConfig {
   readonly fetchImpl?: typeof fetch;
 }
 
-type BrokerInternalStreamEvent =
-  | {
-      readonly type: "queued";
-      readonly turnId: string;
-    }
-  | {
-      readonly type: "delta";
-      readonly turnId: string;
-      readonly deltaText: string;
-    }
-  | {
-      readonly type: "tool.started";
-      readonly turnId: string;
-      readonly toolCallId: string;
-      readonly toolName: string;
-    }
-  | {
-      readonly type: "tool.call";
-      readonly turnId: string;
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly args: Readonly<Record<string, unknown>>;
-    }
-  | {
-      readonly type: "tool.succeeded";
-      readonly turnId: string;
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly output: Readonly<Record<string, unknown>>;
-    }
-  | {
-      readonly type: "tool.failed";
-      readonly turnId: string;
-      readonly toolCallId: string;
-      readonly toolName: string;
-      readonly code: string;
-      readonly message: string;
-    }
-  | {
-      readonly type: "assistant.final";
-      readonly turnId: string;
-      readonly content: Readonly<Record<string, unknown>>;
-      readonly sessionRef?: OpenClawSessionRef;
-      readonly runRef?: OpenClawRunRef;
-    }
-  | {
-      readonly type: "failed";
-      readonly turnId?: string;
-      readonly code: string;
-      readonly message: string;
-    };
+const OPENCLAW_STREAM_EVENT_TYPES = new Set<string>([
+  "queued",
+  "delta",
+  "tool.started",
+  "tool.call",
+  "tool.completed",
+  "approval.requested",
+  "final",
+  "failed",
+]);
+
+function parseOpenClawStreamEvent(data: string): OpenClawStreamEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const type = (parsed as { readonly type?: unknown }).type;
+  if (typeof type !== "string" || !OPENCLAW_STREAM_EVENT_TYPES.has(type)) {
+    return null;
+  }
+
+  return parsed as OpenClawStreamEvent;
+}
 
 function gatewayError(
   code: string,
@@ -100,22 +79,6 @@ function sessionRef(value: string): OpenClawSessionRef {
     kind: "session",
     value,
   }) as OpenClawSessionRef;
-}
-
-function parseEventBlock(block: string): BrokerInternalStreamEvent | null {
-  const dataLine = block
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .find((line) => line.startsWith("data: "));
-  if (dataLine === undefined) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(dataLine.slice("data: ".length)) as BrokerInternalStreamEvent;
-  } catch {
-    return null;
-  }
 }
 
 function parseHealthSnapshot(payload: unknown): OpenClawGatewayHealthSnapshot | null {
@@ -153,95 +116,16 @@ function parseHealthSnapshot(payload: unknown): OpenClawGatewayHealthSnapshot | 
   };
 }
 
-function toPortEvent(event: BrokerInternalStreamEvent): OpenClawStreamEvent {
-  if (event.type === "tool.succeeded") {
-    return {
-      type: "tool.completed",
-      turnId: event.turnId,
-      toolCallId: event.toolCallId as OpenClawToolCallId,
-      toolName: event.toolName,
-      output: event.output,
-    };
-  }
-
-  if (event.type === "assistant.final") {
-    return {
-      type: "final",
-      turnId: event.turnId,
-      content: event.content,
-      ...(event.sessionRef === undefined ? {} : { sessionRef: event.sessionRef }),
-      ...(event.runRef === undefined ? {} : { runRef: event.runRef }),
-    };
-  }
-
-  if (event.type === "tool.failed") {
-    return {
-      type: "failed",
-      turnId: event.turnId,
-      code: event.code,
-      message: event.message,
-    };
-  }
-
-  if (event.type === "failed") {
-    return {
-      type: "failed",
-      turnId: event.turnId ?? "unknown",
-      code: event.code,
-      message: event.message,
-    };
-  }
-
-  if (event.type === "tool.call") {
-    return {
-      type: "tool.call",
-      turnId: event.turnId,
-      toolCallId: event.toolCallId as OpenClawToolCallId,
-      toolName: event.toolName,
-      args: event.args,
-    };
-  }
-
-  return event.type === "tool.started"
-    ? {
-        type: "tool.started",
-        turnId: event.turnId,
-        toolCallId: event.toolCallId as OpenClawToolCallId,
-        toolName: event.toolName,
-      }
-    : event;
-}
-
 async function* brokerEventStream(
   body: ReadableStream<Uint8Array>,
 ): AsyncIterable<OpenClawStreamEvent> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) {
-      break;
-    }
-
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() ?? "";
-
-    for (const block of blocks) {
-      const event = parseEventBlock(block);
-      if (event !== null) {
-        yield toPortEvent(event);
-      }
-    }
-  }
-
-  buffer += decoder.decode();
-  if (buffer.trim() !== "") {
-    const event = parseEventBlock(buffer);
+  // The broker's internal stream endpoint emits the OpenClawStreamEvent
+  // vocabulary verbatim, so this yields each frame straight back into the port
+  // type — no rename-and-unrename `toPortEvent` (#165).
+  for await (const frame of readSseFrames(body)) {
+    const event = parseOpenClawStreamEvent(frame.data);
     if (event !== null) {
-      yield toPortEvent(event);
+      yield event;
     }
   }
 }

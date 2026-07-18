@@ -217,6 +217,22 @@ async function collectUntilTerminal(
   return collected;
 }
 
+async function waitForReachable(
+  client: OpenClawOperatorClient,
+  expected: boolean,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (client.health().reachable === expected) {
+      return true;
+    }
+    await sleep(5);
+  }
+
+  return client.health().reachable === expected;
+}
+
 async function rawConnect(input: {
   readonly gateway: FakeOpenClawGateway;
   readonly deviceKeypair: DeviceKeypair;
@@ -985,6 +1001,62 @@ describe("[fake-gateway] broker operator client", () => {
       type: "failed",
       code: "gatewayBroker.connectionClosed",
     });
+  });
+
+  it("reconnects and re-acquires the snapshot after a transient socket death (#165 home)", async () => {
+    const deviceKeypair = createDeviceKeypair();
+    const gateway = new FakeOpenClawGateway({
+      deviceKeypair,
+      pairedDeviceToken,
+      mode: "mid-stream-close",
+    });
+    await gateway.ready;
+    gateways.push(gateway);
+
+    const client = new OpenClawOperatorClient({
+      route: {
+        routeId,
+        tenantId,
+        url: gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+      challengeTimeoutMs: 500,
+      connectBudgetMs: 1_000,
+      requestTimeoutMs: 500,
+    });
+
+    try {
+      const connected = await client.ensureConnected();
+      expect(connected.ok).toBe(true);
+      // The hello-ok snapshot the Gateway sends is now captured (re-snapshot
+      // artifact) instead of parsed and discarded.
+      expect(client.snapshot).toBeDefined();
+      expect(client.snapshotAcquiredAt).toBeDefined();
+
+      const result = await client.startAssistantStream(startInput());
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw result.error;
+      }
+
+      // The mid-stream socket death fails the in-flight run (no resume RPC)...
+      const events = await collectUntilTerminal(result.value.events);
+      expect(events.at(-1)).toMatchObject({
+        type: "failed",
+        code: "gatewayBroker.connectionClosed",
+      });
+
+      // ...but the broker reconnects the operator connection on its own and
+      // re-acquires the snapshot. Reconnect = re-snapshot now has a home.
+      await expect(waitForReachable(client, true, 1_000)).resolves.toBe(true);
+      expect(client.health().reachable).toBe(true);
+      expect(client.snapshot).toBeDefined();
+    } finally {
+      client.disconnect();
+    }
   });
 
   it("fails safe on duplicate response ids", async () => {

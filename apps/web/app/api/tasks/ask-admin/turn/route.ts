@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { askAdminAssistantKey, askAdminRouteId } from "@/lib/ask-admin-history";
 import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
+import { classifyAskAdminFailureState } from "@/lib/ask-admin-failure";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
 import { defaultErrorCapturePort } from "@/lib/error-capture";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
@@ -123,42 +124,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Ask Admin Opzava request failed.";
 }
 
-function failureState(
-  code: string | undefined,
-  status: number | undefined,
-): "gateway_unavailable" | "policy_denied" | "duplicate_send" | "failed" {
-  if (code === "runtimeControl.idempotencyConflict" || code === "gatewayBroker.sessionBusy") {
-    return "duplicate_send";
-  }
-
-  if (
-    status === 403 ||
-    code === "runtimeControl.forbidden" ||
-    code === "projectManagement.forbidden" ||
-    code === "gatewayBroker.authModeForbidden" ||
-    code === "gatewayBroker.authScopeMismatch" ||
-    code === "gatewayBroker.scopeMismatch" ||
-    code === "gatewayBroker.tenantMismatch" ||
-    code === "gatewayBroker.toolInventoryMismatch" ||
-    code === "webGateway.internalUnauthorized"
-  ) {
-    return "policy_denied";
-  }
-
-  if (
-    code === "gatewayBroker.gatewayUnavailable" ||
-    code === "gatewayBroker.circuitOpen" ||
-    code === "gatewayBroker.connectionClosed" ||
-    code === "webGateway.gatewayUnavailable" ||
-    code === "webGateway.emptyStream" ||
-    code === "webGateway.streamInterrupted"
-  ) {
-    return "gateway_unavailable";
-  }
-
-  return "failed";
-}
-
 function failureEvent(
   error: unknown,
   turnId?: string,
@@ -168,8 +133,10 @@ function failureEvent(
     type: "failed",
     ...(turnId === undefined ? {} : { turnId }),
     code,
+    // #252 replaces this raw passthrough with sanitized presentation; the
+    // failure *class* already flows through the mapBrokerError seam below.
     message: errorMessage(error),
-    state: failureState(code, errorStatus(error)),
+    state: classifyAskAdminFailureState({ code, status: errorStatus(error) }),
   };
 }
 
@@ -425,7 +392,7 @@ async function handleGatewayEvent(
       turnId: event.turnId,
       code: event.code,
       message: event.message,
-      state: failureState(event.code, undefined),
+      state: classifyAskAdminFailureState({ code: event.code }),
     };
     await safeFailAssistantTurn(runtime, context, event.turnId, failure);
     await writeFailureEvent(controller, deps, context, failure);

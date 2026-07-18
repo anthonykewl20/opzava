@@ -51,3 +51,22 @@ export function sanitizeGatewayError(error: unknown): Readonly<Record<string, un
     reason: typeof details["reason"] === "string" ? details["reason"] : undefined
   };
 }
+
+/**
+ * Broker-side transient classification for the reconnect decision. This is the
+ * broker half of the failure-state contract the BFF's `mapBrokerError` seam
+ * (#165/#252) consumes on the client side: these are exactly the codes the BFF
+ * maps to `gateway_unavailable` (reconnect-eligible). Kept here so the broker
+ * drives "reconnect = re-snapshot" off failure state without reaching into the
+ * web app, while staying aligned with the client's reconnect eligibility.
+ */
+const TRANSIENT_GATEWAY_ERROR_CODES: ReadonlySet<string> = new Set([
+  "gatewayBroker.connectionClosed",
+  "gatewayBroker.gatewayUnavailable",
+  "gatewayBroker.circuitOpen",
+]);
+
+export function isTransientGatewayError(error: { readonly code?: string }): boolean {
+  return error.code !== undefined && TRANSIENT_GATEWAY_ERROR_CODES.has(error.code);
+}
+

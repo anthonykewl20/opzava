@@ -119,7 +119,7 @@ describe("Ask Opzava page state", () => {
     expect(component).toContain('id="msgInput"');
     expect(component).toContain("event.nativeEvent.isComposing");
     expect(component).toContain('fetch("/api/tasks/ask-admin/turn"');
-    expect(component).toContain("parseAskAdminSseBuffer");
+    expect(component).toContain("drainAskAdminStream");
     expect(component).toContain("upsertToolReceipt");
     expect(component).toContain("router.refresh()");
     expect(component).toContain("setDraft(emptyAskAdminDraft())");

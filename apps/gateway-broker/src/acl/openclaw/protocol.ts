@@ -225,6 +225,7 @@ export function isHelloOkPayload(value: unknown): value is HelloOkPayload {
 
   const auth = value["auth"];
   const policy = value["policy"];
+  const snapshot = value["snapshot"];
   return (
     value["type"] === "hello-ok" &&
     typeof value["protocol"] === "number" &&
@@ -235,7 +236,8 @@ export function isHelloOkPayload(value: unknown): value is HelloOkPayload {
     Array.isArray(auth["scopes"]) &&
     typeof policy["maxPayload"] === "number" &&
     typeof policy["maxBufferedBytes"] === "number" &&
-    typeof policy["tickIntervalMs"] === "number"
+    typeof policy["tickIntervalMs"] === "number" &&
+    (snapshot === undefined || isRecord(snapshot))
   );
 }
 
