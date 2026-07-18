@@ -1,610 +1,560 @@
 #!/usr/bin/env node
 
-const TIMING = {
-  tokenTtlMs: 30 * 60 * 1000,
-};
-
-const CREATE_ALLOWED_STATUSES = ['todo', 'in_progress', 'blocked'];
 const TERMINAL_STATUS = 'done';
+const REVIEW_STATUS = 'review';
+const VALID_STATUSES = new Set(['todo', 'in_progress', REVIEW_STATUS, 'blocked', TERMINAL_STATUS]);
+const REQUIRED_DONE_PROOFS = [
+  ['readyApproval', 'ready-approval-absent'],
+  ['reviewExitContainmentProof', 'review-proof-absent'],
+  ['mergeAuthorization', 'merge-authorization-absent'],
+  ['mergedIntoDevelopment', 'merge-unconfirmed'],
+];
 
 const tasks = new Map();
-const auditLog = [];
 const confirmTokens = new Map();
+const activityLedger = [];
+const securityLog = [];
 let taskSequence = 1;
 let tokenSequence = 1;
+let clockMs = Date.parse('2026-07-18T08:00:00.000Z');
 
 function now() {
-  return new Date().toISOString();
+  return new Date(clockMs).toISOString();
 }
 
-function makeTask(input) {
-  return {
-    id: String(input.id ?? taskSequence++),
-    title: input.title,
-    status: input.status,
-  };
+function advanceClock(milliseconds) {
+  clockMs += milliseconds;
 }
 
-function appendAudit({ action, source = 'autonomous', actor, target, fromStatus, toStatus, decision, hardReason, confirmTokenRef }) {
-  auditLog.push({
+function makeTask({ title, status = 'todo' }) {
+  if (!VALID_STATUSES.has(status)) {
+    throw new Error(`invalid task status: ${status}`);
+  }
+  return { id: String(taskSequence++), title, status };
+}
+
+function addTask(input) {
+  const task = makeTask(input);
+  tasks.set(task.id, task);
+  return task;
+}
+
+function makeActor(adminId) {
+  return { kind: 'admin', adminId };
+}
+
+function makeSystemActor(id = 'dev-board-admission') {
+  return { kind: 'system', id };
+}
+
+function actingPrincipal(actor) {
+  return actor?.adminId ?? actor?.id ?? null;
+}
+
+function appendActivity({ action, source, actor, target, fromStatus, toStatus, confirmTokenRef = null }) {
+  activityLedger.push({
     action,
     source,
-    actingPrincipal: actor?.adminId,
-    target,
+    actingPrincipal: actingPrincipal(actor),
+    target: target ?? null,
     transition: `${fromStatus ?? 'none'}->${toStatus ?? 'none'}`,
-    confirmTokenRef: confirmTokenRef ?? null,
-    hardReason: hardReason ?? null,
-    decision,
+    confirmTokenRef,
+    decision: 'accepted',
     timestamp: now(),
   });
 }
 
-function authorizeTask(action) {
-  // Sticky by design for the prototype: role status is always accepted for member.
-  // Real policy is unchanged and intentionally not status-aware.
-  return { allowed: true, reason: null, action, role: 'member' };
+function appendSecurity({
+  action,
+  source = 'autonomous',
+  actor,
+  target,
+  fromStatus,
+  toStatus,
+  hardReason,
+  confirmTokenRef = null,
+  event = 'command-rejected',
+}) {
+  securityLog.push({
+    event,
+    action,
+    source,
+    actingPrincipal: actingPrincipal(actor),
+    target: target ?? null,
+    transition: `${fromStatus ?? 'none'}->${toStatus ?? 'none'}`,
+    confirmTokenRef,
+    hardReason,
+    decision: 'rejected',
+    timestamp: now(),
+  });
 }
 
-function mintConfirmToken({ taskId, toStatus, adminId, expiresAt }) {
-  if (!adminId) {
-    throw new Error('mintConfirmToken requires adminId');
+function mintConfirmToken({ taskId, action, adminId, expiresInMs = 30 * 60 * 1000 }) {
+  if (!taskId || !action || !adminId) {
+    throw new Error('confirm token requires taskId, action, and adminId bindings');
   }
-  const id = `token-${tokenSequence++}`;
-  const record = {
-    id,
+  if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
+    throw new Error('confirm token expiry must be finite and future');
+  }
+
+  const record = Object.freeze({
+    id: `token-${tokenSequence++}`,
     taskId: String(taskId),
-    toStatus,
+    action,
     adminId,
-    issuedAt: new Date().toISOString(),
-    expiresAt: expiresAt ?? new Date(Date.now() + TIMING.tokenTtlMs).toISOString(),
+    issuedAt: now(),
+    expiresAt: new Date(clockMs + expiresInMs).toISOString(),
     consumedAt: null,
-  };
-  confirmTokens.set(id, record);
+  });
+  confirmTokens.set(record.id, record);
   return record;
 }
 
-function consumeConfirmToken(record) {
-  if (record.consumedAt) {
-    return null;
+function inspectConfirmTokenBinding({ taskId, action, actor, envelope = {} }) {
+  const tokenId = typeof envelope.confirmToken === 'string' ? envelope.confirmToken : null;
+  const token = tokenId ? confirmTokens.get(tokenId) ?? null : null;
+  const tokenRef = token ? { tokenId: token.id, consumedAt: token.consumedAt } : null;
+
+  if (!token) {
+    return { token: null, tokenRef, source: 'autonomous', bindingValid: false };
   }
-  record.consumedAt = new Date().toISOString();
+
+  const scopeValid = token.taskId === String(taskId) && token.action === action;
+  const principalPresent = Boolean(token.adminId && actor?.adminId);
+  const principalMatches = principalPresent && token.adminId === actor.adminId;
+  const bindingValid = scopeValid && principalMatches;
+
   return {
-    tokenId: record.id,
-    consumedAt: record.consumedAt,
+    token,
+    tokenRef,
+    source: bindingValid ? 'human-commanded' : 'autonomous',
+    bindingValid,
+    scopeValid,
+    principalPresent,
+    principalMatches,
   };
 }
 
-function getTask(taskId) {
-  return tasks.get(String(taskId)) || null;
+function consumeConfirmTokenCas(token) {
+  const current = confirmTokens.get(token.id);
+  if (!current || current !== token || current.consumedAt !== null) {
+    return null;
+  }
+
+  const consumed = Object.freeze({ ...current, consumedAt: now() });
+  confirmTokens.set(token.id, consumed);
+  return { tokenId: consumed.id, consumedAt: consumed.consumedAt };
+}
+
+function rejectSecurity(context, hardReason, overrides = {}) {
+  appendSecurity({ ...context, ...overrides, hardReason });
+  return { ok: false, decision: 'rejected', hardReason };
+}
+
+function authorizeRepresentativeHumanCommand({ task, action, actor, envelope }) {
+  const binding = inspectConfirmTokenBinding({ taskId: task.id, action, actor, envelope });
+  const context = {
+    action,
+    source: binding.source,
+    actor,
+    target: task.id,
+    fromStatus: task.status,
+    toStatus: REVIEW_STATUS,
+    confirmTokenRef: binding.tokenRef,
+  };
+
+  if (!binding.token) {
+    return rejectSecurity(context, envelope?.confirmToken ? 'confirm-token-invalid' : 'confirm-token-required');
+  }
+  if (!binding.scopeValid) {
+    return rejectSecurity(context, 'confirm-token-scope-mismatch');
+  }
+  if (!binding.principalPresent) {
+    return rejectSecurity(context, 'principal-binding-absent');
+  }
+  if (!binding.principalMatches) {
+    return rejectSecurity(context, 'principal-mismatch');
+  }
+
+  const expiryMs = Date.parse(binding.token.expiresAt);
+  if (!Number.isFinite(expiryMs) || expiryMs <= clockMs) {
+    return rejectSecurity(context, 'confirm-token-expired');
+  }
+  if (binding.token.consumedAt !== null) {
+    return rejectSecurity(context, 'confirm-token-conflict');
+  }
+
+  const consumedRef = consumeConfirmTokenCas(binding.token);
+  if (!consumedRef) {
+    return rejectSecurity(context, 'confirm-token-conflict');
+  }
+  return { ok: true, decision: 'allowed', source: binding.source, confirmTokenRef: consumedRef };
+}
+
+function performRepresentativeHumanAction(task, actor, envelope = {}) {
+  const action = 'move-to-review';
+  const fromStatus = task.status;
+  const authorization = authorizeRepresentativeHumanCommand({ task, action, actor, envelope });
+  if (!authorization.ok) {
+    return authorization;
+  }
+
+  task.status = REVIEW_STATUS;
+  appendActivity({
+    action,
+    source: authorization.source,
+    actor,
+    target: task.id,
+    fromStatus,
+    toStatus: task.status,
+    confirmTokenRef: authorization.confirmTokenRef,
+  });
+  return { ok: true, decision: 'allowed', task, confirmTokenRef: authorization.confirmTokenRef };
 }
 
 function createTask(input, actor, envelope = {}) {
-  const action = 'create';
   const proposedStatus = input.status ?? 'todo';
+  const context = {
+    action: 'create-task',
+    source: 'autonomous',
+    actor,
+    target: null,
+    fromStatus: null,
+    toStatus: proposedStatus,
+  };
 
-  if (!CREATE_ALLOWED_STATUSES.includes(proposedStatus)) {
-    const hardReason = proposedStatus === TERMINAL_STATUS ? 'create-with-terminal-status' : 'invalid-status';
-    appendAudit({
-      action,
-      source: 'autonomous',
-      actor,
-      target: null,
-      fromStatus: null,
-      toStatus: proposedStatus,
-      decision: 'rejected',
-      hardReason,
-      confirmTokenRef: null,
-    });
-    return {
-      ok: false,
-      decision: 'rejected',
-      hardReason,
-    };
+  if (proposedStatus === TERMINAL_STATUS) {
+    return rejectSecurity(context, 'create-with-terminal-status', { event: 'terminal-bypass-attempt' });
+  }
+  if (!VALID_STATUSES.has(proposedStatus)) {
+    return rejectSecurity(context, 'invalid-status');
   }
 
-  const authorization = authorizeTask('create');
-  if (!authorization.allowed) {
-    appendAudit({
-      action,
-      source: 'autonomous',
-      actor,
-      target: null,
-      fromStatus: null,
-      toStatus: proposedStatus,
-      decision: 'rejected',
-      hardReason: authorization.reason ?? 'authorization-denied',
-      confirmTokenRef: null,
-    });
-    return {
-      ok: false,
-      decision: 'rejected',
-      hardReason: authorization.reason ?? 'authorization-denied',
-    };
-  }
-
-  const guardResult = assertTerminalTransitionAuthorized({ kind: 'create', id: 'new' }, proposedStatus, actor, envelope);
-
-  if (guardResult.decision === 'rejected') {
-    appendAudit({
-      action,
-      source: guardResult.source,
-      actor,
-      target: null,
-      fromStatus: null,
-      toStatus: proposedStatus,
-      decision: 'rejected',
-      hardReason: guardResult.hardReason,
-      confirmTokenRef: null,
-    });
-    return { ok: false, decision: 'rejected', hardReason: guardResult.hardReason };
-  }
-
-  const task = makeTask({ title: input.title, status: proposedStatus });
-  tasks.set(task.id, task);
-
-  appendAudit({
-    action,
-    source: guardResult.source,
+  const task = addTask({ title: input.title, status: proposedStatus });
+  appendActivity({
+    action: context.action,
+    source: 'autonomous',
     actor,
     target: task.id,
     fromStatus: null,
     toStatus: task.status,
-    decision: 'allowed',
-    hardReason: null,
-    confirmTokenRef: null,
   });
-
-  return {
-    ok: true,
-    decision: 'allowed',
-    task,
-  };
+  return { ok: true, decision: 'allowed', task };
 }
 
 function moveTask(input, actor, envelope = {}) {
-  const action = 'move';
-  const task = getTask(input.taskId);
+  const task = tasks.get(String(input.taskId));
   if (!task) {
-    appendAudit({
-      action,
-      source: 'autonomous',
-      actor,
-      target: String(input.taskId),
-      fromStatus: null,
-      toStatus: input.status,
-      decision: 'rejected',
-      hardReason: 'task-not-found',
-      confirmTokenRef: null,
-    });
-    return { ok: false, decision: 'rejected', hardReason: 'task-not-found' };
+    return rejectSecurity(
+      {
+        action: 'move-task',
+        actor,
+        target: String(input.taskId),
+        fromStatus: null,
+        toStatus: input.status,
+      },
+      'task-not-found',
+    );
   }
 
   const fromStatus = task.status;
-  const toStatus = input.status;
-
-  const authorization = authorizeTask('update');
-  if (!authorization.allowed) {
-    appendAudit({
-      action,
-      source: 'autonomous',
-      actor,
-      target: task.id,
-      fromStatus,
-      toStatus,
-      decision: 'rejected',
-      hardReason: authorization.reason ?? 'authorization-denied',
-      confirmTokenRef: null,
-    });
-    return {
-      ok: false,
-      decision: 'rejected',
-      hardReason: authorization.reason ?? 'authorization-denied',
-      task,
-    };
-  }
-
-  const guardResult = assertTerminalTransitionAuthorized(task, toStatus, actor, envelope);
-
-  if (guardResult.decision === 'rejected') {
-    appendAudit({
-      action,
-      source: guardResult.source,
-      actor,
-      target: task.id,
-      fromStatus,
-      toStatus,
-      decision: 'rejected',
-      hardReason: guardResult.hardReason,
-      confirmTokenRef: guardResult.confirmTokenRef,
-    });
-    return {
-      ok: false,
-      decision: 'rejected',
-      hardReason: guardResult.hardReason,
-      task,
-    };
-  }
-
-  task.status = toStatus;
-
-  appendAudit({
-    action,
-    source: guardResult.source,
+  const tokenAction = `move-to-${input.status}`;
+  const binding = inspectConfirmTokenBinding({ taskId: task.id, action: tokenAction, actor, envelope });
+  const context = {
+    action: 'move-task',
+    source: binding.source,
     actor,
     target: task.id,
     fromStatus,
-    toStatus,
-    decision: 'allowed',
-    hardReason: null,
-    confirmTokenRef: guardResult.confirmTokenRef,
+    toStatus: input.status,
+    confirmTokenRef: binding.tokenRef,
+  };
+
+  if (input.status === TERMINAL_STATUS) {
+    return rejectSecurity(context, 'done-requires-admit-done', { event: 'terminal-bypass-attempt' });
+  }
+  if (!VALID_STATUSES.has(input.status)) {
+    return rejectSecurity(context, 'invalid-status');
+  }
+
+  task.status = input.status;
+  appendActivity({
+    action: context.action,
+    source: context.source,
+    actor,
+    target: task.id,
+    fromStatus,
+    toStatus: task.status,
   });
-
-  return {
-    ok: true,
-    decision: 'allowed',
-    task,
-    confirmTokenRef: guardResult.confirmTokenRef,
-  };
+  return { ok: true, decision: 'allowed', task };
 }
 
-function assertTerminalTransitionAuthorized(target, toStatus, actor, envelope = {}) {
-  const token = envelope?.confirmToken ? confirmTokens.get(envelope.confirmToken) : null;
-  const scopeMatch = !!(token && token.taskId === target?.id && token.toStatus === toStatus);
-  const principalBound = !!(token && token.adminId && actor?.adminId && token.adminId === actor.adminId);
-  const source = token && scopeMatch && principalBound ? 'human-commanded' : 'autonomous';
-
-  if (toStatus !== TERMINAL_STATUS) {
-    return { decision: 'allowed', hardReason: null, confirmTokenRef: null, source };
+function validateDoneAdmission(ticket, proofs, actor) {
+  if (actor?.kind !== 'system') {
+    return 'admit-done-system-actor-required';
   }
-
-  if (target?.kind === 'create') {
-    return {
-      decision: 'rejected',
-      hardReason: 'create-with-terminal-status',
-      confirmTokenRef: null,
-      source,
-    };
+  if (ticket.status !== REVIEW_STATUS) {
+    return 'review-status-required';
   }
-
-  if (!token) {
-    return {
-      decision: 'rejected',
-      hardReason: 'autonomous-attempt-on-gated-transition',
-      confirmTokenRef: null,
-      source,
-    };
+  for (const [proofName, hardReason] of REQUIRED_DONE_PROOFS) {
+    if (proofs?.[proofName] !== true) {
+      return hardReason;
+    }
   }
-
-  if (!scopeMatch) {
-    return {
-      decision: 'rejected',
-      hardReason: 'confirm-token-scope-mismatch',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  if (!token.adminId || !actor || !actor.adminId) {
-    return {
-      decision: 'rejected',
-      hardReason: 'principal-binding-absent',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  if (token.adminId !== actor.adminId) {
-    return {
-      decision: 'rejected',
-      hardReason: 'principal-mismatch',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  const exp = new Date(token.expiresAt).getTime();
-  if (!Number.isFinite(exp) || exp <= Date.now()) {
-    return {
-      decision: 'rejected',
-      hardReason: 'confirm-token-expired',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  if (token.consumedAt) {
-    return {
-      decision: 'rejected',
-      hardReason: 'confirm-token-conflict',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  const consumed = consumeConfirmToken(token);
-  if (!consumed) {
-    return {
-      decision: 'rejected',
-      hardReason: 'confirm-token-conflict',
-      confirmTokenRef: { tokenId: token.id, consumedAt: token.consumedAt },
-      source,
-    };
-  }
-
-  return {
-    decision: 'allowed',
-    hardReason: null,
-    confirmTokenRef: consumed,
-    source,
-  };
+  return null;
 }
 
-function makeActor(label, adminId = label) {
-  return {
-    adminId,
-    label,
+function admitDone(ticket, proofs, actor, { failureInjection } = {}) {
+  const context = {
+    action: 'admit-done',
+    source: 'system',
+    actor,
+    target: ticket.id,
+    fromStatus: ticket.status,
+    toStatus: TERMINAL_STATUS,
   };
+  const hardReason = validateDoneAdmission(ticket, proofs, actor);
+  if (hardReason) {
+    return rejectSecurity(context, hardReason, { event: 'done-admission-rejected' });
+  }
+
+  // This snapshot models one transaction: authorization has succeeded, and both
+  // the aggregate mutation and accepted-ledger append must commit or roll back.
+  const priorStatus = ticket.status;
+  const priorLedgerLength = activityLedger.length;
+  try {
+    failureInjection?.('after-authorization');
+    ticket.status = TERMINAL_STATUS;
+    failureInjection?.('after-mutation');
+    appendActivity({
+      action: context.action,
+      source: context.source,
+      actor,
+      target: ticket.id,
+      fromStatus: priorStatus,
+      toStatus: ticket.status,
+    });
+    failureInjection?.('after-ledger-append');
+    return { ok: true, decision: 'allowed', ticket };
+  } catch (error) {
+    ticket.status = priorStatus;
+    activityLedger.length = priorLedgerLength;
+    appendSecurity({
+      ...context,
+      hardReason: 'admit-done-atomic-write-failed',
+      event: 'done-admission-rolled-back',
+    });
+    return {
+      ok: false,
+      decision: 'rejected',
+      hardReason: 'admit-done-atomic-write-failed',
+      rolledBack: true,
+    };
+  }
 }
 
-function assertScenario(name, condition, details) {
-  if (condition) {
-    console.log(`PASS ${name}`);
-    return true;
-  }
-  console.log(`FAIL ${name}`);
-  if (details) {
+function latest(collection, predicate) {
+  return collection.slice().reverse().find(predicate);
+}
+
+function reportScenario(id, label, pass, details) {
+  console.log(`${pass ? 'PASS' : 'FAIL'} ${id} ${label}`);
+  if (!pass) {
     console.log(`  details: ${details}`);
   }
-  return false;
+  return pass;
 }
 
-function latestAudit(predicate) {
-  return auditLog.slice().reverse().find((entry) => predicate(entry));
-}
-
-function runScenarioS1() {
-  const name = 'S1 Autonomous-reject';
-  const actor = makeActor('admin X', 'admin X');
-  const task = makeTask({ title: 'S1 card', status: 'todo' });
-  tasks.set(task.id, task);
-
-  const result = moveTask({ taskId: task.id, status: 'done' }, actor, {});
-
-  const audit = latestAudit((row) => row.action === 'move' && row.target === task.id);
+function runS1() {
+  const task = addTask({ title: 'S1 autonomous direct Done', status: 'in_progress' });
+  const result = moveTask({ taskId: task.id, status: TERMINAL_STATUS }, makeActor('admin-1'));
+  const row = latest(securityLog, (entry) => entry.target === task.id);
   const pass =
-    result.decision === 'rejected' &&
-    result.hardReason === 'autonomous-attempt-on-gated-transition' &&
-    task.status !== 'done' &&
-    audit?.source === 'autonomous' &&
-    audit?.decision === 'rejected' &&
-    audit?.hardReason === 'autonomous-attempt-on-gated-transition';
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, taskStatus=${task.status}, audit=${JSON.stringify(audit)}`);
+    result.hardReason === 'done-requires-admit-done' &&
+    task.status === 'in_progress' &&
+    row?.source === 'autonomous' &&
+    row?.hardReason === result.hardReason &&
+    !activityLedger.some((entry) => entry.target === task.id);
+  return reportScenario('S1', 'tool-path autonomous direct-Done rejected', pass, JSON.stringify({ result, task, row }));
 }
 
-function runScenarioS2() {
-  const name = 'S2 Human-confirm-accept';
-  const actor = makeActor('admin X via Ask Admin', 'admin X');
-  const task = makeTask({ title: 'S2 card', status: 'in_progress' });
-  tasks.set(task.id, task);
+function runS2() {
+  const actor = makeActor('admin-2');
+  const task = addTask({ title: 'S2 human-token direct Done', status: 'in_progress' });
+  const token = mintConfirmToken({ taskId: task.id, action: 'move-to-done', adminId: actor.adminId });
+  const result = moveTask({ taskId: task.id, status: TERMINAL_STATUS }, actor, { confirmToken: token.id });
+  const storedToken = confirmTokens.get(token.id);
+  const row = latest(securityLog, (entry) => entry.target === task.id);
+  const pass =
+    result.hardReason === 'done-requires-admit-done' &&
+    task.status === 'in_progress' &&
+    storedToken.consumedAt === null &&
+    row?.source === 'human-commanded' &&
+    row?.hardReason === result.hardReason &&
+    !activityLedger.some((entry) => entry.target === task.id);
+  return reportScenario('S2', 'tool-path human-token direct-Done still rejected and token retained', pass, JSON.stringify({ result, task, storedToken, row }));
+}
 
-  const token = mintConfirmToken({ taskId: task.id, toStatus: 'done', adminId: actor.adminId });
-  const result = moveTask({ taskId: task.id, status: 'done' }, actor, { confirmToken: token.id });
-  const tokenRecord = confirmTokens.get(token.id);
-  const tokenRow = latestAudit((row) => row.action === 'move' && row.target === task.id && row.decision === 'allowed');
+function runS3() {
+  const taskCountBefore = tasks.size;
+  const result = createTask({ title: 'S3 create Done', status: TERMINAL_STATUS }, makeActor('admin-3'));
+  const row = latest(securityLog, (entry) => entry.action === 'create-task');
+  const pass =
+    result.hardReason === 'create-with-terminal-status' &&
+    tasks.size === taskCountBefore &&
+    row?.hardReason === result.hardReason &&
+    !activityLedger.some((entry) => entry.action === 'create-task');
+  return reportScenario('S3', 'create-with-done rejected', pass, JSON.stringify({ result, row }));
+}
 
+function runS4() {
+  const actor = makeSystemActor();
+  const readyMissing = addTask({ title: 'S4 missing Ready approval', status: REVIEW_STATUS });
+  const reviewMissing = addTask({ title: 'S4 missing review proof', status: REVIEW_STATUS });
+  const resultReady = admitDone(
+    readyMissing,
+    { reviewExitContainmentProof: true, mergeAuthorization: true, mergedIntoDevelopment: true },
+    actor,
+  );
+  const resultReview = admitDone(
+    reviewMissing,
+    { readyApproval: true, mergeAuthorization: true, mergedIntoDevelopment: true },
+    actor,
+  );
+  const rows = securityLog.filter((entry) => entry.action === 'admit-done' && [readyMissing.id, reviewMissing.id].includes(entry.target));
+  const pass =
+    resultReady.hardReason === 'ready-approval-absent' &&
+    resultReview.hardReason === 'review-proof-absent' &&
+    readyMissing.status === REVIEW_STATUS &&
+    reviewMissing.status === REVIEW_STATUS &&
+    rows.length === 2 &&
+    rows.every((row) => row.event === 'done-admission-rejected') &&
+    !activityLedger.some((entry) => [readyMissing.id, reviewMissing.id].includes(entry.target));
+  return reportScenario('S4', 'AdmitDone incomplete proofs rejected fail-closed', pass, JSON.stringify({ resultReady, resultReview, rows }));
+}
+
+function fullProofs() {
+  return {
+    readyApproval: true,
+    reviewExitContainmentProof: true,
+    mergeAuthorization: true,
+    mergedIntoDevelopment: true,
+  };
+}
+
+function runS5() {
+  const actor = makeSystemActor();
+  const task = addTask({ title: 'S5 complete proof chain', status: REVIEW_STATUS });
+  const activityBefore = activityLedger.length;
+  const securityBefore = securityLog.length;
+  const result = admitDone(task, fullProofs(), actor);
+  const rows = activityLedger.filter((entry) => entry.action === 'admit-done' && entry.target === task.id);
   const pass =
     result.decision === 'allowed' &&
-    task.status === 'done' &&
-    tokenRecord?.consumedAt &&
-    tokenRow?.source === 'human-commanded' &&
-    tokenRow?.actingPrincipal === actor.adminId &&
-    tokenRow?.hardReason === null &&
-    tokenRow?.confirmTokenRef?.tokenId === token.id;
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, token=${JSON.stringify(tokenRecord)}, actorLabel=${actor.label}, audit=${JSON.stringify(tokenRow)}`);
+    task.status === TERMINAL_STATUS &&
+    activityLedger.length === activityBefore + 1 &&
+    rows.length === 1 &&
+    rows[0].decision === 'accepted' &&
+    securityLog.length === securityBefore;
+  return reportScenario('S5', 'AdmitDone full proof chain accepted exactly once', pass, JSON.stringify({ result, rows }));
 }
 
-function runScenarioS3() {
-  const name = 'S3 Principal-mismatch-reject';
-  const owner = makeActor('admin A', 'admin A');
-  const intruder = makeActor('admin B', 'admin B');
-  const task = makeTask({ title: 'S3 card', status: 'in_progress' });
-  tasks.set(task.id, task);
-
-  const token = mintConfirmToken({ taskId: task.id, toStatus: 'done', adminId: owner.adminId });
-  const result = moveTask({ taskId: task.id, status: 'done' }, intruder, { confirmToken: token.id });
-  const audit = latestAudit((row) => row.action === 'move' && row.target === task.id && row.decision === 'rejected');
-
-  const pass =
-    result.decision === 'rejected' &&
-    result.hardReason === 'principal-mismatch' &&
-    task.status !== 'done' &&
-    audit?.hardReason === 'principal-mismatch' &&
-    audit?.source === 'autonomous' &&
-    audit?.actingPrincipal === intruder.adminId;
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, taskStatus=${task.status}, audit=${JSON.stringify(audit)}`);
-}
-
-function runScenarioS4() {
-  const name = 'S4 Create-with-done-reject';
-  const actor = makeActor('admin X', 'admin X');
-
-  const beforeCount = tasks.size;
-  const result = createTask({ title: 'S4 card', status: 'done' }, actor, {});
-  const afterCount = tasks.size;
-  const audit = latestAudit((row) => row.action === 'create' && row.decision === 'rejected' && row.hardReason === 'create-with-terminal-status');
-
-  const pass =
-    result.decision === 'rejected' &&
-    result.hardReason === 'create-with-terminal-status' &&
-    afterCount === beforeCount &&
-    audit?.hardReason === 'create-with-terminal-status';
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, before=${beforeCount}, after=${afterCount}, audit=${JSON.stringify(audit)}`);
-}
-
-function runScenarioS5() {
-  const name = 'S5 Expired-and-replayed-reject';
-  const actor = makeActor('admin X', 'admin X');
-
-  // Expired token rejection
-  const cardExpired = makeTask({ title: 'S5 expired', status: 'in_progress' });
-  tasks.set(cardExpired.id, cardExpired);
-  const expiredToken = mintConfirmToken({
-    taskId: cardExpired.id,
-    toStatus: 'done',
-    adminId: actor.adminId,
-    expiresAt: new Date(Date.now() - 60_000).toISOString(),
+function runS6() {
+  const task = addTask({ title: 'S6 atomic rollback', status: REVIEW_STATUS });
+  const proofs = fullProofs();
+  const proofsBefore = JSON.stringify(proofs);
+  const tokenStateBefore = JSON.stringify([...confirmTokens.entries()]);
+  const activityBefore = activityLedger.length;
+  const result = admitDone(task, proofs, makeSystemActor(), {
+    failureInjection(stage) {
+      if (stage === 'after-mutation') {
+        throw new Error('simulated persistence failure');
+      }
+    },
   });
-  const expiredResult = moveTask({ taskId: cardExpired.id, status: 'done' }, actor, {
-    confirmToken: expiredToken.id,
-  });
-
-  const expiredAudit = latestAudit((row) => row.action === 'move' && row.target === cardExpired.id && row.decision === 'rejected' && row.hardReason === 'confirm-token-expired');
-
-  const expiredPass =
-    expiredResult.decision === 'rejected' &&
-    expiredResult.hardReason === 'confirm-token-expired' &&
-    cardExpired.status !== 'done' &&
-    expiredAudit?.source === 'human-commanded';
-
-  // Replayed token rejection after first successful consume
-  const cardReplay = makeTask({ title: 'S5 replay', status: 'todo' });
-  tasks.set(cardReplay.id, cardReplay);
-  const replayToken = mintConfirmToken({ taskId: cardReplay.id, toStatus: 'done', adminId: actor.adminId });
-  const first = moveTask({ taskId: cardReplay.id, status: 'done' }, actor, { confirmToken: replayToken.id });
-  const second = moveTask({ taskId: cardReplay.id, status: 'done' }, actor, { confirmToken: replayToken.id });
-  const replayAudit = latestAudit((row) => row.action === 'move' && row.target === cardReplay.id && row.decision === 'rejected' && row.hardReason === 'confirm-token-conflict');
-
-  const replayPass =
-    first.decision === 'allowed' &&
-    cardReplay.status === 'done' &&
-    second.decision === 'rejected' &&
-    second.hardReason === 'confirm-token-conflict' &&
-    replayAudit?.hardReason === 'confirm-token-conflict' &&
-    replayAudit?.source === 'human-commanded';
-
-  const pass = expiredPass && replayPass;
-  return assertScenario(name, pass, `expiredResult=${JSON.stringify(expiredResult)}, first=${JSON.stringify(first)}, second=${JSON.stringify(second)}, token=${replayToken.id}, audits=${JSON.stringify({ expiredAudit, replayAudit })}`);
-}
-
-function runScenarioS6() {
-  const name = 'S6 Forged-token-source';
-  const actor = makeActor('admin X', 'admin X');
-  const task = makeTask({ title: 'S6 card', status: 'in_progress' });
-  tasks.set(task.id, task);
-
-  const result = moveTask({ taskId: task.id, status: 'done' }, actor, { confirmToken: 'does-not-exist' });
-  const audit = latestAudit((row) => row.action === 'move' && row.target === task.id && row.decision === 'rejected' && row.hardReason === 'autonomous-attempt-on-gated-transition');
-
+  const row = latest(securityLog, (entry) => entry.target === task.id);
   const pass =
-    result.decision === 'rejected' &&
-    result.hardReason === 'autonomous-attempt-on-gated-transition' &&
-    task.status !== 'done' &&
-    audit?.source === 'autonomous';
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, taskStatus=${task.status}, audit=${JSON.stringify(audit)}`);
+    result.hardReason === 'admit-done-atomic-write-failed' &&
+    result.rolledBack === true &&
+    task.status === REVIEW_STATUS &&
+    activityLedger.length === activityBefore &&
+    !activityLedger.some((entry) => entry.target === task.id) &&
+    JSON.stringify(proofs) === proofsBefore &&
+    JSON.stringify([...confirmTokens.entries()]) === tokenStateBefore &&
+    row?.event === 'done-admission-rolled-back';
+  return reportScenario('S6', 'AdmitDone post-authorization failure rolls back atomically', pass, JSON.stringify({ result, task, row }));
 }
 
-function runScenarioS7() {
-  const name = 'S7 Principal-binding-absent';
-  const actorNoAdmin = {};
-  const tokenOwnerTask = makeTask({ title: 'S7 token owner', status: 'todo' });
-  tasks.set(tokenOwnerTask.id, tokenOwnerTask);
-  const forgedToken = {
-    id: `token-${tokenSequence++}`,
-    taskId: tokenOwnerTask.id,
-    toStatus: 'done',
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + TIMING.tokenTtlMs).toISOString(),
-    consumedAt: null,
-  };
-  confirmTokens.set(forgedToken.id, forgedToken);
-  const missingActorResult = moveTask({ taskId: tokenOwnerTask.id, status: 'done' }, actorNoAdmin, { confirmToken: forgedToken.id });
-  const missingActorAudit = latestAudit(
-    (row) => row.action === 'move' && row.target === tokenOwnerTask.id && row.decision === 'rejected' && row.hardReason === 'principal-binding-absent',
-  );
+function runS7() {
+  const securityBefore = securityLog.length;
+  const owner = makeActor('admin-owner');
 
-  const missingActorPass =
-    missingActorResult.decision === 'rejected' &&
-    missingActorResult.hardReason === 'principal-binding-absent' &&
-    tokenOwnerTask.status !== 'done' &&
-    missingActorAudit?.source === 'autonomous';
+  const mismatchTask = addTask({ title: 'S7 principal mismatch', status: 'in_progress' });
+  const mismatchToken = mintConfirmToken({ taskId: mismatchTask.id, action: 'move-to-review', adminId: owner.adminId });
+  const mismatch = performRepresentativeHumanAction(mismatchTask, makeActor('admin-other'), { confirmToken: mismatchToken.id });
 
-  const actor = makeActor('admin X', 'admin X');
-  const nullActorTask = makeTask({ title: 'S7 null actor', status: 'todo' });
-  tasks.set(nullActorTask.id, nullActorTask);
-  const validToken = mintConfirmToken({ taskId: nullActorTask.id, toStatus: 'done', adminId: actor.adminId });
-  const nullActorResult = moveTask({ taskId: nullActorTask.id, status: 'done' }, null, { confirmToken: validToken.id });
-  const nullActorAudit = latestAudit(
-    (row) => row.action === 'move' && row.target === nullActorTask.id && row.decision === 'rejected' && row.hardReason === 'principal-binding-absent',
-  );
+  const expiredTask = addTask({ title: 'S7 expired token', status: 'in_progress' });
+  const expiredToken = mintConfirmToken({ taskId: expiredTask.id, action: 'move-to-review', adminId: owner.adminId, expiresInMs: 1_000 });
+  advanceClock(1_001);
+  const expired = performRepresentativeHumanAction(expiredTask, owner, { confirmToken: expiredToken.id });
 
-  const nullActorPass =
-    nullActorResult.decision === 'rejected' &&
-    nullActorResult.hardReason === 'principal-binding-absent' &&
-    nullActorTask.status !== 'done' &&
-    nullActorAudit?.source === 'autonomous';
+  const replayTask = addTask({ title: 'S7 replay token', status: 'in_progress' });
+  const replayToken = mintConfirmToken({ taskId: replayTask.id, action: 'move-to-review', adminId: owner.adminId });
+  const firstUse = performRepresentativeHumanAction(replayTask, owner, { confirmToken: replayToken.id });
+  const replay = performRepresentativeHumanAction(replayTask, owner, { confirmToken: replayToken.id });
 
-  return assertScenario(name, missingActorPass && nullActorPass, `missingActorResult=${JSON.stringify(missingActorResult)}, missingActorAudit=${JSON.stringify(missingActorAudit)}, nullActorResult=${JSON.stringify(nullActorResult)}, nullActorAudit=${JSON.stringify(nullActorAudit)}`);
-}
+  const forgedTask = addTask({ title: 'S7 forged token', status: 'in_progress' });
+  const forged = performRepresentativeHumanAction(forgedTask, owner, { confirmToken: 'forged-token' });
 
-function runScenarioS8() {
-  const name = 'S8 Malformed-expiry';
-  const actor = makeActor('admin X', 'admin X');
-  const task = makeTask({ title: 'S8 malformed expiry', status: 'in_progress' });
-  tasks.set(task.id, task);
+  const absentTask = addTask({ title: 'S7 principal binding absent', status: 'in_progress' });
+  const absentToken = mintConfirmToken({ taskId: absentTask.id, action: 'move-to-review', adminId: owner.adminId });
+  const absent = performRepresentativeHumanAction(absentTask, null, { confirmToken: absentToken.id });
 
-  const malformedToken = mintConfirmToken({
-    taskId: task.id,
-    toStatus: 'done',
-    adminId: actor.adminId,
-    expiresAt: 'not-a-date',
-  });
-  const result = moveTask({ taskId: task.id, status: 'done' }, actor, { confirmToken: malformedToken.id });
-  const audit = latestAudit((row) => row.action === 'move' && row.target === task.id && row.decision === 'rejected' && row.hardReason === 'confirm-token-expired');
-
+  const rejectedRows = securityLog.slice(securityBefore);
+  const forgedRow = rejectedRows.find((row) => row.target === forgedTask.id);
+  const reasons = rejectedRows.map((row) => row.hardReason);
   const pass =
-    result.decision === 'rejected' &&
-    result.hardReason === 'confirm-token-expired' &&
-    task.status !== 'done' &&
-    audit?.source === 'human-commanded';
-
-  return assertScenario(name, pass, `result=${JSON.stringify(result)}, taskStatus=${task.status}, audit=${JSON.stringify(audit)}`);
+    mismatch.hardReason === 'principal-mismatch' &&
+    expired.hardReason === 'confirm-token-expired' &&
+    firstUse.decision === 'allowed' &&
+    replay.hardReason === 'confirm-token-conflict' &&
+    forged.hardReason === 'confirm-token-invalid' &&
+    forgedRow?.source === 'autonomous' &&
+    absent.hardReason === 'principal-binding-absent' &&
+    rejectedRows.length === 5 &&
+    ['principal-mismatch', 'confirm-token-expired', 'confirm-token-conflict', 'confirm-token-invalid', 'principal-binding-absent'].every((reason) => reasons.includes(reason)) &&
+    mismatchTask.status === 'in_progress' &&
+    expiredTask.status === 'in_progress' &&
+    replayTask.status === REVIEW_STATUS &&
+    forgedTask.status === 'in_progress' &&
+    absentTask.status === 'in_progress' &&
+    confirmTokens.get(mismatchToken.id).consumedAt === null &&
+    confirmTokens.get(expiredToken.id).consumedAt === null &&
+    confirmTokens.get(replayToken.id).consumedAt !== null &&
+    confirmTokens.get(absentToken.id).consumedAt === null;
+  return reportScenario('S7', 'confirm-token mechanics on representative non-terminal action', pass, JSON.stringify({ mismatch, expired, firstUse, replay, forged, absent, rejectedRows }));
 }
 
-function dumpAudit() {
-  console.log('\nAudit Log:');
-  for (const [index, row] of auditLog.entries()) {
-    console.log(`  #${index + 1}.`, JSON.stringify(row));
+function dumpSink(name, rows) {
+  console.log(`${name}:`);
+  for (const [index, row] of rows.entries()) {
+    console.log(`  #${index + 1} ${JSON.stringify(row)}`);
   }
 }
 
 function main() {
-  const scenarios = [
-    runScenarioS1,
-    runScenarioS2,
-    runScenarioS3,
-    runScenarioS4,
-    runScenarioS5,
-    runScenarioS6,
-    runScenarioS7,
-    runScenarioS8,
-  ];
-
+  const scenarios = [runS1, runS2, runS3, runS4, runS5, runS6, runS7];
   let allPass = true;
   for (const scenario of scenarios) {
-    const pass = scenario();
-    allPass = allPass && pass;
-    console.log('');
+    allPass = scenario() && allPass;
   }
 
-  dumpAudit();
+  console.log('');
+  dumpSink('activityLedger', activityLedger);
+  console.log('');
+  dumpSink('securityLog', securityLog);
   console.log('');
   console.log(`SCENARIO_SUMMARY=${allPass ? 'PASS' : 'FAIL'}`);
-
   if (!allPass) {
     process.exitCode = 1;
   }

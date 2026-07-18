@@ -1,74 +1,50 @@
-# wf218 hard-gate prototype
+# wf218 corrected hard-gate prototype
 
-## What this prototype proves
+## Contract proved
 
-This throwaway prototype models the WF-218 hard-gate contract in-memory with no DB, no network, and no repo dependencies.
+This dependency-free, in-memory Node ESM prototype models the corrected Dev Board authority boundary:
 
-It demonstrates:
+- Ask Admin tool commands `moveTask` and `createTask` can never write `done`.
+- A direct `moveTask(..., status: 'done')` is rejected with `done-requires-admit-done`, whether it is autonomous or carries a valid human confirm token. The valid token is necessary-but-not-sufficient evidence and is not consumed by the rejected attempt.
+- `createTask(..., status: 'done')` is rejected with `create-with-terminal-status`.
+- `admitDone(ticket, proofs, actor)` is the only path to `done`. It is system-owned, requires the ticket to be in Review, and requires every proof to be exactly `true`: Ready approval, the #229 review-exit containment proof, merge authorization, and confirmed merge into `development`.
+- Missing proof data rejects fail-closed with a specific hard reason. There is no direct In-Progress-to-Done transition.
+- Admission authorization, aggregate mutation, and accepted-ledger append behave as one atomic unit. A failure-injection hook demonstrates rollback after authorization: status and accepted-ledger state are restored, while the blocked attempt is retained as security telemetry.
 
-1. `authorizeTask(action)` remains generic and permissive by design (always pass for `member`), while a dedicated status-aware guard enforces terminal-hard-gate behavior.
-2. `moveTask` and `createTask` both run:
-   - `authorizeTask(...)`
-   - dedicated guard (`assertTerminalTransitionAuthorized`)
-   - mutation only when allowed
-3. A single-use confirm token model bound to task + target status + admin principal + expiry.
-4. Gate audit rows for both accepted and rejected gated attempts.
-5. Sad-path behavior first: missing token, expired token, consumed token replay, principal mismatch, and terminal-create rejection.
+## Two audit sinks (DBF-174 correction)
 
-## How to run
+`activityLedger[]` contains accepted product commands only. `securityLog[]` contains rejected or blocked attempts and bypass telemetry only. Rejected direct-Done attempts and rejected `AdmitDone` gates never appear in the accepted activity ledger.
 
-`node prototypes/wf218-hard-gate/demo.mjs`
+## Confirm-token mechanism evidence
 
-### Expected console behavior
+The prototype retains confirm-token mechanics on the representative non-terminal `move-to-review` action:
 
-The script runs eight scenarios, prints PASS/FAIL for each, then dumps all audit rows. It exits with:
+- single-use compare-and-swap consumption;
+- scope binding to `taskId + action`;
+- finite, future expiry at issuance and expiry checking at use;
+- principal binding to `adminId`;
+- `source` derived from validated scope and principal binding, never from raw envelope presence.
 
-- `0` when all scenarios pass
-- non-zero when any assertion fails
+The S7 cases prove fail-closed principal mismatch, expiry, replay/conflict, forged token, and absent principal binding. A forged token is classified as `autonomous`. These scenarios are mechanism evidence only: **which v1 Ask Admin actions require a confirm token remains an open question for #220**.
 
-## Review fixes applied
+## Run
 
-- FIX 1: `appendAudit` now takes explicit `source`; source is computed in `assertTerminalTransitionAuthorized` from validated token binding and never inferred from envelope presence.
-- FIX 2: principal binding is fail-closed before comparison, returning `principal-binding-absent` when `adminId` is missing or actor is missing, and `mintConfirmToken` now requires `adminId`.
-- FIX 3: expiry validation is finite-only; malformed or non-finite expiry now rejects as `confirm-token-expired`.
-- FIX 4: token consume is an atomic claim (`consumeConfirmToken`) that returns `null` for already-consumed tokens and rejects replay as `confirm-token-conflict`.
-- FIX 5: all guard outcomes now include `source`, and every guard attempt writes exactly one audit row.
-- FIX 6: create status checks now enforce `CREATE_ALLOWED_STATUSES`, and `done` is rejected as `create-with-terminal-status`.
+```sh
+node prototypes/wf218-hard-gate/demo.mjs
+```
 
-Scenario additions:
+The process prints PASS/FAIL for S1 through S7, dumps `activityLedger` and `securityLog`, prints `SCENARIO_SUMMARY=PASS|FAIL`, and exits non-zero on any failure.
 
-- S6: forged-token source check (`autonomous-attempt-on-gated-transition`) verifies autonomous source for unknown confirm token.
-- S7: principal-binding-absent checks for missing token binding and null actor, both with `principal-binding-absent`.
-- S8: malformed expiry check (`confirm-token-expired`) with no state mutation.
+## Mapping to real code and authority records
 
-Both DeepSeek and Codex-sol reviews drove this pass.
-
-## Mapping to REAL insertion points (memo-aligned)
-
-| Prototype piece | Real insertion point in repo | Insertion intent |
+| Prototype boundary | Real insertion point / authority | Intent |
 |---|---|---|
-| `authorizeTask(action)` stub + placement | `packages/project-management/src/application/tasks.ts:1774` (moveTask) and `packages/project-management/src/application/tasks.ts:1421` (createTask) | Keep existing role/authorization check as-is; gate stays below it |
-| `assertTerminalTransitionAuthorized(...)` | `packages/project-management/src/application/tasks.ts:1745` before `withTenant` mutation (`tasks.ts:1780-1807` for move) and before `insert` in create (`tasks.ts:1426`) | Centralized terminal gate for `done` transitions |
-| `moveTask` flow ordering | `packages/project-management/src/application/tasks.ts:1745` | `authorizeTask` -> guard -> mutation |
-| `createTask` flow ordering | `packages/project-management/src/application/tasks.ts:1386` | `authorizeTask` -> guard -> insert |
-| Create terminal guard path | `packages/project-management/src/application/tasks.ts:1395-1421` | Reject `create` with `status: 'done'` before mutation (`create-with-terminal-status`) |
-| `approval.requested` no-op route | `apps/web/app/api/tasks/ask-admin/turn/route.ts:423-425` | Placeholder where confirm-token mint/consume wiring should be plugged in later |
+| Tool-path `moveTask` terminal rejection | `packages/project-management/src/application/tasks.ts:1745` | Reject every direct move to `done` and direct callers to governed `AdmitDone`; never consume a supplied confirm token. |
+| Tool-path `createTask` terminal rejection | `packages/project-management/src/application/tasks.ts:1386` | Reject cards created in `done` before mutation. |
+| System-owned `admitDone` | `docs/plan/research/wf230-devticket-command-model.md:1525-1547` | Make `AdmitDone` the sole Done writer, after mandatory Review and the complete Ready/review/merge proof chain. |
+| Review-exit containment proof | GitHub #229 and ADR-017 | Treat review containment as a required admission proof, not an optional human assertion. |
+| Accepted command ledger and rejection telemetry | DBF-174 | Preserve the corrected two-sink rule: accepted product commands in `activityLedger`; rejects, blocks, and bypass telemetry in `securityLog`. |
 
-## Locked decisions (baked in)
+## Scope
 
-- `create-with-terminal-status` is rejected outright. Cards cannot be born `done`.
-- `approve-merge` flow is **out of scope** for v1.
-- No `step-up auth` for v1. Gate source is enrolled-admin session + one-time scope-bound confirm token + principal match + expiry.
-- The gate is server-side, below tool policy, and below authorization (`authorizeTask`), not replacing it.
-
-## OUT OF SCOPE (throwaway prototype)
-
-- Real Postgres/Prisma/ORM persistence
-- Real OpenClaw transport and `approval.requested` wire-up beyond placeholder mapping
-- `wf230` aggregate writes and command-identity records
-- `#229` review/merge containment implementation
-- Step-up auth / TOTP / passkey flows
-
-## Notes on scope
-
-This prototype is intentionally throwaway and should not be used as production code. It is a simulation scaffold for contract verification before the real WF-218 implementation in application code.
+This is a throwaway contract simulation, not production code. It intentionally omits Postgres transactions, transport wiring, persistence adapters, real review/merge integrations, and the #220 decision about which non-terminal Ask Admin commands require confirmation.
