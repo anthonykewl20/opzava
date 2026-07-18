@@ -414,11 +414,11 @@ describe("slice 2.5b Opzava MCP server", () => {
         }),
       );
       expect(
-        (retriedQuality["result"] as { qualityReview: { checks: { id: string }[] } }).qualityReview
-          .checks[0]?.id,
+        (retriedQuality["result"] as { qualityReview: { checks: { id: string }[] } })
+          .qualityReview.checks[0]?.id,
       ).toBe(
-        (firstQuality["result"] as { qualityReview: { checks: { id: string }[] } }).qualityReview
-          .checks[0]?.id,
+        (firstQuality["result"] as { qualityReview: { checks: { id: string }[] } })
+          .qualityReview.checks[0]?.id,
       );
     } finally {
       await connection.close();

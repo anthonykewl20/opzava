@@ -1,4 +1,9 @@
-import { mapDatabaseError, sql, withTenant, type TenantTransaction } from "@opzava/adapters";
+import {
+  mapDatabaseError,
+  sql,
+  withTenant,
+  type TenantTransaction,
+} from "@opzava/adapters";
 import type { AuthorizationPort, AuthorizationSubject } from "@opzava/ports";
 import {
   DomainError,
@@ -2542,13 +2547,7 @@ export async function addTaskEvidenceFile(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -2640,13 +2639,7 @@ export async function addTaskEvidenceLink(
         : ok(rowToEvidenceDto(row));
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -2680,13 +2673,7 @@ export async function listTaskEvidence(
       return ok(await selectEvidence(tx, input.taskId));
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -2733,13 +2720,7 @@ export async function ensureTaskQualityReview(
         : ok(review);
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -2873,13 +2854,7 @@ export async function addQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -2987,13 +2962,7 @@ export async function toggleQualityCheck(
         : ok(loaded);
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
@@ -3283,13 +3252,7 @@ export async function approveQualityReview(
         : ok(loaded);
     });
   } catch (error) {
-    return err(
-      taskError(
-        "projectManagement.databaseError",
-        "Database operation failed.",
-        mapDatabaseError(error),
-      ),
-    );
+    return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
   }
 }
 
