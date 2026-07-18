@@ -27,6 +27,7 @@ export type FakeGatewayMode =
   | "auth-scope-mismatch"
   | "chat-aborted"
   | "chat-error"
+  | "chat-error-leak"
   | "deferred-final"
   | "duplicate-response"
   | "mid-stream-close"
@@ -573,6 +574,29 @@ export class FakeOpenClawGateway {
             state: "error",
             errorKind: "rate_limit",
             errorMessage: "Provider rate limit.",
+          },
+        }),
+      );
+      return;
+    }
+
+    if (this.mode === "chat-error-leak") {
+      // Simulates the live 2026-07-16 leak: an upstream error message carrying
+      // cf-ray, an upstream URL, and an upstream request id. The broker ACL must
+      // strip all of these before the failure event reaches the BFF (#252).
+      socket.send(
+        serializeOpenClawFrame({
+          type: "event",
+          event: "chat",
+          payload: {
+            runId: record.runId,
+            sessionKey: record.sessionKey,
+            agentId: "ask-admin-opzava",
+            seq: 1,
+            state: "error",
+            errorKind: "provider_error",
+            errorMessage:
+              "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a1b22d857c3484a5-HKG, request id: req_73d0a1881cf9490d88ca96376ebe7926",
           },
         }),
       );

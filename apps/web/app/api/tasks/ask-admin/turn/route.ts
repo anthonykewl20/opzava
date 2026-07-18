@@ -19,13 +19,13 @@ import {
   startAssistantTurn,
   toolExecutionContextFromSessionPrincipal,
 } from "@opzava/runtime-control";
-import { makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
+import { DomainError, makeOrgId, makeTenantId, makeUserId, makeWorkspaceId } from "@opzava/shared-kernel";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { askAdminAssistantKey, askAdminRouteId } from "@/lib/ask-admin-history";
+import { mapBrokerError } from "@/lib/ask-admin-failure";
 import type { AskAdminClientStreamEvent } from "@/lib/ask-admin-stream";
-import { classifyAskAdminFailureState } from "@/lib/ask-admin-failure";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
 import { defaultErrorCapturePort } from "@/lib/error-capture";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
@@ -120,8 +120,13 @@ function errorStatus(error: unknown, depth = 0): number | undefined {
     : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Ask Admin Opzava request failed.";
+function domainErrorMessage(error: unknown): string {
+  // Only surface controlled, Opzava-owned messages: a `DomainError` comes from a
+  // Result the runtime or web adapter returned. A plain thrown `Error` (e.g. an
+  // unexpected fetch failure whose text could itself carry a URL/key) is left to
+  // the presentation fallback rather than raw-passthrough'd (#252 sad path:
+  // non-Error throws and surprise errors must not leak to the browser).
+  return error instanceof DomainError ? error.message : "";
 }
 
 function failureEvent(
@@ -129,14 +134,13 @@ function failureEvent(
   turnId?: string,
 ): Extract<AskAdminClientStreamEvent, { readonly type: "failed" }> {
   const code = errorCode(error) ?? "askAdmin.failed";
+  const mapped = mapBrokerError({ code, status: errorStatus(error) }, domainErrorMessage(error));
   return {
     type: "failed",
     ...(turnId === undefined ? {} : { turnId }),
     code,
-    // #252 replaces this raw passthrough with sanitized presentation; the
-    // failure *class* already flows through the mapBrokerError seam below.
-    message: errorMessage(error),
-    state: classifyAskAdminFailureState({ code, status: errorStatus(error) }),
+    message: mapped.message,
+    state: mapped.state,
   };
 }
 
@@ -255,7 +259,9 @@ function toolFailureFromError(
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     code: errorCode(error) ?? "runtimeControl.toolExecutionFailed",
-    message: errorMessage(error),
+    // #252: tool-failure text had the same raw-passthrough shape — surface only
+    // a controlled `DomainError` message, else an Opzava-owned string.
+    message: domainErrorMessage(error) || "The tool could not complete.",
     state: "tool_running",
   };
 }
@@ -387,15 +393,22 @@ async function handleGatewayEvent(
   }
 
   if (event.type === "failed") {
+    // `event.message` is the broker-sanitized payload (cf-ray/URL/request-id/
+    // raw-JSON already stripped at the ACL — #252). The presentation seam decides
+    // whether that semantic text surfaces or an Opzava-owned string overrides it.
+    const mapped = mapBrokerError({ code: event.code }, event.message);
     const failure: Extract<AskAdminClientStreamEvent, { readonly type: "failed" }> = {
       type: "failed",
       turnId: event.turnId,
       code: event.code,
-      message: event.message,
-      state: classifyAskAdminFailureState({ code: event.code }),
+      message: mapped.message,
+      state: mapped.state,
     };
     await safeFailAssistantTurn(runtime, context, event.turnId, failure);
-    await writeFailureEvent(controller, deps, context, failure);
+    // Capture the broker failure event as the cause so server-side detail (the
+    // sanitized semantic message + code + state) is recorded untruncated while
+    // only the presented text reaches the browser.
+    await writeFailureEvent(controller, deps, context, failure, event);
     return true;
   }
 

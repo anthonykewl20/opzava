@@ -583,4 +583,200 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
       details: { state: "policy_denied", turnId: "assistant-turn-1" },
     });
   });
+
+  it("surfaces the broker-sanitized failure message and records full detail server-side (#252)", async () => {
+    const captured = capturedErrors();
+    // This is the broker-sanitized payload for the live leak #1 — the raw JSON
+    // blob was lifted to its inner semantic message at the ACL, so the BFF only
+    // ever sees this clean, actionable text.
+    const brokerSanitizedMessage =
+      "The 'gpt-5.6-sol' model requires a newer version of Codex to use this model.";
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () =>
+        gatewayPort([
+          {
+            type: "failed",
+            turnId: "assistant-turn-1",
+            code: "openclaw.streamFailed",
+            message: brokerSanitizedMessage,
+          },
+        ]),
+      runtime: successfulRuntime(),
+      errorCapture: captured.port,
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+    const events = await readEvents(response);
+
+    // Semantic text surfaces; state is unchanged (this code is not transient).
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "openclaw.streamFailed",
+      state: "failed",
+      message: brokerSanitizedMessage,
+    });
+    // ErrorCapturePort records the full untruncated detail + the broker event
+    // as the cause — sanitization is for the browser payload only.
+    expect(captured.captures).toHaveLength(1);
+    expect(captured.captures[0]).toMatchObject({
+      code: "openclaw.streamFailed",
+      message: brokerSanitizedMessage,
+      details: { state: "failed", turnId: "assistant-turn-1" },
+    });
+    expect(captured.captures[0]?.cause).toMatchObject({
+      type: "failed",
+      code: "openclaw.streamFailed",
+      message: brokerSanitizedMessage,
+    });
+  });
+
+  it("substitutes the Opzava fallback when the broker collapses a failure to an empty message (#252)", async () => {
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () =>
+        gatewayPort([
+          {
+            type: "failed",
+            turnId: "assistant-turn-1",
+            code: "gatewayBroker.connectionClosed",
+            message: "",
+          },
+        ]),
+      runtime: successfulRuntime(),
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+    const events = await readEvents(response);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "gatewayBroker.connectionClosed",
+      state: "gateway_unavailable",
+      message: "The assistant gateway is temporarily unavailable.",
+    });
+  });
+
+  it("does not raw-passthrough a thrown non-DomainError to the browser (#252 catch-all)", async () => {
+    const captured = capturedErrors();
+    const leakyThrow = new Error(
+      "unexpected status 401, url: https://api.openai.com/v1/responses, cf-ray: a1b22d857c3484a5",
+    );
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () => gatewayPort([]),
+      runtime: {
+        ...successfulRuntime(),
+        appendUserTurn: async () => {
+          throw leakyThrow;
+        },
+      },
+      errorCapture: captured.port,
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+    const events = await readEvents(response);
+    const failure = events.at(-1);
+
+    expect(failure).toMatchObject({ type: "failed", state: "failed" });
+    const message = (failure as { readonly message: string }).message;
+    // A plain (non-DomainError) throw never surfaces its raw text; the Opzava
+    // fallback is used instead, so no topology/vendor detail leaks.
+    expect(message).toBe("Ask Admin Opzava could not complete the request.");
+    expect(message).not.toContain("https://");
+    expect(message).not.toContain("api.openai.com");
+    expect(message).not.toContain("cf-ray");
+    // Full detail is preserved server-side via the cause.
+    expect(captured.captures[0]?.cause).toBe(leakyThrow);
+  });
+
+  it("surfaces a controlled tool-execution failure without raw-passthrough (#252 tool path)", async () => {
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () =>
+        gatewayPort([
+          {
+            type: "tool.call",
+            turnId: "assistant-turn-1",
+            toolCallId: "tool-call-create-task" as OpenClawToolCallId,
+            toolName: "opzava_tasks_create",
+            args: { title: "t" },
+          },
+          {
+            type: "final",
+            turnId: "assistant-turn-1",
+            content: { text: "done" },
+            sessionRef: sessionRef(),
+          },
+        ]),
+      runtime: {
+        ...successfulRuntime(),
+        executeRuntimeControlTaskTool: async () =>
+          ({
+            ok: false,
+            error: new DomainError({
+              code: "runtimeControl.toolExecutionFailed",
+              message: "The tasks tool is not permitted in this workspace.",
+            }),
+          }) as never,
+      },
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+    const events = await readEvents(response);
+    const toolFailed = events.find((event) => event.type === "tool.failed");
+
+    expect(toolFailed).toMatchObject({
+      type: "tool.failed",
+      toolName: "opzava_tasks_create",
+      state: "tool_running",
+    });
+    expect((toolFailed as { readonly message: string }).message).toBe(
+      "The tasks tool is not permitted in this workspace.",
+    );
+  });
 });

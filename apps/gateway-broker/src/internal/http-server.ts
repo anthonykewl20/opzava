@@ -10,6 +10,8 @@ import type {
 } from "@opzava/ports";
 import type { TenantId } from "@opzava/shared-kernel";
 
+import { sanitizeFailure } from "../acl/openclaw/errors.js";
+
 interface AssertedPrincipalBlock {
   /**
    * The only principal field crossing the web→broker boundary. It is checked
@@ -191,10 +193,14 @@ function toGatewayInput(
 }
 
 function failedStreamEvent(turnId: string, error: unknown): OpenClawStreamEvent {
+  // #252: every failure crossing the broker→BFF boundary is shaped through the
+  // ACL sanitizer so the SSE `failed` event never carries raw upstream text.
+  const failure = sanitizeFailure(error, "gatewayBroker.requestFailed", "Gateway broker request failed.");
   return {
     type: "failed",
     turnId,
-    ...sanitizedError(error),
+    code: failure.code,
+    message: failure.sanitizedMessage,
   };
 }
 
@@ -209,19 +215,8 @@ function writeSse(response: ServerResponse, event: OpenClawStreamEvent): void {
 }
 
 function sanitizedError(error: unknown): { readonly code: string; readonly message: string } {
-  if (typeof error === "object" && error !== null) {
-    const code = (error as { readonly code?: unknown }).code;
-    const message = (error as { readonly message?: unknown }).message;
-    return {
-      code: typeof code === "string" ? code : "gatewayBroker.requestFailed",
-      message:
-        typeof message === "string" && message.trim() !== ""
-          ? message
-          : "Gateway broker request failed.",
-    };
-  }
-
-  return { code: "gatewayBroker.requestFailed", message: "Gateway broker request failed." };
+  const failure = sanitizeFailure(error, "gatewayBroker.requestFailed", "Gateway broker request failed.");
+  return { code: failure.code, message: failure.sanitizedMessage };
 }
 
 async function handleAssistantStream(

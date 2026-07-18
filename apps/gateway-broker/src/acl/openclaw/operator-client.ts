@@ -21,7 +21,7 @@ import WebSocket from "ws";
 
 import { AsyncQueue } from "../../rpc/async-queue.js";
 import type { GatewayRouteConfig } from "../../routing/routes.js";
-import { gatewayBrokerError, isTransientGatewayError, sanitizeGatewayError } from "./errors.js";
+import { gatewayBrokerError, isTransientGatewayError, sanitizeFailureMessage, sanitizeGatewayError } from "./errors.js";
 import type { BrokerLogger } from "./logger.js";
 import { silentBrokerLogger } from "./logger.js";
 import {
@@ -1041,11 +1041,17 @@ export class OpenClawOperatorClient {
     }
 
     if (record.error !== undefined) {
+      // Preserve the full upstream detail server-side (#252 invariant) while
+      // relaying only the sanitized message to the BFF.
+      this.logger.warn(
+        { routeId: this.route.routeId, sessionKey, upstreamError: record.error },
+        "OpenClaw stream reported an error; relaying a sanitized failure.",
+      );
       stream.queue.push({
         type: "failed",
         turnId: stream.turnId,
         code: record.error.code ?? "openclaw.streamFailed",
-        message: record.error.message ?? "OpenClaw stream failed.",
+        message: sanitizeFailureMessage(record.error.message, "OpenClaw stream failed."),
       });
       this.closeActiveStream(sessionKey, stream);
       return;
@@ -1124,21 +1130,33 @@ export class OpenClawOperatorClient {
         type: "failed",
         turnId: stream.turnId,
         code: "aborted",
-        message: textFromMessage(record.message) ?? "OpenClaw stream aborted.",
+        message: sanitizeFailureMessage(
+          textFromMessage(record.message) ?? undefined,
+          "OpenClaw stream aborted.",
+        ),
       });
       this.closeActiveStream(sessionKey, stream);
       return;
     }
 
     if (record.state === "error") {
+      const upstreamErrorMessage =
+        stringValue(record.errorMessage) ?? textFromMessage(record.message) ?? undefined;
+      // Preserve full upstream detail server-side; relay only sanitized text.
+      this.logger.warn(
+        {
+          routeId: this.route.routeId,
+          sessionKey,
+          errorKind: record.errorKind,
+          upstreamErrorMessage,
+        },
+        "OpenClaw chat stream errored; relaying a sanitized failure.",
+      );
       stream.queue.push({
         type: "failed",
         turnId: stream.turnId,
         code: sanitizedStreamCode(record.errorKind ?? record.errorMessage, "openclaw_stream_error"),
-        message:
-          stringValue(record.errorMessage) ??
-          textFromMessage(record.message) ??
-          "OpenClaw stream failed.",
+        message: sanitizeFailureMessage(upstreamErrorMessage, "OpenClaw stream failed."),
       });
       this.closeActiveStream(sessionKey, stream);
       return;
@@ -1263,12 +1281,15 @@ export class OpenClawOperatorClient {
     options: { readonly notifyDrained?: boolean } = {},
   ): void {
     const hadActiveStreams = this.activeStreams.size > 0;
+    // Callers pass broker-owned messages, but route every relayed failure through
+    // the sanitizer so no path can raw-passthrough upstream text (#252).
+    const sanitizedMessage = sanitizeFailureMessage(message, message);
     for (const stream of this.activeStreams.values()) {
       stream.queue.push({
         type: "failed",
         turnId: stream.turnId,
         code,
-        message,
+        message: sanitizedMessage,
       });
       stream.queue.close();
     }

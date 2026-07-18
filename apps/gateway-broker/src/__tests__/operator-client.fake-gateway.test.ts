@@ -874,6 +874,31 @@ describe("[fake-gateway] broker operator client", () => {
     });
   });
 
+  it("strips upstream topology detail from a leaky upstream chat error (#252)", async () => {
+    const { broker } = await createBrokerFixture({ mode: "chat-error-leak" });
+    const result = await startAssistantStream(broker, startInput());
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    const events = await collectUntilTerminal(result.value.events);
+    const terminal = events.at(-1);
+    expect(terminal?.type).toBe("failed");
+
+    const message = (terminal as { readonly message: string }).message;
+    // Semantic, operator-actionable text (the credential was rejected) survives.
+    expect(message).toContain("unexpected status 401");
+    expect(message).toContain("Missing bearer or basic authentication in header");
+    // None of the topology/vendor detail the owner saw live reaches the BFF.
+    expect(message).not.toContain("https://");
+    expect(message).not.toContain("api.openai.com");
+    expect(message).not.toContain("cf-ray");
+    expect(message).not.toContain("a1b22d857c3484a5");
+    expect(message).not.toContain("request id");
+    expect(message).not.toContain("req_73d0");
+  });
+
   it("rejects shared-secret hot-path configuration before connecting", async () => {
     const { broker, gateway } = await createBrokerFixture({ authMode: "shared-secret" });
     const result = await startAssistantStream(broker, startInput());
