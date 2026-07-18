@@ -1,10 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { LocalFileSecretsVault } from "@opzava/adapters";
+import { LocalFileSecretsVault, PostgresObservabilityAdapter } from "@opzava/adapters";
 import {
   canonicalModelProviderAuthId,
   canonicalProviderLabel,
+  type AppendAuditInput,
   type ApplyOrchestratorDelegationInput,
+  type AuditConfigSnapshot,
+  type AuditIntent,
+  type AuditResult,
+  type AuditTargetKind,
+  type AuditTransition,
+  type ErrorCapturePort,
   classifyModelProvider,
   type ConnectModelProviderApiKeyInput,
   type ConnectedAuthMode,
@@ -52,7 +59,7 @@ import {
   type OpenClawHealthComponent,
   type OpenClawLastKnownHealthy,
 } from "@opzava/ports";
-import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+import { DomainError, err, makeOrgId, ok, type Result } from "@opzava/shared-kernel";
 
 import {
   ASK_ADMIN_AGENT_ID,
@@ -99,7 +106,38 @@ interface GatewayAdminConnectionsOptions {
   readonly gatewayRuntime?: GatewayRuntimePort;
   readonly fetch?: Fetch;
   readonly now?: () => Date;
+  /**
+   * Observability seam (#192): records append-only compliance audit rows for every
+   * connections/provider governance mutation. Real deployments inject the Postgres adapter;
+   * tests inject the in-memory fake. If omitted, appends log a loud warning so missing wiring
+   * is visible instead of silently dropping governance events.
+   */
+  readonly audit?: ErrorCapturePort;
 }
+
+// Default observability sink used only when no adapter is injected. `capture` is a true no-op;
+// `appendAudit` logs a loud warning so a deployment that forgot to wire the Postgres compliance
+// sink is visible instead of silently dropping governance events.
+const noopAuditSink: ErrorCapturePort = {
+  async capture() {
+    return ok(undefined);
+  },
+  async appendAudit(input) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        code: "observability.complianceSinkNotConfigured",
+        message:
+          "Governance audit append called without a configured observability adapter; install PostgresObservabilityAdapter for a durable compliance sink.",
+        intent: input.intent,
+        transition: input.transition,
+        targetKind: input.targetKind,
+        targetRef: input.targetRef,
+      }),
+    );
+    return ok({ eventId: `noop_${randomUUID()}` });
+  },
+};
 
 export interface ConnectionsProvisioningRuntimePort
   extends ConnectionsProvisioningPort, StartupOrchestratorConfigPort {
@@ -157,6 +195,8 @@ interface PendingModelProviderDisconnect {
   readonly opId: string;
   readonly orgId: string;
   readonly providerId: string;
+  /** Carried so the fire-and-forget post-disconnect reconcile can attribute its system actor. */
+  readonly actorUserId: string;
   readonly startedAt: Date;
   readonly expiresAt: Date;
   readonly timeout: ReturnType<typeof setTimeout>;
@@ -3288,7 +3328,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public constructor(private readonly options: GatewayAdminConnectionsOptions) {
     this.fetchImpl = options.fetch ?? fetch;
     this.now = options.now ?? (() => new Date());
+    this.audit = options.audit ?? noopAuditSink;
   }
+
+  private readonly audit: ErrorCapturePort;
 
   public reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>> {
     return new AskAdminStartupReconciler({
@@ -3299,6 +3342,108 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
   public close(): void {
     this.options.adminClient.close();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Governance audit (#192). Every connections/provider mutation emits an append-only
+  // state-transition event keyed by DOMAIN INTENT (not RPC). The fire-and-forget reconcile
+  // re-election records actor=system with a `trigger` linking the human whose credential change
+  // necessitated it, so literal and causal truth stay distinct (#192 comment 2). Audit appends
+  // are best-effort relative to the gateway mutation (they cannot share a transaction — the
+  // gateway is a remote system), but never block or fail the mutation itself (#192 comment 4).
+  // ---------------------------------------------------------------------------
+
+  private recordAudit(input: AppendAuditInput): void {
+    void this.audit.appendAudit(input).then((result) => {
+      if (!result.ok) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            code: "observability.auditAppendFailed",
+            intent: input.intent,
+            transition: input.transition,
+            targetKind: input.targetKind,
+            targetRef: input.targetRef,
+          }),
+        );
+      }
+    });
+  }
+
+  private auditUserEvent(params: {
+    readonly principal: ConnectionProvisioningPrincipal;
+    readonly intent: AuditIntent;
+    readonly transition: AuditTransition;
+    readonly targetKind: AuditTargetKind;
+    readonly targetRef: string;
+    readonly result: AuditResult;
+    readonly resultCode?: string;
+    readonly resultMessage?: string;
+    readonly configSnapshot?: AuditConfigSnapshot;
+  }): void {
+    this.recordAudit({
+      organizationId: makeOrgId(params.principal.orgId),
+      intent: params.intent,
+      transition: params.transition,
+      targetKind: params.targetKind,
+      targetRef: params.targetRef,
+      actorId: params.principal.actorUserId,
+      actorType: "user",
+      result: params.result,
+      ...(params.resultCode === undefined ? {} : { resultCode: params.resultCode }),
+      ...(params.resultMessage === undefined ? {} : { resultMessage: params.resultMessage }),
+      ...(params.configSnapshot === undefined ? {} : { configSnapshot: params.configSnapshot }),
+    });
+  }
+
+  private auditSystemEvent(params: {
+    readonly organizationId: string;
+    readonly intent: AuditIntent;
+    readonly transition: AuditTransition;
+    readonly targetKind: AuditTargetKind;
+    readonly targetRef: string;
+    readonly result: AuditResult;
+    readonly resultCode?: string;
+    readonly resultMessage?: string;
+    readonly triggeredByActorId?: string;
+    readonly triggeredByAction?: string;
+  }): void {
+    const hasTrigger =
+      params.triggeredByActorId !== undefined && params.triggeredByAction !== undefined;
+    this.recordAudit({
+      organizationId: makeOrgId(params.organizationId),
+      intent: params.intent,
+      transition: params.transition,
+      targetKind: params.targetKind,
+      targetRef: params.targetRef,
+      actorId: "system",
+      actorType: "system",
+      result: params.result,
+      ...(params.resultCode === undefined ? {} : { resultCode: params.resultCode }),
+      ...(params.resultMessage === undefined ? {} : { resultMessage: params.resultMessage }),
+      ...(hasTrigger
+        ? {
+            trigger: {
+              triggeredByActorId: params.triggeredByActorId!,
+              triggeredByAction: params.triggeredByAction!,
+            },
+          }
+        : {}),
+    });
+  }
+
+  /** Builds a safe, secret-free routing snapshot whose hash lets governance be reconstructed. */
+  private routingSnapshot(
+    targetKind: AuditTargetKind,
+    targetRef: string,
+    content: Readonly<Record<string, unknown>>,
+  ): AuditConfigSnapshot {
+    return {
+      targetKind,
+      targetRef,
+      content,
+      versionHash: createHash("sha256").update(JSON.stringify(content)).digest("hex"),
+    };
   }
 
   private acquireProviderWrite(key: string): void {
@@ -3896,6 +4041,32 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async setModelProviderModelEnabled(
     input: SetModelProviderModelEnabledInput,
   ): Promise<Result<ProviderConnectionState>> {
+    const result = await this.setModelProviderModelEnabledInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_model_toggled",
+      transition: result.ok ? "completed" : "failed",
+      targetKind: "model_provider",
+      targetRef: `${input.providerId}:${input.modelId}`,
+      result: result.ok ? "success" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+      ...(result.ok
+        ? {
+            configSnapshot: this.routingSnapshot("model_provider", input.providerId, {
+              providerId: input.providerId,
+              modelId: input.modelId,
+              enabled: input.enabled,
+              resultingStatus: result.value.status,
+            }),
+          }
+        : {}),
+    });
+    return result;
+  }
+
+  private async setModelProviderModelEnabledInner(
+    input: SetModelProviderModelEnabledInput,
+  ): Promise<Result<ProviderConnectionState>> {
     const guardKey = configWriteKey(input.orgId);
     const busy = this.providerConnectInFlight(input.orgId, input.providerId);
     if (busy !== null) {
@@ -4202,6 +4373,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startModelProviderApiKeyConnect(
     input: ConnectModelProviderApiKeyInput,
   ): Promise<Result<ModelProviderApiKeyConnectStart>> {
+    const result = await this.startModelProviderApiKeyConnectInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_connected",
+      transition: result.ok ? "requested" : "failed",
+      targetKind: "model_provider",
+      targetRef: input.providerId,
+      result: result.ok ? "pending" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async startModelProviderApiKeyConnectInner(
+    input: ConnectModelProviderApiKeyInput,
+  ): Promise<Result<ModelProviderApiKeyConnectStart>> {
     if (input.apiKey.trim() === "") {
       return err(
         provisioningError("provisioning.connections.emptyKey", "Provider credential is required."),
@@ -4304,6 +4491,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   public async startModelProviderSetupTokenFlow(
+    input: StartModelProviderSetupTokenFlowInput,
+  ): Promise<Result<SetupTokenFlowStart>> {
+    const result = await this.startModelProviderSetupTokenFlowInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_connected",
+      transition: result.ok ? "requested" : "failed",
+      targetKind: "model_provider",
+      targetRef: input.providerId,
+      result: result.ok ? "pending" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async startModelProviderSetupTokenFlowInner(
     input: StartModelProviderSetupTokenFlowInput,
   ): Promise<Result<SetupTokenFlowStart>> {
     const gatewayRuntime = this.options.gatewayRuntime;
@@ -4569,7 +4772,19 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     this.acquireProviderWrite(writeKey);
     try {
-      return await this.writeAndProveProviderCredential(input);
+      const result = await this.writeAndProveProviderCredential(input);
+      // Terminal transition for the connect intent. This single point covers both the api-key
+      // flow and the setup-token flow, which both funnel through this critical section.
+      this.auditUserEvent({
+        principal: input.op.principal,
+        intent: "provider_connected",
+        transition: result.ok ? "completed" : "failed",
+        targetKind: "model_provider",
+        targetRef: input.op.providerId,
+        result: result.ok ? "success" : "failure",
+        ...(result.ok ? {} : { resultCode: result.error.code }),
+      });
+      return result;
     } finally {
       this.releaseProviderWrite(writeKey);
     }
@@ -4682,6 +4897,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     await this.reconcileOrchestratorAfterCredentialChange({
       reason: "connect",
       providerId: input.op.providerId,
+      originatingPrincipal: input.op.principal,
+      originatingIntent: "provider_connected",
     });
 
     return ok(connection.value);
@@ -4776,6 +4993,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     void this.reconcileOrchestratorAfterCredentialChange({
       reason: "disconnect",
       providerId: input.providerId,
+      originatingPrincipal: input.principal,
+      originatingIntent: "provider_connected",
     });
 
     return err(
@@ -5052,6 +5271,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startModelProviderDeviceFlow(
     input: StartModelProviderDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>> {
+    const result = await this.startModelProviderDeviceFlowInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_connected",
+      transition: result.ok ? "requested" : "failed",
+      targetKind: "model_provider",
+      targetRef: input.providerId,
+      result: result.ok ? "pending" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async startModelProviderDeviceFlowInner(
+    input: StartModelProviderDeviceFlowInput,
+  ): Promise<Result<DeviceFlowChallenge>> {
     const gatewayRuntime = this.options.gatewayRuntime;
     if (gatewayRuntime === undefined) {
       return err(gatewayRuntimeUnavailableError());
@@ -5210,12 +5445,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       ) {
         return ok({ status: "expired", message: "Device sign-in not found." });
       }
-      return this.pollGitHubFlow(githubFlow);
+      const result = await this.pollGitHubFlow(githubFlow);
+      this.auditDeviceFlowTerminal(input, "github_connected", this.options.githubRepository, result);
+      return result;
     }
 
     const modelFlow = this.modelDeviceFlows.get(input.flowId);
     if (modelFlow !== undefined) {
-      return this.pollModelProviderFlow(input, modelFlow);
+      const result = await this.pollModelProviderFlow(input, modelFlow);
+      this.auditDeviceFlowTerminal(input, "provider_connected", modelFlow.providerId, result);
+      return result;
     }
 
     if (input.flowId.startsWith("model:")) {
@@ -5230,7 +5469,74 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         });
   }
 
+  /**
+   * Records the terminal transition of a device flow (provider or GitHub) only when the poll
+   * resolves to connected/failed/expired — pending ticks emit nothing (#192: audit the intent's
+   * terminal state, not the polling ticks).
+   */
+  private auditDeviceFlowTerminal(
+    principal: ConnectionProvisioningPrincipal,
+    intent: AuditIntent,
+    targetRef: string,
+    result: Result<DeviceFlowPollState>,
+  ): void {
+    if (!result.ok) {
+      this.auditUserEvent({
+        principal,
+        intent,
+        transition: "failed",
+        targetKind: intent === "github_connected" ? "github_connection" : "model_provider",
+        targetRef,
+        result: "failure",
+        resultCode: result.error.code,
+      });
+      return;
+    }
+    const status = result.value.status;
+    if (status === "connected") {
+      this.auditUserEvent({
+        principal,
+        intent,
+        transition: "completed",
+        targetKind: intent === "github_connected" ? "github_connection" : "model_provider",
+        targetRef,
+        result: "success",
+      });
+    } else if (status === "failed" || status === "expired") {
+      this.auditUserEvent({
+        principal,
+        intent,
+        transition: "failed",
+        targetKind: intent === "github_connected" ? "github_connection" : "model_provider",
+        targetRef,
+        result: "failure",
+        ...(typeof result.value.message === "string"
+          ? { resultMessage: result.value.message }
+          : {}),
+      });
+    }
+    // "pending" is a polling tick — intentionally not audited.
+  }
+
   public async cancelModelProviderDeviceFlow(
+    input: { readonly flowId: string } & ConnectionProvisioningPrincipal,
+  ): Promise<Result<DeviceFlowCancelState>> {
+    const result = await this.cancelModelProviderDeviceFlowInner(input);
+    // Only a real cancellation is a governance mutation; an unknown/invalid flow id changed nothing.
+    if (result.ok && result.value.status === "cancelled") {
+      this.auditUserEvent({
+        principal: input,
+        intent: "provider_connected",
+        transition: "cancelled",
+        targetKind: "model_provider",
+        targetRef: input.flowId,
+        result: "success",
+      });
+    }
+    return result;
+  }
+
+  private async cancelModelProviderDeviceFlowInner(
     input: { readonly flowId: string } & ConnectionProvisioningPrincipal,
   ): Promise<Result<DeviceFlowCancelState>> {
     if (!modelDeviceFlowIdPattern.test(input.flowId)) {
@@ -5289,6 +5595,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startModelProviderDisconnect(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ModelProviderDisconnectStart>> {
+    const result = await this.startModelProviderDisconnectInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_disconnected",
+      transition: result.ok ? "requested" : "failed",
+      targetKind: "model_provider",
+      targetRef: input.providerId,
+      result: result.ok ? "pending" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async startModelProviderDisconnectInner(
+    input: DisconnectModelProviderInput,
+  ): Promise<Result<ModelProviderDisconnectStart>> {
     // A credential write in flight is already mutating this provider's auth stores, and a #183
     // rollback inside one is itself a disconnect. Letting a second, operator-initiated disconnect
     // interleave with that makes the outcome last-writer-wins, which can land opposite to what the
@@ -5307,6 +5629,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       opId,
       orgId: input.orgId,
       providerId: input.providerId,
+      actorUserId: input.actorUserId,
       startedAt: this.now(),
       expiresAt: new Date(this.now().getTime() + modelProviderDisconnectExpiresMs),
       timeout: setTimeout(() => {
@@ -5374,6 +5697,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         void this.reconcileOrchestratorAfterCredentialChange({
           reason: "disconnect",
           providerId: op.providerId,
+          originatingPrincipal: {
+            orgId: op.orgId,
+            workspaceId: input.input.workspaceId,
+            actorUserId: op.actorUserId,
+            roleKeys: input.input.roleKeys,
+          },
+          originatingIntent: "provider_disconnected",
         });
       }
     } catch (error) {
@@ -5392,6 +5722,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   public async disconnectModelProvider(
+    input: DisconnectModelProviderInput,
+  ): Promise<Result<ProviderConnectionState>> {
+    const result = await this.disconnectModelProviderInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "provider_disconnected",
+      transition: result.ok ? "completed" : "failed",
+      targetKind: "model_provider",
+      targetRef: input.providerId,
+      result: result.ok ? "success" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async disconnectModelProviderInner(
     input: DisconnectModelProviderInput,
   ): Promise<Result<ProviderConnectionState>> {
     console.info("connections.modelProviderDisconnect.start", { providerId: input.providerId });
@@ -5629,6 +5975,25 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         }
       }
 
+      // #196: revoking a disconnected provider's routable models is its own governance fact
+      // (the routable allow-list changed). Record it with the surviving projection and an honest
+      // `unknown` result when the patch was closed-before-response — the state-transition model,
+      // not a falsified outcome (#192 comment 4).
+      if (prunedModelKeys.length > 0) {
+        this.auditUserEvent({
+          principal: input,
+          intent: "gateway_config_pruned",
+          transition: "completed",
+          targetKind: "gateway_config",
+          targetRef: input.providerId,
+          result: result.closedBeforeResponse ? "unknown" : "success",
+          configSnapshot: this.routingSnapshot("gateway_config", input.providerId, {
+            providerId: input.providerId,
+            prunedRoutableModels: prunedModelKeys,
+          }),
+        });
+      }
+
       // Removing an auth profile makes the gateway reload, and it drops the operator WS before
       // answering the RPC. Anything read from a half-restarted gateway is not evidence: models
       // .authStatus / models.status still report the credential that is already gone, which
@@ -5842,6 +6207,34 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   public async applyOrchestratorDelegation(
+    input: ApplyOrchestratorDelegationInput,
+  ): Promise<Result<OrchestratorDelegationState>> {
+    const result = await this.applyOrchestratorDelegationInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "orchestrator_delegation_applied",
+      transition: result.ok ? "completed" : "failed",
+      targetKind: "orchestrator",
+      targetRef: "orchestrator",
+      result: result.ok ? "success" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+      ...(result.ok
+        ? {
+            configSnapshot: this.routingSnapshot("orchestrator", "orchestrator", {
+              allowAgents: result.value.allowAgents,
+              subagents: result.value.subagents.map((sub) => ({
+                agentId: sub.agentId,
+                providerId: sub.providerId,
+                model: sub.model,
+              })),
+            }),
+          }
+        : {}),
+    });
+    return result;
+  }
+
+  private async applyOrchestratorDelegationInner(
     input: ApplyOrchestratorDelegationInput,
   ): Promise<Result<OrchestratorDelegationState>> {
     const writeKey = configWriteKey(input.orgId);
@@ -6205,6 +6598,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private reconcileOrchestratorAfterCredentialChange(context: {
     readonly reason: "disconnect" | "connect";
     readonly providerId: string;
+    /**
+     * The tenant principal whose credential change necessitated this fire-and-forget system
+     * re-election, plus the intent that caused it. Carried so the compliance audit records
+     * actor=system with a `trigger` linking the originating human — literal truth (the system
+     * executed the re-election) without falsely attributing the routing change to that human
+     * (#192 comment 2).
+     */
+    readonly originatingPrincipal?: ConnectionProvisioningPrincipal;
+    readonly originatingIntent?: AuditIntent;
   }): Promise<void> {
     const tracked = { ...context, startedAt: this.now().toISOString() };
     this.orchestratorReconcileQueued += 1;
@@ -6214,6 +6616,26 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     ) {
       this.orchestratorReconcileState = { status: "running", ...tracked };
     }
+
+    const auditReconcile = (outcome: "completed" | "failed", result: AuditResult): void => {
+      const principal = context.originatingPrincipal;
+      const intent = context.originatingIntent;
+      // A system re-election with no tenant principal (e.g. a future platform-initiated path)
+      // cannot form a tenant-scoped audit row; only the tenant-attributed path is auditable here.
+      if (principal === undefined || intent === undefined) {
+        return;
+      }
+      this.auditSystemEvent({
+        organizationId: principal.orgId,
+        intent: "orchestrator_reconciled",
+        transition: outcome,
+        targetKind: "orchestrator",
+        targetRef: "orchestrator",
+        result,
+        triggeredByActorId: principal.actorUserId,
+        triggeredByAction: intent,
+      });
+    };
 
     const continuation = this.orchestratorReconcileTail.then(async () => {
       // A recorded failure is a safety warning, not transient progress copy. Keep it visible while
@@ -6235,6 +6657,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             ...tracked,
             message: failure.message,
           };
+          auditReconcile("failed", "failure");
           return;
         }
 
@@ -6246,6 +6669,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           subagents: reconciled.value.allowAgents,
         });
         this.orchestratorReconcileState = { status: "idle" };
+        auditReconcile("completed", "success");
       } catch {
         console.error("connections.orchestrator.reconcileFailed", {
           reason: context.reason,
@@ -6257,6 +6681,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           ...tracked,
           message: "Orchestrator re-election failed unexpectedly in the provisioning worker.",
         };
+        auditReconcile("failed", "failure");
       } finally {
         this.orchestratorReconcileQueued -= 1;
       }
@@ -6266,6 +6691,31 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   public async setMainOrchestrator(
+    input: SetMainOrchestratorInput,
+  ): Promise<Result<OrchestratorDelegationState>> {
+    const result = await this.setMainOrchestratorInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "orchestrator_set",
+      transition: result.ok ? "completed" : "failed",
+      targetKind: "orchestrator",
+      targetRef: input.providerId,
+      result: result.ok ? "success" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+      ...(result.ok
+        ? {
+            configSnapshot: this.routingSnapshot("orchestrator", input.providerId, {
+              orchestratorProviderId: result.value.orchestratorProviderId,
+              orchestratorModel: result.value.orchestratorModel,
+              allowAgents: result.value.allowAgents,
+            }),
+          }
+        : {}),
+    });
+    return result;
+  }
+
+  private async setMainOrchestratorInner(
     input: SetMainOrchestratorInput,
   ): Promise<Result<OrchestratorDelegationState>> {
     const configResult = await this.options.adminClient.request("config.get", {});
@@ -6416,6 +6866,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   public async startGitHubDeviceFlow(
     input: StartGitHubDeviceFlowInput,
   ): Promise<Result<DeviceFlowChallenge>> {
+    const result = await this.startGitHubDeviceFlowInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "github_connected",
+      transition: result.ok ? "requested" : "failed",
+      targetKind: "github_connection",
+      targetRef: this.options.githubRepository,
+      result: result.ok ? "pending" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async startGitHubDeviceFlowInner(
+    input: StartGitHubDeviceFlowInput,
+  ): Promise<Result<DeviceFlowChallenge>> {
     if (this.options.githubOAuthClientId === undefined || this.options.githubOAuthClientId === "") {
       return err(
         provisioningError(
@@ -6501,6 +6967,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   public async disconnectGitHub(
+    input: DisconnectGitHubInput,
+  ): Promise<Result<GitHubConnectionState>> {
+    const result = await this.disconnectGitHubInner(input);
+    this.auditUserEvent({
+      principal: input,
+      intent: "github_disconnected",
+      transition: result.ok ? "completed" : "failed",
+      targetKind: "github_connection",
+      targetRef: this.options.githubRepository,
+      result: result.ok ? "success" : "failure",
+      ...(result.ok ? {} : { resultCode: result.error.code }),
+    });
+    return result;
+  }
+
+  private async disconnectGitHubInner(
     input: DisconnectGitHubInput,
   ): Promise<Result<GitHubConnectionState>> {
     const deleted = await this.options.secretsVault.deleteSecret(secretRef(input));
@@ -7144,6 +7626,8 @@ export function createDefaultConnectionsProvisioningPort(
     }),
     secretsVault: vault,
     githubRepository: repository,
+    // #192: every connections/provider governance mutation appends a durable compliance row.
+    audit: new PostgresObservabilityAdapter(),
     ...(dockerHost === null
       ? {}
       : {

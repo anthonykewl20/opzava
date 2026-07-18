@@ -50,3 +50,9 @@ export {
   type LocalFileSecretsVaultOptions,
   type PutLocalFileSecretInput,
 } from "./secrets/local-file-secrets-vault.js";
+export {
+  InMemoryObservabilityAdapter,
+  type RecordedAuditEvent,
+  type RecordedConfigVersion,
+} from "./in-memory-observability-adapter.js";
+export { PostgresObservabilityAdapter } from "./postgres/observability-adapter.js";

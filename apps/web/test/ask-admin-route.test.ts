@@ -162,6 +162,9 @@ function capturedErrors(): {
         captures.push(input);
         return ok(undefined);
       },
+      async appendAudit() {
+        return ok({ eventId: "test" });
+      },
     },
   };
 }

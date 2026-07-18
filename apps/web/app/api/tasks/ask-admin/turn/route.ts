@@ -72,7 +72,7 @@ const runtimeControlServices: RuntimeControlServices = {
 function defaultDependencies(): AskAdminTurnPostDependencies {
   return {
     getSessionContext: getAppSessionContext,
-    createGatewayPort: (context) => {
+    createGatewayPort: () => {
       const brokerEnv = readBrokerInternalEnv();
 
       return createBrokerOpenClawGatewayPort({

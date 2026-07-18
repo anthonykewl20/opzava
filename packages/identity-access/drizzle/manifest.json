@@ -68,6 +68,10 @@
     {
       "path": "0016_task_done_confirmation.sql",
       "sha256": "e2a0f65d2e1985dd240f915abd63488481c5484a10f700b22ab4954d68c6502b"
+    },
+    {
+      "path": "0017_governance_audit.sql",
+      "sha256": "e588e280a296f083a4abb6ca8ef8a551308f0967789a695f9b1c751415cd09d8"
     }
   ]
 }
