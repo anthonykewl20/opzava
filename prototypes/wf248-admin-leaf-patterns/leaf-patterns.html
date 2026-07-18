@@ -1,0 +1,1028 @@
+<!doctype html>
+<!--
+  THROWAWAY UI PROTOTYPE — not production code. Wayfinder #248.
+  Question: Which Admin LEAF-PAGE structure best lets one Opzava owner read the
+  GitHub Integrations leaf (setup, dimensional health, repair, history, drill-down)
+  while every concern carries the shared freshness/provenance envelope and the
+  hard-403 fail-closed contract? Compare Pattern A (tabs) / B (progressive
+  disclosure) / C (single scroll + sticky rail + drill-down side panel), then a
+  hard-403 denied state. Same five concerns + same evidence treatment across A/B/C
+  so the human is choosing STRUCTURE, not content.
+  Self-contained: inline tokens (from ux-redesign/mockups/tokens.css), inline
+  component vocabulary (from app.css class names), no external hosts/CDNs/fonts.
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin leaf patterns — GitHub Integrations · Opzava prototype #248</title>
+    <style>
+      /* ============================================================= tokens ===
+       * Inlined verbatim from ux-redesign/mockups/tokens.css (values only; the
+       * Google Fonts @import is intentionally OMITTED so this artifact makes no
+       * external request — the font stacks fall back to the OS UI/mono fonts). */
+      :root {
+        --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Code', monospace;
+
+        --text-xs: 0.8125rem; --text-sm: 0.9375rem; --text-base: 1rem;
+        --text-md: 1.0625rem; --text-lg: 1.25rem; --text-xl: 1.5rem; --text-2xl: 1.875rem;
+
+        --lh-tight: 1.2; --lh-snug: 1.35; --lh-normal: 1.55;
+        --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+        --tracking-caps: 0.06em;
+
+        --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+        --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+        --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px; --radius-full: 9999px;
+
+        --shadow-sm: 0 1px 2px hsl(220 50% 2% / .40);
+        --shadow-md: 0 6px 16px hsl(220 50% 2% / .45);
+        --shadow-lg: 0 16px 40px hsl(220 50% 2% / .55);
+
+        --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 320ms;
+        --ease-standard: cubic-bezier(.2, 0, 0, 1);
+        --ease-emphasized: cubic-bezier(.3, 0, 0, 1);
+
+        --z-sticky: 200; --z-drawer: 300; --z-modal: 400;
+
+        --row-comfortable: 40px; --row-compact: 32px;
+        --rail-w: 232px; --header-h: 52px;
+      }
+
+      /* Dark (default) — minimalist void: dark navy, single cyan accent */
+      :root, [data-theme="dark"] {
+        color-scheme: dark;
+        --bg: hsl(216 32% 6%); --surface: hsl(220 28% 9%); --surface-2: hsl(220 22% 12%);
+        --surface-3: hsl(220 18% 16%); --border: hsl(220 16% 18%); --border-strong: hsl(220 14% 28%);
+        --fg: hsl(210 22% 95%); --fg-muted: hsl(216 14% 70%); --fg-subtle: hsl(216 11% 54%);
+        --accent: hsl(187 80% 52%); --accent-fg: hsl(216 40% 6%); --accent-hover: hsl(187 82% 58%);
+        --accent-soft: hsl(187 78% 52% / .14); --accent-border: hsl(187 78% 52% / .38);
+        --success: hsl(150 52% 52%); --success-soft: hsl(150 52% 50% / .14);
+        --warning: hsl(38 86% 58%); --warning-soft: hsl(38 86% 55% / .14);
+        --danger: hsl(2 70% 60%); --danger-soft: hsl(2 70% 58% / .14);
+        --info: hsl(210 78% 66%); --info-soft: hsl(210 78% 62% / .14);
+        --ring: var(--accent);
+        --scrim-bg: hsl(220 50% 2% / .55);
+      }
+
+      /* Light */
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: hsl(220 24% 97%); --surface: hsl(0 0% 100%); --surface-2: hsl(220 22% 95%);
+        --surface-3: hsl(220 16% 91%); --border: hsl(220 16% 87%); --border-strong: hsl(220 14% 75%);
+        --fg: hsl(220 30% 12%); --fg-muted: hsl(220 12% 36%); --fg-subtle: hsl(220 10% 47%);
+        --accent: hsl(192 88% 34%); --accent-fg: hsl(0 0% 100%); --accent-hover: hsl(192 88% 28%);
+        --accent-soft: hsl(192 85% 40% / .10); --accent-border: hsl(192 85% 40% / .30);
+        --success: hsl(150 62% 34%); --success-soft: hsl(150 62% 40% / .12);
+        --warning: hsl(34 90% 40%); --warning-soft: hsl(34 90% 45% / .14);
+        --danger: hsl(2 72% 48%); --danger-soft: hsl(2 72% 50% / .10);
+        --info: hsl(210 82% 44%); --info-soft: hsl(210 82% 48% / .10);
+        --shadow-sm: 0 1px 2px hsl(220 30% 20% / .10);
+        --shadow-md: 0 6px 16px hsl(220 30% 20% / .12);
+        --shadow-lg: 0 16px 40px hsl(220 30% 20% / .16);
+        --scrim-bg: hsl(220 50% 2% / .45);
+      }
+
+      /* ============================================================= base === */
+      *, *::before, *::after { box-sizing: border-box; }
+      * { border-color: var(--border); }
+      html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font-family: var(--font-sans); font-size: var(--text-sm); line-height: var(--lh-normal);
+        -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+      }
+      h1, h2, h3, h4 { margin: 0; color: var(--fg); font-weight: var(--fw-semibold); line-height: var(--lh-tight); letter-spacing: -.01em; }
+      h1 { font-size: var(--text-xl); } h2 { font-size: var(--text-lg); } h3 { font-size: var(--text-base); }
+      p { margin: 0; } a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+      code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+      small { font-size: var(--text-xs); }
+      button { font: inherit; color: inherit; }
+      :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); border: 2px solid var(--bg); }
+      ::selection { background: var(--accent-soft); color: var(--fg); }
+      [hidden] { display: none !important; }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+      }
+
+      /* ========================================================= utilities === */
+      .u-muted { color: var(--fg-muted); } .u-subtle { color: var(--fg-subtle); } .u-accent { color: var(--accent); }
+      .u-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; } .u-tnum { font-variant-numeric: tabular-nums; }
+      .u-caps { text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+      .u-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .u-row { display: flex; align-items: center; gap: var(--space-2); }
+      .u-row-3 { display: flex; align-items: center; gap: var(--space-3); }
+      .u-between { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+      .u-col { display: flex; flex-direction: column; } .u-col-2 { display: flex; flex-direction: column; gap: var(--space-2); }
+      .u-col-4 { display: flex; flex-direction: column; gap: var(--space-4); } .u-wrap { flex-wrap: wrap; }
+      .u-grow { flex: 1 1 auto; min-width: 0; } .u-right { margin-left: auto; }
+
+      /* ======================================================== components ===
+       * Class names + rules mirror ux-redesign/mockups/app.css (card/badge/btn/
+       * tabs/table/banner/health-pill/empty/progress/drawer) so this reads as a
+       * token-faithful Opzava surface. */
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+      .card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+      .card-title { font-size: var(--text-base); font-weight: var(--fw-semibold); }
+      .card-body { padding: var(--space-5); }
+      .card-footer { padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border); }
+
+      .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: 36px; padding: 0 var(--space-4); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); color: var(--fg); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+      .btn:hover { background: var(--surface-3); }
+      .btn-primary { color: var(--accent-fg); background: var(--accent); border-color: var(--accent); }
+      .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+      .btn-ghost { color: var(--fg-muted); background: none; border-color: transparent; }
+      .btn-ghost:hover { color: var(--fg); background: var(--surface-2); }
+      .btn-danger { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+      .btn-danger:hover { color: #fff; background: var(--danger); }
+      .btn-sm { height: 30px; padding: 0 var(--space-3); }
+      .btn-icon { width: 36px; padding: 0; }
+      .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+      .badge { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; font-size: var(--text-xs); font-weight: var(--fw-medium); white-space: nowrap; border-radius: var(--radius-full); color: var(--fg-muted); background: var(--surface-3); }
+      .badge-success { color: var(--success); background: var(--success-soft); }
+      .badge-warning { color: var(--warning); background: var(--warning-soft); }
+      .badge-danger { color: var(--danger); background: var(--danger-soft); }
+      .badge-info { color: var(--info); background: var(--info-soft); }
+      .badge-accent { color: var(--accent); background: var(--accent-soft); }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--fg-subtle); }
+      .dot-success { background: var(--success); } .dot-warning { background: var(--warning); }
+      .dot-danger { background: var(--danger); } .dot-accent { background: var(--accent); }
+
+      .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+      .tab { appearance: none; margin-bottom: -1px; padding: 10px var(--space-4); font: inherit; font-size: var(--text-sm); color: var(--fg-muted); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
+      .tab:hover { color: var(--fg); }
+      .tab.active, .tab[aria-selected="true"] { color: var(--fg); font-weight: var(--fw-medium); border-bottom-color: var(--accent); }
+
+      .banner { display: flex; align-items: center; gap: var(--space-3); padding: 10px var(--space-4); font-size: var(--text-sm); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-md); }
+      .banner-info { border-left-color: var(--info); } .banner-warning { border-left-color: var(--warning); } .banner-danger { border-left-color: var(--danger); }
+
+      .health-pill { display: inline-flex; align-items: center; gap: var(--space-2); height: 30px; padding: 0 var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); border: 1px solid var(--border); border-radius: var(--radius-full); cursor: pointer; background: var(--surface); }
+
+      .table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+      .table th { height: 36px; padding: 0 var(--space-4); text-align: left; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; font-weight: var(--fw-semibold); color: var(--fg-subtle); border-bottom: 1px solid var(--border); white-space: nowrap; }
+      .table td { height: var(--row-comfortable); padding: var(--space-2) var(--space-4); color: var(--fg); border-bottom: 1px solid var(--border); vertical-align: middle; }
+      .table tbody tr:hover { background: var(--surface-2); }
+      .table-compact td { height: var(--row-compact); }
+
+      .progress { height: 6px; overflow: hidden; background: var(--surface-3); border-radius: var(--radius-full); }
+      .progress > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+      .empty { padding: var(--space-12) var(--space-6); text-align: center; color: var(--fg-muted); }
+      .empty-icon { font-size: 26px; opacity: .55; display: inline-flex; }
+      .empty-title { margin-top: var(--space-3); font-size: var(--text-base); font-weight: var(--fw-semibold); color: var(--fg); }
+      .empty-desc { margin-top: 6px; font-size: var(--text-sm); color: var(--fg-muted); }
+      .empty-cta { margin-top: var(--space-4); }
+
+      /* shared freshness/provenance envelope (wf246 §2.3) */
+      .evidence { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; padding: var(--space-3) 0 0; border-top: 1px dashed var(--border); }
+      .evidence > div { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .evidence dt { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+      .evidence dd { margin: 0; font-size: var(--text-xs); color: var(--fg-muted); }
+
+      /* key/value rows used inside Setup + drill-down */
+      .kv { display: grid; grid-template-columns: minmax(140px, 200px) 1fr; gap: var(--space-1) var(--space-4); }
+      .kv > dt { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); align-self: center; }
+      .kv > dd { margin: 0; font-size: var(--text-sm); color: var(--fg); align-self: center; min-width: 0; }
+
+      /* =========================================================== app shell ===
+       * Minimal Variant A shell (rail + topbar). The shell is FIXED across all
+       * patterns — only the leaf body (.pattern-body) differs. */
+      .app { display: grid; grid-template-columns: var(--rail-w) 1fr; min-height: 100vh; }
+      .rail { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; }
+      .rail-head { display: flex; align-items: center; gap: var(--space-2); height: var(--header-h); padding: 0 var(--space-3); border-bottom: 1px solid var(--border); }
+      .rail-logo { width: 26px; height: 26px; border-radius: var(--radius-md); flex: none; display: grid; place-items: center; background: var(--accent); color: var(--accent-fg); font-weight: 800; transform: rotate(-3deg); }
+      .rail-brand { font-weight: 700; letter-spacing: -.01em; }
+      .rail-nav { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2); display: flex; flex-direction: column; gap: 2px; }
+      .section-label { padding: var(--space-3) var(--space-2) var(--space-1); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+      .rail-item { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 36px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+      .rail-item:hover { background: var(--surface-2); color: var(--fg); }
+      .rail-item.active, .rail-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-medium); }
+      .rail-subitems { display: flex; flex-direction: column; gap: 2px; margin-left: 12px; padding-left: var(--space-2); border-left: 1px solid var(--border); }
+      .rail-subitem { display: flex; align-items: center; gap: 6px; min-height: 32px; width: 100%; padding: 6px 4px; border: 0; border-radius: var(--radius-md); background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+      .rail-subitem:hover { color: var(--fg); }
+      .rail-subitem[aria-current="page"] { color: var(--accent); font-weight: var(--fw-medium); }
+
+      .main-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+      .header { display: flex; align-items: center; gap: var(--space-3); height: var(--header-h); padding: 0 var(--space-4); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+      .search { flex: 1; max-width: 460px; display: flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-subtle); font-size: var(--text-sm); }
+      .kbd { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1; padding: 3px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--fg-muted); background: var(--surface); }
+      .main { flex: 1; min-height: 0; }
+      .page { padding: var(--space-6); max-width: 1180px; margin: 0 auto; }
+      .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); flex-wrap: wrap; }
+      .crumbs { font-size: var(--text-xs); color: var(--fg-subtle); display: flex; gap: 6px; align-items: center; }
+      .crumbs a { color: var(--fg-muted); }
+      .page-title { font-size: var(--text-xl); display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-top: 4px; }
+      .page-sub { margin-top: 4px; color: var(--fg-muted); font-size: var(--text-sm); }
+
+      /* ======================================================= meta switcher ===
+       * Prototype control bar (NOT part of the product shell) — stays above the
+       * app so the human can flip patterns while the shell stays fixed. */
+      .switcher { position: sticky; z-index: 30; top: 0; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--surface-2); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+      .switcher .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+      .switcher .seg button { appearance: none; border: 0; background: none; color: var(--fg-muted); font: inherit; font-size: var(--text-sm); font-weight: var(--fw-medium); padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+      .switcher .seg button:hover { color: var(--fg); }
+      .switcher .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
+      .switcher .seg button.deny[aria-pressed="true"] { color: var(--danger); }
+      .switcher .label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+
+      .theme-toggle { display: inline-flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); cursor: pointer; }
+      .theme-toggle:hover { color: var(--fg); }
+
+      /* ============================================= shared leaf-body widgets ===
+       * Used identically inside A/B/C so structure — not content — is what
+       * differs. */
+      .dim-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-2); }
+      .dim { display: grid; grid-template-columns: minmax(180px, 1.4fr) auto auto 2fr auto; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); cursor: pointer; }
+      .dim:hover { border-color: var(--border-strong); background: var(--surface-3); }
+      .dim.is-active { border-color: var(--accent-border); background: var(--accent-soft); }
+      .dim-name { font-weight: var(--fw-medium); display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+      .dim-summary { font-size: var(--text-xs); color: var(--fg-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dim-drill { color: var(--fg-subtle); font-size: var(--text-sm); }
+
+      .fresh { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); font-weight: var(--fw-medium); padding: 0 8px; height: 20px; border-radius: var(--radius-full); }
+      .fresh-live { color: var(--success); background: var(--success-soft); }
+      .fresh-stale { color: var(--warning); background: var(--warning-soft); }
+      .fresh-unknown { color: var(--info); background: var(--info-soft); }
+      .fresh-unavail { color: var(--fg-muted); background: var(--surface-3); }
+      .fresh-notcfg { color: var(--fg-muted); background: var(--surface-3); }
+
+      .repair-list { display: flex; flex-direction: column; gap: var(--space-3); }
+      .repair-item { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); }
+      .repair-item .r-main { flex: 1 1 auto; min-width: 0; }
+      .repair-item .r-title { font-weight: var(--fw-medium); }
+      .repair-item .r-meta { margin-top: 4px; font-size: var(--text-xs); color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: var(--space-3); }
+      .repair-item .r-actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-end; }
+
+      .history-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); flex-wrap: wrap; }
+
+      /* ============================================== Pattern A — tabs only === */
+      .a-tabpanel { padding-top: var(--space-5); }
+
+      /* ====================================== Pattern B — disclosure accordion */
+      .acc-item { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+      .acc-item + .acc-item { margin-top: var(--space-3); }
+      .acc-head { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-4) var(--space-5); background: none; border: 0; text-align: left; cursor: pointer; }
+      .acc-head:hover { background: var(--surface-2); }
+      .acc-chev { width: 14px; height: 14px; flex: none; color: var(--fg-subtle); transition: transform var(--dur-fast) var(--ease-standard); }
+      .acc-item[data-open="true"] .acc-chev { transform: rotate(90deg); }
+      .acc-title { font-size: var(--text-base); font-weight: var(--fw-semibold); flex: 1 1 auto; min-width: 0; }
+      .acc-panel { padding: 0 var(--space-5) var(--space-5); }
+      .acc-item:not([data-open="true"]) .acc-panel { display: none; }
+      .acc-badge-pulse { box-shadow: 0 0 0 3px var(--warning-soft); }
+
+      /* =============================== Pattern C — single scroll + sticky rail */
+      .leaf-c { display: grid; grid-template-columns: minmax(0, 1fr) 208px; gap: var(--space-8); align-items: start; }
+      .c-scroll { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+      .c-scroll section { scroll-margin-top: 84px; }
+      .c-rail { position: sticky; top: 84px; }
+      .c-rail h4 { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); margin: 0 0 var(--space-2); }
+      .c-rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; border-left: 1px solid var(--border); }
+      .c-rail a { display: block; padding: 6px 10px; margin-left: -1px; border-left: 2px solid transparent; color: var(--fg-muted); font-size: var(--text-sm); }
+      .c-rail a:hover { color: var(--fg); }
+      .c-rail a.is-current { color: var(--accent); border-left-color: var(--accent); font-weight: var(--fw-medium); }
+      .c-rail .mini { margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); font-size: var(--text-xs); color: var(--fg-muted); }
+
+      /* drill-down side panel (drawer) — Pattern C's primary drill affordance,
+         reused as inline panels in A/B */
+      .scrim { position: fixed; inset: 0; z-index: var(--z-modal); background: var(--scrim-bg); display: flex; }
+      .scrim[hidden] { display: none; }
+      .drawer { margin-left: auto; width: 460px; max-width: 92vw; height: 100%; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+      .drawer-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); }
+      .drawer-body { padding: var(--space-5); overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-4); }
+      .drawer-foot { padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border); display: flex; gap: var(--space-2); justify-content: flex-end; }
+
+      /* drill-down inline block (A/B use this instead of a drawer) */
+      .drill-inline { border: 1px solid var(--accent-border); background: var(--surface); border-radius: var(--radius-lg); }
+      .drill-inline > header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+      .drill-inline > .di-body { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+
+      /* pattern notes footer (per pattern) */
+      .notes { margin-top: var(--space-6); padding: var(--space-4) var(--space-5); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-2); }
+      .notes h3 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); }
+      .notes dl { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 0; }
+      .notes dt { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-subtle); font-weight: var(--fw-semibold); }
+      .notes dd { margin: 0; font-size: var(--text-sm); color: var(--fg); }
+
+      /* hard-403 fail-closed state (anti-enumeration) */
+      .deny403-card { max-width: 520px; margin: var(--space-12) auto; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-md); overflow: hidden; }
+      .deny403-code { font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--fw-semibold); color: var(--fg-muted); }
+      .meta-caption { max-width: 760px; margin: var(--space-5) auto 0; padding: var(--space-4) var(--space-5); border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface-2); font-size: var(--text-xs); color: var(--fg-muted); }
+      .meta-caption strong { color: var(--fg); }
+
+      @media (max-width: 980px) {
+        .app { grid-template-columns: 1fr; }
+        .rail { display: none; }
+        .leaf-c { grid-template-columns: 1fr; }
+        .c-rail { position: static; }
+        .dim { grid-template-columns: 1fr auto; }
+        .dim-summary, .dim-drill { grid-column: 1 / -1; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ===== meta switcher (prototype chrome, not product) ===== -->
+    <div class="switcher" role="toolbar" aria-label="Leaf-page pattern comparison">
+      <span class="label">#248 · GitHub Integrations leaf — compare structure</span>
+      <div class="seg" role="group" aria-label="Pattern">
+        <button type="button" data-pattern="A" aria-pressed="true">Pattern A · Tabs</button>
+        <button type="button" data-pattern="B" aria-pressed="false">Pattern B · Disclosure</button>
+        <button type="button" data-pattern="C" aria-pressed="false">Pattern C · Scroll + rail</button>
+        <button type="button" class="deny" data-pattern="403" aria-pressed="false">403 Deny</button>
+      </div>
+      <label class="u-right" style="display:flex;align-items:center;gap:var(--space-2);">
+        <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false">☾ Dark</button>
+      </label>
+    </div>
+
+    <!-- ===== app shell (FIXED across all patterns) ===== -->
+    <div class="app">
+      <!-- LEFT NAV — 4 groups (Variant A IA, per wf246 §2.1) -->
+      <aside class="rail" aria-label="Primary navigation">
+        <div class="rail-head">
+          <span class="rail-logo">O</span>
+          <span class="rail-brand">Opzava</span>
+        </div>
+        <nav class="rail-nav">
+          <div class="section-label">Develop</div>
+          <button class="rail-item" type="button">Overview</button>
+          <button class="rail-item" type="button">Dev Board</button>
+          <button class="rail-item" type="button">Runners</button>
+          <button class="rail-item" type="button">Environments</button>
+
+          <div class="section-label">AI Runtime</div>
+          <button class="rail-item" type="button">Gateway</button>
+          <button class="rail-item" type="button">Models &amp; Providers</button>
+          <button class="rail-item" type="button">Agents</button>
+          <button class="rail-item" type="button">Runtime Skills</button>
+          <button class="rail-item" type="button">Sessions &amp; Runs</button>
+          <button class="rail-item" type="button">Automations</button>
+
+          <div class="section-label">Operate</div>
+          <button class="rail-item" type="button">Health</button>
+          <button class="rail-item" type="button">Incidents</button>
+          <button class="rail-item" type="button">Logs</button>
+          <button class="rail-item" type="button">Usage &amp; Costs</button>
+
+          <div class="section-label">Configure</div>
+          <div class="rail-subitems" style="margin-left:0;padding-left:0;border-left:0;">
+            <button class="rail-item active" type="button" aria-current="page">Integrations</button>
+            <div class="rail-subitems">
+              <button class="rail-subitem" type="button" aria-current="page">GitHub</button>
+              <button class="rail-subitem" type="button">Slack (reserved)</button>
+            </div>
+          </div>
+          <button class="rail-item" type="button">Engineering Skills</button>
+          <button class="rail-item" type="button">MCP Servers</button>
+          <button class="rail-item" type="button">Secrets</button>
+          <button class="rail-item" type="button">Security &amp; Audit</button>
+          <button class="rail-item" type="button">Settings</button>
+        </nav>
+      </aside>
+
+      <!-- MAIN COLUMN -->
+      <div class="main-col">
+        <header class="header">
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="Toggle sidebar">☰</button>
+          <div class="search"><span>⌕</span><span class="u-grow u-truncate">Search integrations, commands…</span><span class="kbd">⌘K</span></div>
+          <button class="health-pill" type="button" title="Cross-component health"><span class="dot dot-warning"></span> Degraded</button>
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="Attention">◓</button>
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="Notifications">⋪</button>
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="Profile">◑</button>
+        </header>
+
+        <main class="main">
+          <!-- ============================================================ PATTERN A === -->
+          <div class="pattern-body" id="body-A">
+            <div class="page">
+              <!-- fixed leaf identity header (same across patterns) -->
+              <div class="page-header">
+                <div>
+                  <div class="crumbs"><a href="#">Configure</a><span>›</span><a href="#">Integrations</a><span>›</span><span>GitHub</span></div>
+                  <h1 class="page-title">GitHub <span class="badge badge-success"><span class="dot dot-success"></span> connected · g7</span></h1>
+                  <p class="page-sub">App <span class="u-mono">opzava-platform</span> bound to <span class="u-mono">anthonykewl20/opzava</span> · rotation <span class="u-mono">rot-12</span></p>
+                </div>
+                <div class="u-col-2" style="align-items:flex-end;">
+                  <span class="badge badge-warning"><span class="dot dot-warning"></span> Health · Degraded</span>
+                  <span class="badge badge-warning">Freshness · stale · LKG 09:12 UTC</span>
+                  <span class="badge badge-info">Attention · action_required</span>
+                </div>
+              </div>
+
+              <!-- Pattern A: horizontal tabs -->
+              <div class="tabs" role="tablist" aria-label="GitHub integration concerns">
+                <button class="tab active" role="tab" aria-selected="true" data-atab="setup">Setup</button>
+                <button class="tab" role="tab" aria-selected="false" data-atab="health">Health</button>
+                <button class="tab" role="tab" aria-selected="false" data-atab="repair">Repair</button>
+                <button class="tab" role="tab" aria-selected="false" data-atab="history">History</button>
+              </div>
+
+              <!-- SETUP tab -->
+              <div class="a-tabpanel" data-apanel="setup">
+                <div class="card">
+                  <div class="card-header"><span class="card-title">Enrollment &amp; lifecycle</span><span class="badge badge-success"><span class="dot dot-success"></span> connected</span></div>
+                  <div class="card-body">
+                    <dl class="kv">
+                      <dt>App identity</dt><dd>Opzava <span class="u-subtle">(GitHub App)</span></dd>
+                      <dt>Public slug</dt><dd><code class="u-mono">opzava-platform</code></dd>
+                      <dt>App config version</dt><dd><code class="u-mono">rot-12</code> <span class="u-subtle">(opaque public rotation version)</span></dd>
+                      <dt>Installation</dt><dd>Opzava · account <code class="u-mono">anthonykewl20</code></dd>
+                      <dt>Bound repository</dt><dd><code class="u-mono">anthonykewl20/opzava</code> <span class="badge badge-success u-right" style="height:20px;">repo ref verified</span></dd>
+                      <dt>Binding generation</dt><dd><code class="u-mono">g7</code></dd>
+                      <dt>Lifecycle state</dt><dd><span class="badge badge-success">connected</span></dd>
+                    </dl>
+                    <div class="banner banner-info" style="margin-top:var(--space-4);">
+                      <span>ℹ</span>
+                      <div>Sync &amp; workflow authority stays with Dev Board (<span class="u-mono">DevBoard.GitHubIntegration</span>). This leaf owns setup, health projection, and repair only — presentation transfers no authority.</div>
+                    </div>
+                    <div class="u-row-3" style="margin-top:var(--space-4);">
+                      <button class="btn" type="button">Re-run setup</button>
+                      <button class="btn btn-danger" type="button">Disconnect…</button>
+                      <span class="u-subtle" style="font-size:var(--text-xs);">Setup &amp; disconnect require fresh MFA/passkey step-up bound to actor · session · tenant · exact target.</span>
+                    </div>
+                  </div>
+                  <div class="card-footer">
+                    <dl class="evidence">
+                      <div><dt>source</dt><dd><code>DevBoard.GitHubIntegration</code></dd></div>
+                      <div><dt>record</dt><dd><code>gh-bind-g7</code></dd></div>
+                      <div><dt>version</dt><dd><code>v3</code></dd></div>
+                      <div><dt>sourceAt</dt><dd><time>2026-07-18 09:38:14 UTC</time></dd></div>
+                      <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+                      <div><dt>staleAfter</dt><dd>5m (Opzava records)</dd></div>
+                      <div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div>
+                      <div><dt>lastKnownGood</dt><dd><time>2026-07-18 09:38:14 UTC</time></dd></div>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <!-- HEALTH tab -->
+              <div class="a-tabpanel" data-apanel="health" hidden>
+                <div class="banner banner-warning">
+                  <span>▲</span>
+                  <div><strong>Iron rule:</strong> stale / unknown / unavailable / not-configured never degrades to live · healthy · zero. One stale dimension keeps the aggregate <strong>Degraded</strong>; unknown never becomes Healthy.</div>
+                </div>
+                <div class="card" style="margin-top:var(--space-4);">
+                  <div class="card-header"><span class="card-title">7 health dimensions</span><span class="badge badge-warning">Aggregate · Degraded</span></div>
+                  <div class="card-body">
+                    <div class="dim-grid" id="dims-A"><!-- dimensions injected by JS --></div>
+                    <div class="drill-inline" id="drill-A" style="margin-top:var(--space-4);" hidden></div>
+                  </div>
+                  <div class="card-footer">
+                    <dl class="evidence">
+                      <div><dt>source</dt><dd><code>Integration Health Snapshot</code></dd></div>
+                      <div><dt>checkpoint</dt><dd><code>ep-7f3a</code> <span class="fresh fresh-stale">partial</span></dd></div>
+                      <div><dt>sourceAt</dt><dd><time>2026-07-18 09:41:02 UTC</time></dd></div>
+                      <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+                      <div><dt>staleAfter</dt><dd>5m</dd></div>
+                      <div><dt>availability</dt><dd><span class="fresh fresh-stale">● stale</span></dd></div>
+                      <div><dt>lastKnownGood</dt><dd><time>2026-07-18 09:12:04 UTC</time></dd></div>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <!-- REPAIR tab -->
+              <div class="a-tabpanel" data-apanel="repair" hidden>
+                <div class="card">
+                  <div class="card-header"><span class="card-title">Typed repair commands</span><span class="u-subtle" style="font-size:var(--text-xs);">derived from current evidence — never a generic “repair everything”</span></div>
+                  <div class="card-body">
+                    <div class="repair-list">
+                      <div class="repair-item">
+                        <span class="dot dot-warning" style="margin-top:6px;"></span>
+                        <div class="r-main">
+                          <div class="r-title">Reconcile webhook ingestion</div>
+                          <div class="r-meta"><span>targets: <code>dim/webhook-ingestion</code></span><span>base: <code>ep-7f3a</code></span><span>eligibility: admitted</span><span>step-up: required</span></div>
+                          <div class="r-meta"><span class="badge badge-info">receipt · pending</span> <span class="u-subtle">job acceptance is pending — never “configured/healthy” until a fresh readback proves the result</span></div>
+                        </div>
+                        <div class="r-actions"><button class="btn btn-primary btn-sm" type="button">Reconcile…</button></div>
+                      </div>
+                      <div class="repair-item">
+                        <span class="dot dot-warning" style="margin-top:6px;"></span>
+                        <div class="r-main">
+                          <div class="r-title">Re-run mirror sync · <code>anthonykewl20/opzava</code></div>
+                          <div class="r-meta"><span>targets: <code>dim/issue-mirror</code></span><span>base: <code>ep-7f3a</code></span><span>2 conflicts pending reconciliation</span><span>step-up: required</span></div>
+                        </div>
+                        <div class="r-actions"><button class="btn btn-sm" type="button">Run…</button></div>
+                      </div>
+                      <div class="repair-item">
+                        <span class="dot dot-success" style="margin-top:6px;"></span>
+                        <div class="r-main">
+                          <div class="r-title">Recheck current evidence</div>
+                          <div class="r-meta"><span>safe health recheck via existing WF-231 capability</span><span>returns: refreshed · stale · unavailable</span></div>
+                        </div>
+                        <div class="r-actions"><button class="btn btn-sm" type="button">Recheck</button></div>
+                      </div>
+                      <div class="repair-item" style="opacity:.7;">
+                        <span class="dot" style="margin-top:6px;"></span>
+                        <div class="r-main">
+                          <div class="r-title">Resolve Absolute Stop <span class="badge" style="margin-left:6px;">locked</span></div>
+                          <div class="r-meta">No Absolute Stop active. If health were <strong>Unhealthy/Unverifiable</strong>, repair would be an unbypassable closed state — never Needs Human Approval; one probe cannot resolve it.</div>
+                        </div>
+                        <div class="r-actions"><button class="btn btn-sm" type="button" disabled>Resolve</button></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card-footer">
+                    <dl class="evidence">
+                      <div><dt>source</dt><dd><code>PRD-013 command-entry</code></dd></div>
+                      <div><dt>receipts</dt><dd>source-owned · request-hash idempotent</dd></div>
+                      <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+                      <div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+
+              <!-- HISTORY tab -->
+              <div class="a-tabpanel" data-apanel="history" hidden>
+                <div class="card">
+                  <div class="card-header"><span class="card-title">Recent integration history</span><span class="u-subtle" style="font-size:var(--text-xs);">bounded · source-attributed · deterministic order</span></div>
+                  <div class="card-body" style="padding:0;">
+                    <table class="table table-compact">
+                      <thead><tr><th>Source time</th><th>Actor</th><th>Action / type</th><th>Source</th><th>Result</th><th></th></tr></thead>
+                      <tbody id="hist-A"><!-- rows injected by JS --></tbody>
+                    </table>
+                  </div>
+                  <div class="history-foot">
+                    <span class="u-subtle" style="font-size:var(--text-xs);">Composite row identity dedupes exact keys only — never by timestamp or content. <code>observedAt</code> is transport time, not an ordering key.</span>
+                    <a href="#">View full history →</a>
+                  </div>
+                  <div class="card-footer">
+                    <dl class="evidence">
+                      <div><dt>snapshot</dt><dd><code>snapshot-9c2</code></dd></div>
+                      <div><dt>cursor</dt><dd><code>signed · opaque</code></dd></div>
+                      <div><dt>boundary</dt><dd><code>Reconciliation Epoch</code> <span class="fresh fresh-stale">partial · ep-7f3a</span></dd></div>
+                      <div><dt>availability</dt><dd><span class="fresh fresh-stale">● partial</span></dd></div>
+                      <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="notes" style="max-width:1180px;margin:0 auto;">
+              <h3>Pattern notes · A — tabbed sections</h3>
+              <dl>
+                <dt>Shines when</dt><dd>Each concern is its own workflow step the owner visits in sequence — set up once, then live in Health. One concern in focus, minimal noise; the tabs map 1:1 to the four-part contract (setup · health · repair · history).</dd>
+                <dt>Tradeoff</dt><dd>Cross-concern scanning costs a click: the owner can’t watch Health beside Repair. Tabs also hide degraded dimensions behind a count badge until visited.</dd>
+              </dl>
+            </div>
+          </div>
+
+          <!-- ============================================================ PATTERN B === -->
+          <div class="pattern-body" id="body-B" hidden>
+            <div class="page">
+              <div class="page-header">
+                <div>
+                  <div class="crumbs"><a href="#">Configure</a><span>›</span><a href="#">Integrations</a><span>›</span><span>GitHub</span></div>
+                  <h1 class="page-title">GitHub <span class="badge badge-success"><span class="dot dot-success"></span> connected · g7</span></h1>
+                  <p class="page-sub">App <span class="u-mono">opzava-platform</span> bound to <span class="u-mono">anthonykewl20/opzava</span> · rotation <span class="u-mono">rot-12</span></p>
+                </div>
+                <div class="u-col-2" style="align-items:flex-end;">
+                  <span class="badge badge-warning"><span class="dot dot-warning"></span> Health · Degraded</span>
+                  <span class="badge badge-warning">Freshness · stale · LKG 09:12 UTC</span>
+                  <span class="badge badge-info">Attention · action_required</span>
+                </div>
+              </div>
+
+              <!-- Progressive disclosure: most-actionable expanded first (Health). -->
+              <div class="acc-item" data-open="true">
+                <button class="acc-head" type="button" aria-expanded="true">
+                  <svg class="acc-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3l6 5-6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="acc-title">Health dimensions</span>
+                  <span class="badge badge-warning acc-badge-pulse">Degraded · 2 need attention</span>
+                </button>
+                <div class="acc-panel">
+                  <div class="banner banner-warning" style="margin-bottom:var(--space-4);">
+                    <span>▲</span><div><strong>Iron rule:</strong> stale / unknown / unavailable / not-configured never degrades to live · healthy · zero.</div>
+                  </div>
+                  <div class="dim-grid" id="dims-B"></div>
+                  <div class="drill-inline" id="drill-B" style="margin-top:var(--space-4);" hidden></div>
+                  <dl class="evidence" style="margin-top:var(--space-4);">
+                    <div><dt>source</dt><dd><code>Integration Health Snapshot</code></dd></div>
+                    <div><dt>checkpoint</dt><dd><code>ep-7f3a</code> <span class="fresh fresh-stale">partial</span></dd></div>
+                    <div><dt>sourceAt</dt><dd><time>2026-07-18 09:41:02 UTC</time></dd></div>
+                    <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+                    <div><dt>staleAfter</dt><dd>5m</dd></div>
+                    <div><dt>availability</dt><dd><span class="fresh fresh-stale">● stale</span></dd></div>
+                    <div><dt>lastKnownGood</dt><dd><time>2026-07-18 09:12:04 UTC</time></dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="acc-item" data-open="false">
+                <button class="acc-head" type="button" aria-expanded="false">
+                  <svg class="acc-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3l6 5-6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="acc-title">Repair actions</span>
+                  <span class="badge badge-info">2 admitted commands</span>
+                </button>
+                <div class="acc-panel">
+                  <div class="repair-list">
+                    <div class="repair-item"><span class="dot dot-warning" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Reconcile webhook ingestion</div><div class="r-meta"><span>targets <code>dim/webhook-ingestion</code></span><span>base <code>ep-7f3a</code></span><span>step-up required</span></div><div class="r-meta"><span class="badge badge-info">receipt · pending</span> <span class="u-subtle">acceptance is pending, never “healthy” until readback</span></div></div><div class="r-actions"><button class="btn btn-primary btn-sm" type="button">Reconcile…</button></div></div>
+                    <div class="repair-item"><span class="dot dot-warning" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Re-run mirror sync · <code>anthonykewl20/opzava</code></div><div class="r-meta"><span>2 conflicts pending</span><span>step-up required</span></div></div><div class="r-actions"><button class="btn btn-sm" type="button">Run…</button></div></div>
+                    <div class="repair-item"><span class="dot dot-success" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Recheck current evidence</div><div class="r-meta">returns refreshed · stale · unavailable</div></div><div class="r-actions"><button class="btn btn-sm" type="button">Recheck</button></div></div>
+                  </div>
+                  <dl class="evidence" style="margin-top:var(--space-4);">
+                    <div><dt>source</dt><dd><code>PRD-013 command-entry</code></dd></div><div><dt>receipts</dt><dd>source-owned · idempotent</dd></div><div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="acc-item" data-open="false">
+                <button class="acc-head" type="button" aria-expanded="false">
+                  <svg class="acc-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3l6 5-6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="acc-title">Setup &amp; lifecycle</span>
+                  <span class="badge badge-success">connected · g7</span>
+                </button>
+                <div class="acc-panel">
+                  <dl class="kv">
+                    <dt>Public slug</dt><dd><code class="u-mono">opzava-platform</code></dd>
+                    <dt>App config version</dt><dd><code class="u-mono">rot-12</code></dd>
+                    <dt>Installation</dt><dd>Opzava · account <code class="u-mono">anthonykewl20</code></dd>
+                    <dt>Bound repository</dt><dd><code class="u-mono">anthonykewl20/opzava</code> <span class="badge badge-success u-right" style="height:20px;">repo ref verified</span></dd>
+                    <dt>Binding generation</dt><dd><code class="u-mono">g7</code></dd>
+                    <dt>Lifecycle state</dt><dd><span class="badge badge-success">connected</span></dd>
+                  </dl>
+                  <div class="u-row-3" style="margin-top:var(--space-4);"><button class="btn" type="button">Re-run setup</button><button class="btn btn-danger" type="button">Disconnect…</button></div>
+                  <dl class="evidence" style="margin-top:var(--space-4);">
+                    <div><dt>source</dt><dd><code>DevBoard.GitHubIntegration</code></dd></div><div><dt>record</dt><dd><code>gh-bind-g7</code></dd></div><div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="acc-item" data-open="false">
+                <button class="acc-head" type="button" aria-expanded="false">
+                  <svg class="acc-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3l6 5-6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="acc-title">Integration history</span>
+                  <span class="fresh fresh-stale">partial</span>
+                </button>
+                <div class="acc-panel">
+                  <table class="table table-compact"><thead><tr><th>Source time</th><th>Actor</th><th>Action / type</th><th>Source</th><th>Result</th></tr></thead><tbody id="hist-B"></tbody></table>
+                  <div class="history-foot"><span class="u-subtle" style="font-size:var(--text-xs);"><code>Reconciliation Epoch</code> source is partial — last safe checkpoint <code>ep-7f3a</code>. Verified rows remain; refresh for newer events.</span><a href="#">View full history →</a></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="notes" style="max-width:1180px;margin:0 auto;">
+              <h3>Pattern notes · B — progressive disclosure</h3>
+              <dl>
+                <dt>Shines when</dt><dd>The owner wants everything in reach, prioritized by what needs them now. Health stays expanded (action required); Setup, Repair, History are one expand away and remain visible at-a-glance as collapsed headers.</dd>
+                <dt>Tradeoff</dt><dd>A longer page, and section order implicitly biases attention. Multiple panels open at once can still feel busy for a purely monitoring read.</dd>
+              </dl>
+            </div>
+          </div>
+
+          <!-- ============================================================ PATTERN C === -->
+          <div class="pattern-body" id="body-C" hidden>
+            <div class="page">
+              <div class="page-header">
+                <div>
+                  <div class="crumbs"><a href="#">Configure</a><span>›</span><a href="#">Integrations</a><span>›</span><span>GitHub</span></div>
+                  <h1 class="page-title">GitHub <span class="badge badge-success"><span class="dot dot-success"></span> connected · g7</span></h1>
+                  <p class="page-sub">App <span class="u-mono">opzava-platform</span> bound to <span class="u-mono">anthonykewl20/opzava</span> · rotation <span class="u-mono">rot-12</span></p>
+                </div>
+                <div class="u-col-2" style="align-items:flex-end;">
+                  <span class="badge badge-warning"><span class="dot dot-warning"></span> Health · Degraded</span>
+                  <span class="badge badge-warning">Freshness · stale · LKG 09:12 UTC</span>
+                  <span class="badge badge-info">Attention · action_required</span>
+                </div>
+              </div>
+
+              <div class="leaf-c">
+                <div class="c-scroll">
+                  <section id="c-setup">
+                    <div class="card"><div class="card-header"><span class="card-title">Setup &amp; lifecycle</span><span class="badge badge-success">connected · g7</span></div><div class="card-body">
+                      <dl class="kv">
+                        <dt>Public slug</dt><dd><code class="u-mono">opzava-platform</code></dd>
+                        <dt>App config version</dt><dd><code class="u-mono">rot-12</code></dd>
+                        <dt>Installation</dt><dd>Opzava · account <code class="u-mono">anthonykewl20</code></dd>
+                        <dt>Bound repository</dt><dd><code class="u-mono">anthonykewl20/opzava</code> <span class="badge badge-success u-right" style="height:20px;">repo ref verified</span></dd>
+                        <dt>Binding generation</dt><dd><code class="u-mono">g7</code></dd>
+                      </dl>
+                      <div class="u-row-3" style="margin-top:var(--space-4);"><button class="btn" type="button">Re-run setup</button><button class="btn btn-danger" type="button">Disconnect…</button></div>
+                    </div><div class="card-footer"><dl class="evidence"><div><dt>source</dt><dd><code>DevBoard.GitHubIntegration</code></dd></div><div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div></dl></div></div>
+                  </section>
+
+                  <section id="c-health">
+                    <div class="card"><div class="card-header"><span class="card-title">7 health dimensions</span><span class="badge badge-warning">Aggregate · Degraded</span></div><div class="card-body">
+                      <div class="banner banner-warning" style="margin-bottom:var(--space-4);"><span>▲</span><div><strong>Iron rule:</strong> stale / unknown / unavailable / not-configured never degrades to live · healthy · zero.</div></div>
+                      <div class="dim-grid" id="dims-C"></div>
+                      <p class="u-subtle" style="font-size:var(--text-xs);margin-top:var(--space-3);">Select a dimension to open the drill-down side panel →</p>
+                    </div><div class="card-footer"><dl class="evidence"><div><dt>source</dt><dd><code>Integration Health Snapshot</code></dd></div><div><dt>checkpoint</dt><dd><code>ep-7f3a</code> <span class="fresh fresh-stale">partial</span></dd></div><div><dt>availability</dt><dd><span class="fresh fresh-stale">● stale</span></dd></div><div><dt>lastKnownGood</dt><dd><time>2026-07-18 09:12:04 UTC</time></dd></div></dl></div></div>
+                  </section>
+
+                  <section id="c-repair">
+                    <div class="card"><div class="card-header"><span class="card-title">Typed repair commands</span></div><div class="card-body">
+                      <div class="repair-list">
+                        <div class="repair-item"><span class="dot dot-warning" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Reconcile webhook ingestion</div><div class="r-meta"><span>targets <code>dim/webhook-ingestion</code></span><span>base <code>ep-7f3a</code></span><span class="badge badge-info">receipt · pending</span></div></div><div class="r-actions"><button class="btn btn-primary btn-sm" type="button">Reconcile…</button></div></div>
+                        <div class="repair-item"><span class="dot dot-warning" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Re-run mirror sync · <code>anthonykewl20/opzava</code></div><div class="r-meta"><span>2 conflicts pending</span></div></div><div class="r-actions"><button class="btn btn-sm" type="button">Run…</button></div></div>
+                        <div class="repair-item"><span class="dot dot-success" style="margin-top:6px;"></span><div class="r-main"><div class="r-title">Recheck current evidence</div><div class="r-meta">returns refreshed · stale · unavailable</div></div><div class="r-actions"><button class="btn btn-sm" type="button">Recheck</button></div></div>
+                      </div>
+                    </div><div class="card-footer"><dl class="evidence"><div><dt>source</dt><dd><code>PRD-013 command-entry</code></dd></div><div><dt>availability</dt><dd><span class="fresh fresh-live">● live</span></dd></div></dl></div></div>
+                  </section>
+
+                  <section id="c-history">
+                    <div class="card"><div class="card-header"><span class="card-title">Recent integration history</span><span class="fresh fresh-stale">partial</span></div><div class="card-body" style="padding:0;"><table class="table table-compact"><thead><tr><th>Source time</th><th>Actor</th><th>Action / type</th><th>Source</th><th>Result</th></tr></thead><tbody id="hist-C"></tbody></table></div>
+                      <div class="history-foot"><span class="u-subtle" style="font-size:var(--text-xs);">Source <code>Reconciliation Epoch</code> partial — verified rows remain, gaps are not skipped.</span><a href="#">View full history →</a></div>
+                    </div>
+                  </section>
+                </div>
+
+                <!-- sticky in-page nav rail -->
+                <aside class="c-rail" aria-label="On this leaf">
+                  <h4>On this leaf</h4>
+                  <ol>
+                    <li><a href="#c-setup" data-crail>Setup</a></li>
+                    <li><a href="#c-health" data-crail>Health</a></li>
+                    <li><a href="#c-repair" data-crail>Repair</a></li>
+                    <li><a href="#c-history" data-crail>History</a></li>
+                  </ol>
+                  <div class="mini">
+                    <div class="u-caps" style="margin-bottom:4px;">Drill-down</div>
+                    Open a health dimension to inspect last success, current failure, reconciliation checkpoint, and the admitted safe action — without losing your place in the scroll.
+                  </div>
+                </aside>
+              </div>
+            </div>
+
+            <div class="notes" style="max-width:1180px;margin:var(--space-6) auto 0;">
+              <h3>Pattern notes · C — single scroll + sticky rail + drill-down panel</h3>
+              <dl>
+                <dt>Shines when</dt><dd>Dense, always-on monitoring: every concern lives in one scroll, a sticky rail gives jump-nav, and the drill-down side panel lets the owner inspect a dimension (last success, current failure, checkpoint, safe action) while keeping full context behind it.</dd>
+                <dt>Tradeoff</dt><dd>Needs horizontal width (content + rail) and is the heaviest of the three to build and maintain; the drawer is a second layout system on top of the scroll.</dd>
+              </dl>
+            </div>
+          </div>
+
+          <!-- ============================================================ 403 DENY === -->
+          <div class="pattern-body" id="body-403" hidden>
+            <!-- The denied leaf replaces the ENTIRE leaf body — even the leaf title
+                 is gone. Hard 403, decided before fan-out: no existence, count,
+                 timestamp, LKG, or deep-link leak (wf245 §1.5 / wf246 §2.4). -->
+            <div class="page">
+              <div class="deny403-card">
+                <div class="empty">
+                  <div class="empty-icon" aria-hidden="true">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="15" r="1.4" fill="currentColor"/></svg>
+                  </div>
+                  <div class="deny403-code">403</div>
+                  <div class="empty-title">Access denied</div>
+                  <div class="empty-desc">You don’t have access to this. If you believe this is an error, contact your workspace owner.</div>
+                  <div class="empty-cta"><button class="btn" type="button">Back to Integrations</button></div>
+                </div>
+              </div>
+              <div class="meta-caption">
+                <p><strong>Hard 403, decided before fan-out.</strong> The denied source is never queried, so this response carries <strong>no existence, count, timestamp, last-known-good, safe label, or deep link</strong>.</p>
+                <p style="margin-top:6px;">This body is <strong>indistinguishable</strong> whether the leaf (a) exists but is denied to this principal, (b) belongs to a foreign tenant, or (c) is a random/nonexistent ID — same status, code, body shape, response-size bucket, security/cache headers, and bounded timing class. Tenant RLS stays active behind application admission; only redacted server telemetry may differ.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- ===== shared drill-down side panel (Pattern C drawer) ===== -->
+    <div class="scrim" id="drillScrim" hidden>
+      <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drillTitle">
+        <div class="drawer-head">
+          <span class="dot dot-warning" id="drillDot"></span>
+          <h2 id="drillTitle" style="flex:1 1 auto;">Webhook ingestion</h2>
+          <button class="btn btn-ghost btn-icon" type="button" id="drillClose" aria-label="Close drill-down">✕</button>
+        </div>
+        <div class="drawer-body">
+          <dl class="kv">
+            <dt>State</dt><dd><span id="drillState">Degraded</span></dd>
+            <dt>Freshness</dt><dd><span id="drillFresh" class="fresh fresh-stale">● stale</span></dd>
+            <dt>Last success</dt><dd><time id="drillLkg">2026-07-18 09:12:04 UTC</time></dd>
+            <dt>Current failure</dt><dd id="drillFail">ping event delivery p95 above threshold; 3 deliveries in the last hour returned non-2xx</dd>
+            <dt>Reconciliation</dt><dd><code>ep-7f3a</code> <span class="fresh fresh-stale">partial</span></dd>
+            <dt>Evidence ref</dt><dd><code>ev-ref-9c2</code> <span class="u-subtle">(opaque, browser-safe)</span></dd>
+          </dl>
+          <div class="banner banner-info"><span>ℹ</span><div>Raw provider payloads, webhook bodies, and unredacted errors never enter this projection — only safe summaries.</div></div>
+          <dl class="evidence" style="border-top:1px dashed var(--border);padding-top:var(--space-3);">
+            <div><dt>source</dt><dd><code>Integration Health Snapshot</code></dd></div>
+            <div><dt>observedAt</dt><dd><time>2026-07-18 09:42:11 UTC</time></dd></div>
+            <div><dt>staleAfter</dt><dd>5m</dd></div>
+            <div><dt>availability</dt><dd><span class="fresh fresh-stale">● stale</span></dd></div>
+          </dl>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn" type="button" id="drillDismiss">Dismiss</button>
+          <button class="btn btn-primary btn-sm" type="button">Reconcile…</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      "use strict";
+      /* ================================================================ data ===
+       * The SAME five concerns + SAME evidence across A/B/C — structure differs. */
+      const DIMS = [
+        { id: "app-install", name: "App installation", health: "Healthy", fresh: "live", cls: "success", summary: "Installation active, App-authenticated" },
+        { id: "repo-binding", name: "Repository binding", health: "Healthy", fresh: "live", cls: "success", summary: "anthonykewl20/opzava bound (g7)" },
+        { id: "token-mint", name: "Installation token mint", health: "Healthy", fresh: "live", cls: "success", summary: "Minted 41s ago · TTL 58m" },
+        { id: "webhook-ingestion", name: "Webhook ingestion", health: "Degraded", fresh: "stale", cls: "warning", summary: "ping p95 above threshold · 3 non-2xx / hr", active: true,
+          drill: { state: "Degraded", fresh: "stale", lkg: "2026-07-18 09:12:04 UTC", fail: "ping event delivery p95 above threshold; 3 deliveries in the last hour returned non-2xx" } },
+        { id: "issue-mirror", name: "Issue mirror sync", health: "Degraded", fresh: "live", cls: "warning", summary: "2 conflicts pending reconciliation",
+          drill: { state: "Degraded", fresh: "live", lkg: "2026-07-18 09:41:02 UTC", fail: "2 mirror conflicts awaiting Reconciliation Epoch resolution" } },
+        { id: "perms-events", name: "Permissions & events", health: "Healthy", fresh: "live", cls: "success", summary: "9 required events/permissions present" },
+        { id: "reconcile-epoch", name: "Reconciliation epoch", health: "Unknown", fresh: "unknown", cls: "info", summary: "Current reconciliation incomplete",
+          drill: { state: "Unknown", fresh: "unknown", lkg: "2026-07-18 09:12:04 UTC", fail: "Epoch not yet complete; health cannot be inferred" } },
+      ];
+
+      const FRESH_LABEL = { live: "● live", stale: "● stale", unknown: "● unknown", unavailable: "● unavailable", "not-configured": "○ not-configured" };
+      const FRESH_CLS = { live: "fresh-live", stale: "fresh-stale", unknown: "fresh-unknown", unavailable: "fresh-unavail", "not-configured": "fresh-notcfg" };
+
+      function dimRow(d) {
+        const freshCls = FRESH_CLS[d.fresh] || "fresh-unavail";
+        const freshLabel = FRESH_LABEL[d.fresh] || d.fresh;
+        const el = document.createElement("div");
+        el.className = "dim" + (d.active ? " is-active" : "");
+        el.setAttribute("data-dim", d.id);
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("aria-label", d.name + " — " + d.health + ", " + d.fresh + ". Open drill-down.");
+        el.innerHTML =
+          '<div class="dim-name"><span class="dot dot-' + d.cls + '"></span>' + d.name + '</div>' +
+          '<span class="badge badge-' + d.cls + '">' + d.health + '</span>' +
+          '<span class="fresh ' + freshCls + '">' + freshLabel + '</span>' +
+          '<span class="dim-summary">' + d.summary + '</span>' +
+          '<span class="dim-drill">drill-down →</span>';
+        return el;
+      }
+
+      function renderDims(containerId) {
+        const c = document.getElementById(containerId);
+        if (!c) return;
+        c.innerHTML = "";
+        DIMS.forEach(d => c.appendChild(dimRow(d)));
+      }
+
+      const HIST = [
+        { t: "2026-07-18 09:41:02", actor: "system · reconciler", act: "Health snapshot · webhook degraded", src: "Integration Health Snapshot", res: "partial", cls: "warning" },
+        { t: "2026-07-18 09:38:14", actor: "a.kewl@", act: "Admin command · Recheck evidence", src: "Governance Audit receipt", res: "completed", cls: "success" },
+        { t: "2026-07-18 09:12:04", actor: "system", act: "Mirror sync conflict raised", src: "Reconciliation Epoch", res: "partial", cls: "warning" },
+        { t: "2026-07-17 18:02:33", actor: "platform-ops", act: "App config rotation · rot-12", src: "Platform provisioning/security audit", res: "completed", cls: "success" },
+        { t: "2026-07-15 14:20:09", actor: "a.kewl@", act: "Binding generation g7 associated", src: "DevBoard.GitHubIntegration", res: "completed", cls: "success" },
+        { t: "2026-07-15 14:18:51", actor: "a.kewl@", act: "Setup began · BeginGitHubInstallation", src: "DevBoard.GitHubIntegration", res: "completed", cls: "success" },
+      ];
+      function renderHist(containerId, withLink) {
+        const c = document.getElementById(containerId);
+        if (!c) return;
+        c.innerHTML = "";
+        HIST.forEach(r => {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            '<td class="u-mono u-subtle" style="font-size:var(--text-xs);">' + r.t + ' UTC</td>' +
+            '<td>' + r.actor + '</td>' +
+            '<td>' + r.act + '</td>' +
+            '<td class="u-mono u-subtle" style="font-size:var(--text-xs);">' + r.src + '</td>' +
+            '<td><span class="badge badge-' + r.cls + '">' + r.res + '</span></td>' +
+            (withLink ? '<td><a href="#">evidence →</a></td>' : '');
+          c.appendChild(tr);
+        });
+      }
+
+      function buildInlineDrill(containerId, d) {
+        const c = document.getElementById(containerId);
+        if (!c || !d.drill) { if (c) c.hidden = true; return; }
+        const freshCls = FRESH_CLS[d.drill.fresh];
+        c.hidden = false;
+        c.innerHTML =
+          '<header><span class="dot dot-' + d.cls + '"></span><strong style="flex:1 1 auto;">' + d.name + '</strong><span class="badge badge-' + d.cls + '">' + d.drill.state + '</span></header>' +
+          '<div class="di-body">' +
+            '<dl class="kv">' +
+              '<dt>Freshness</dt><dd><span class="fresh ' + freshCls + '">' + (FRESH_LABEL[d.drill.fresh]) + '</span></dd>' +
+              '<dt>Last success</dt><dd><time>' + d.drill.lkg + '</time></dd>' +
+              '<dt>Current failure</dt><dd>' + d.drill.fail + '</dd>' +
+              '<dt>Reconciliation</dt><dd><code>ep-7f3a</code> <span class="fresh fresh-stale">partial</span></dd>' +
+              '<dt>Evidence ref</dt><dd><code>ev-ref-9c2</code></dd>' +
+            '</dl>' +
+            '<div class="u-row-3 u-right"><button class="btn btn-sm" type="button">Dismiss</button><button class="btn btn-primary btn-sm" type="button">Reconcile…</button></div>' +
+          '</div>';
+      }
+
+      /* Pattern A tabs */
+      document.querySelectorAll('[data-atab]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const id = tab.getAttribute('data-atab');
+          document.querySelectorAll('[data-atab]').forEach(t => { t.classList.toggle('active', t === tab); t.setAttribute('aria-selected', String(t === tab)); });
+          document.querySelectorAll('[data-apanel]').forEach(p => { p.hidden = p.getAttribute('data-apanel') !== id; });
+        });
+      });
+
+      /* Pattern B accordion (allow multiple open; toggle each) */
+      document.querySelectorAll('#body-B .acc-head').forEach(head => {
+        head.addEventListener('click', () => {
+          const item = head.closest('.acc-item');
+          const open = item.getAttribute('data-open') === 'true';
+          item.setAttribute('data-open', String(!open));
+          head.setAttribute('aria-expanded', String(!open));
+        });
+      });
+
+      /* Drill-down openers. In A/B the drill renders inline; in C it opens the
+         side drawer. Active dim defaults to the degraded webhook dimension. */
+      function openDrillInline(scopeId, drillId) {
+        const scope = document.getElementById(scopeId);
+        if (!scope) return;
+        scope.querySelectorAll('.dim').forEach(row => {
+          row.classList.remove('is-active');
+          const handler = () => {
+            scope.querySelectorAll('.dim').forEach(r => r.classList.remove('is-active'));
+            row.classList.add('is-active');
+            const d = DIMS.find(x => x.id === row.getAttribute('data-dim'));
+            buildInlineDrill(drillId, d);
+          };
+          row.addEventListener('click', handler);
+          row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
+        });
+        // default to the actionable dimension
+        buildInlineDrill(drillId, DIMS.find(d => d.active));
+      }
+
+      /* Pattern C drawer */
+      const scrim = document.getElementById('drillScrim');
+      function openDrawer(d) {
+        document.getElementById('drillTitle').textContent = d.name;
+        const dot = document.getElementById('drillDot');
+        dot.className = 'dot dot-' + d.cls;
+        document.getElementById('drillState').textContent = d.drill ? d.drill.state : d.health;
+        const freshEl = document.getElementById('drillFresh');
+        const f = d.drill ? d.drill.fresh : d.fresh;
+        freshEl.className = 'fresh ' + FRESH_CLS[f];
+        freshEl.textContent = FRESH_LABEL[f];
+        document.getElementById('drillLkg').textContent = d.drill ? d.drill.lkg : '—';
+        document.getElementById('drillFail').textContent = d.drill ? d.drill.fail : 'No current failure summary.';
+        scrim.hidden = false;
+      }
+      function closeDrawer() { scrim.hidden = true; }
+      document.getElementById('drillClose').addEventListener('click', closeDrawer);
+      document.getElementById('drillDismiss').addEventListener('click', closeDrawer);
+      scrim.addEventListener('click', e => { if (e.target === scrim) closeDrawer(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && !scrim.hidden) closeDrawer(); });
+
+      function wireDrawer(scopeId) {
+        const scope = document.getElementById(scopeId);
+        if (!scope) return;
+        scope.querySelectorAll('.dim').forEach(row => {
+          const handler = () => {
+            scope.querySelectorAll('.dim').forEach(r => r.classList.remove('is-active'));
+            row.classList.add('is-active');
+            const d = DIMS.find(x => x.id === row.getAttribute('data-dim'));
+            openDrawer(d);
+          };
+          row.addEventListener('click', handler);
+          row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
+        });
+      }
+
+      /* Pattern C sticky-rail scrollspy */
+      function wireScrollspy() {
+        const links = Array.from(document.querySelectorAll('[data-crail]'));
+        const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+        if (!sections.length || !('IntersectionObserver' in window)) return;
+        const setActive = id => links.forEach(a => a.classList.toggle('is-current', a.getAttribute('href') === '#' + id));
+        const io = new IntersectionObserver(entries => {
+          entries.forEach(en => { if (en.isIntersecting) setActive(en.target.id); });
+        }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+        sections.forEach(s => io.observe(s));
+      }
+
+      /* =========================================================== switcher === */
+      function showPattern(id) {
+        document.querySelectorAll('.pattern-body').forEach(b => { b.hidden = b.id !== 'body-' + id; });
+        document.querySelectorAll('.switcher .seg button').forEach(b => {
+          b.setAttribute('aria-pressed', String(b.getAttribute('data-pattern') === id));
+        });
+      }
+      document.querySelectorAll('.switcher .seg button').forEach(btn => {
+        btn.addEventListener('click', () => showPattern(btn.getAttribute('data-pattern')));
+      });
+
+      /* theme toggle (bonus; light/dark) */
+      document.getElementById('themeToggle').addEventListener('click', function () {
+        const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = cur === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        this.setAttribute('aria-pressed', String(next === 'light'));
+        this.textContent = next === 'dark' ? '☾ Dark' : '☀ Light';
+      });
+
+      /* =============================================================== init === */
+      renderDims('dims-A'); renderDims('dims-B'); renderDims('dims-C');
+      renderHist('hist-A', true); renderHist('hist-B', false); renderHist('hist-C', false);
+      openDrillInline('dims-A', 'drill-A');   // A: inline drill on Health tab
+      openDrillInline('dims-B', 'drill-B');  // B: inline drill inside Health panel
+      wireDrawer('dims-C');                   // C: side drawer
+      wireScrollspy();
+      showPattern('A');
+    </script>
+  </body>
+</html>
