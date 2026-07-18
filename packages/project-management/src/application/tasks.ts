@@ -19,6 +19,7 @@ import {
 
 import { defaultTaskAuthorizationPort } from "./authorization.js";
 import {
+  isTerminalTaskStatus,
   normalizeTaskDescription,
   normalizeTaskLabels,
   normalizeTaskTitle,
@@ -85,6 +86,18 @@ export interface MoveTaskInput extends TaskApplicationContext {
   readonly taskId: string;
   readonly status: TaskStatus;
   readonly position: number;
+}
+
+export interface HumanCommandAttestation {
+  readonly confirmedByUserId: string;
+  readonly confirmSource: "admin-web";
+  readonly confirmNonce: string;
+}
+
+export interface MarkTaskDoneInput extends TaskApplicationContext {
+  readonly taskId: string;
+  readonly position: number;
+  readonly humanCommand: HumanCommandAttestation;
 }
 
 export interface GetTaskInput extends TaskApplicationContext {
@@ -318,12 +331,36 @@ class TaskDatabaseAttemptError extends Error {
   }
 }
 
+class TaskCommandRollbackError extends Error {
+  public readonly domainError: DomainError;
+
+  public constructor(domainError: DomainError) {
+    super(domainError.message);
+    this.name = "TaskCommandRollbackError";
+    this.domainError = domainError;
+  }
+}
+
 function taskError(code: string, message: string, cause?: unknown): DomainError {
   return new DomainError({
     code,
     message,
     ...(cause === undefined ? {} : { cause }),
   });
+}
+
+function taskDoneRequiresHumanAttestation(): DomainError {
+  return taskError(
+    "projectManagement.taskDoneRequiresHumanAttestation",
+    "Marking a task Done requires the confirmed human Done action.",
+  );
+}
+
+function taskDoneRequiresApprovedReview(): DomainError {
+  return taskError(
+    "projectManagement.taskDoneRequiresApprovedReview",
+    "A task can only be marked Done after its quality review is approved.",
+  );
 }
 
 function databaseError(error: unknown): DomainError {
@@ -620,6 +657,21 @@ function assertKnownTaskId(taskId: string): Result<void> {
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function hasValidHumanCommandAttestation(input: MarkTaskDoneInput): boolean {
+  const humanCommand: unknown = input.humanCommand;
+  if (typeof humanCommand !== "object" || humanCommand === null) {
+    return false;
+  }
+
+  const fields = humanCommand as Record<string, unknown>;
+  return (
+    fields["confirmedByUserId"] === input.actor.userId &&
+    fields["confirmSource"] === "admin-web" &&
+    typeof fields["confirmNonce"] === "string" &&
+    uuidPattern.test(fields["confirmNonce"])
+  );
+}
 
 function assertKnownUuid(value: string, field: string): Result<void> {
   if (uuidPattern.test(value)) {
@@ -1396,6 +1448,9 @@ export async function createTask(
   if (!status.ok) {
     return err(status.error);
   }
+  if (isTerminalTaskStatus(status.value)) {
+    return err(taskDoneRequiresHumanAttestation());
+  }
 
   const fields = prepareTaskFields({
     title: input.title,
@@ -1759,6 +1814,9 @@ export async function moveTask(
   const status = parseTaskStatus(input.status);
   if (!status.ok) {
     return err(status.error);
+  }
+  if (isTerminalTaskStatus(status.value)) {
+    return err(taskDoneRequiresHumanAttestation());
   }
 
   if (!Number.isInteger(input.position) || input.position < 0) {
@@ -2901,6 +2959,116 @@ export async function toggleQualityCheck(
     });
   } catch (error) {
     return err(taskError("projectManagement.databaseError", "Database operation failed.", mapDatabaseError(error)));
+  }
+}
+
+export async function markTaskDone(
+  input: MarkTaskDoneInput,
+  dependencies: TaskApplicationDependencies = {},
+): Promise<Result<TaskDto>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) {
+    return err(knownIds.error);
+  }
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) {
+    return err(knownTaskId.error);
+  }
+
+  if (!Number.isInteger(input.position) || input.position < 0) {
+    return err(
+      taskError(
+        "projectManagement.invalidTaskPosition",
+        "Task position must be a non-negative integer.",
+      ),
+    );
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) {
+    return err(authorized.error);
+  }
+
+  if (!hasValidHumanCommandAttestation(input)) {
+    return err(taskDoneRequiresHumanAttestation());
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const review = await selectQualityReview(tx, input.taskId);
+      if (review === null || review.status !== "approved") {
+        return err(taskDoneRequiresApprovedReview());
+      }
+
+      const consumed = await tx.execute(sql`
+        update public.task_done_confirmation
+        set
+          consumed_at = now(),
+          consumed_by_user_id = ${input.actor.userId},
+          quality_review_id = ${review.id}
+        where id = ${input.humanCommand.confirmNonce}
+          and task_id = ${input.taskId}
+          and organization_id = ${input.orgId}
+          and workspace_id = ${input.workspaceId}
+          and issued_for_user_id = ${input.actor.userId}
+          and consumed_at is null
+          and expires_at > now()
+        returning id
+      `);
+      if (rowsFromExecuteResult(consumed)[0] === undefined) {
+        return err(taskDoneRequiresHumanAttestation());
+      }
+
+      const result = await tx.execute(sql`
+        update public.tasks
+        set
+          status = 'done'::public.task_status,
+          position = ${input.position},
+          updated_at = now()
+        where id = ${input.taskId}
+          and workspace_id = ${input.workspaceId}
+        returning
+          id,
+          organization_id,
+          workspace_id,
+          title,
+          description,
+          status,
+          priority,
+          assignee_user_id,
+          null::text as assignee_name,
+          labels,
+          position,
+          card_number,
+          due_at,
+          provenance_source,
+          provenance_external_ref,
+          created_at,
+          updated_at
+      `);
+      const row = rowsFromExecuteResult(result)[0];
+      if (row === undefined) {
+        throw new TaskCommandRollbackError(
+          taskError("projectManagement.taskNotFound", "Task was not found."),
+        );
+      }
+
+      return ok(rowToTaskDto(row));
+    });
+  } catch (error) {
+    if (error instanceof TaskCommandRollbackError) {
+      return err(error.domainError);
+    }
+
+    return err(
+      taskError(
+        "projectManagement.taskDoneFailed",
+        "Task could not be marked Done.",
+        mapDatabaseError(error),
+      ),
+    );
   }
 }
 

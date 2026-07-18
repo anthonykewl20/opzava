@@ -4,6 +4,12 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 export const taskStatuses = ["todo", "in_progress", "blocked", "done"] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
+// Future approve-merge-class terminal states belong behind their own governed
+// command and reuse the human-command attestation pattern.
+export function isTerminalTaskStatus(status: TaskStatus): boolean {
+  return status === "done";
+}
+
 export const taskPriorities = ["low", "normal", "high", "urgent"] as const;
 export type TaskPriority = (typeof taskPriorities)[number];
 

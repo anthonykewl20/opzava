@@ -48,12 +48,12 @@ export const runtimeControlTaskToolRegistry: readonly RuntimeControlTaskToolDefi
   {
     name: "opzava_tasks_create",
     inputShape:
-      "{ title, description?, status?: todo|in_progress|blocked|done, priority?: low|normal|high|urgent, labels?: string[] }"
+      "{ title, description?, status?: todo|in_progress|blocked, priority?: low|normal|high|urgent, labels?: string[] }"
   },
   {
     name: "opzava_tasks_update",
     inputShape:
-      "{ taskId, title?, description?, status?: todo|in_progress|blocked|done, priority?: low|normal|high|urgent, labels?: string[] }"
+      "{ taskId, title?, description?, status?: todo|in_progress|blocked, priority?: low|normal|high|urgent, labels?: string[] }"
   }
 ];
 
@@ -142,6 +142,7 @@ type ParsedToolArgs =
     };
 
 const taskStatusSet = new Set<string>(taskStatuses);
+const writableTaskStatusSet = new Set<string>(["todo", "in_progress", "blocked"]);
 const taskPrioritySet = new Set<string>(taskPriorities);
 const taskServices: RuntimeControlTaskServices = {
   createTask,
@@ -275,6 +276,32 @@ function optionalStatus(value: unknown): Result<TaskStatus | undefined> {
   );
 }
 
+function optionalWritableStatus(value: unknown): Result<TaskStatus | undefined> {
+  if (value === undefined) {
+    return ok(undefined);
+  }
+
+  if (value === "done") {
+    return err(
+      toolError(
+        "projectManagement.taskDoneRequiresHumanAttestation",
+        "Marking a task Done requires the confirmed human Done action."
+      )
+    );
+  }
+
+  if (typeof value === "string" && writableTaskStatusSet.has(value)) {
+    return ok(value as TaskStatus);
+  }
+
+  return err(
+    toolError(
+      "runtimeControl.toolMalformedArgs",
+      'Tool argument "status" must be todo, in_progress, or blocked.'
+    )
+  );
+}
+
 function optionalPriority(value: unknown): Result<TaskPriority | undefined> {
   if (value === undefined) {
     return ok(undefined);
@@ -386,7 +413,7 @@ function parseCreateArgs(value: unknown): Result<ParsedToolArgs> {
 
   const title = requiredString(value["title"], "title", 180);
   const description = optionalString(value["description"], "description", 4000);
-  const status = optionalStatus(value["status"]);
+  const status = optionalWritableStatus(value["status"]);
   const priority = optionalPriority(value["priority"]);
   const labels = optionalLabels(value["labels"]);
   if (!title.ok) {
@@ -442,7 +469,7 @@ function parseUpdateArgs(value: unknown): Result<ParsedToolArgs> {
   const taskId = requiredTaskId(value["taskId"]);
   const title = optionalTitle(value["title"]);
   const description = optionalString(value["description"], "description", 4000);
-  const status = optionalStatus(value["status"]);
+  const status = optionalWritableStatus(value["status"]);
   const priority = optionalPriority(value["priority"]);
   const labels = optionalLabels(value["labels"]);
   if (!taskId.ok) {
@@ -518,7 +545,12 @@ function failureFromError(error: DomainError): ToolFailure {
     };
   }
 
-  if (error.code === "projectManagement.forbidden" || errorStatus(error) === 403) {
+  if (
+    error.code === "projectManagement.forbidden" ||
+    error.code === "projectManagement.taskDoneRequiresHumanAttestation" ||
+    error.code === "projectManagement.taskDoneRequiresApprovedReview" ||
+    errorStatus(error) === 403
+  ) {
     return {
       code: "forbidden",
       message: "Task tool execution is not allowed."
@@ -536,6 +568,12 @@ function failureFromError(error: DomainError): ToolFailure {
     code: "failed",
     message: error.message
   };
+}
+
+function failureFromTaskMalformedArgs(error: DomainError): ToolFailure {
+  return error.code === "projectManagement.taskDoneRequiresHumanAttestation"
+    ? { code: "forbidden", message: error.message }
+    : failureFromMalformedArgs(error);
 }
 
 function taskContext(context: ToolExecutionContext) {
@@ -749,7 +787,7 @@ export async function executeRuntimeControlTaskTool(
     contextForOutcome: taskContext,
     completedExecutionFromOutcome,
     performTool,
-    failureFromMalformedArgs,
+    failureFromMalformedArgs: failureFromTaskMalformedArgs,
     failureFromError,
     resultSummary,
     targetRef

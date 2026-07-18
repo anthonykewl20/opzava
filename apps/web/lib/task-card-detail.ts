@@ -8,6 +8,7 @@ import type {
   EnsureTaskQualityReviewInput,
   IssueCloseOutboxDto,
   TaskEvidenceDto,
+  HumanCommandAttestation,
   TaskQualityReviewDto,
   TaskCommentDto,
   TaskDto,
@@ -27,7 +28,7 @@ import {
   issueRefFromTask,
   listTasks,
   markCommentsRead,
-  moveTask,
+  markTaskDone,
   taskPriorities,
   toggleQualityCheck,
   toggleStep,
@@ -56,6 +57,7 @@ import {
   type MentionTarget,
 } from "@/lib/task-card-mentions";
 import type { AppSessionContext } from "@/lib/session";
+import { attestHumanCommand, issueDoneConfirmNonce } from "@/lib/task-attestation";
 
 export interface TaskCardPageData {
   readonly context: AppSessionContext;
@@ -178,7 +180,12 @@ export interface TaskCardActionDependencies {
   readonly getOrCreateAskAdminHistory: typeof getOrCreateAskAdminHistory;
   readonly listTasks: typeof listTasks;
   readonly markCommentsRead: typeof markCommentsRead;
-  readonly moveTask: typeof moveTask;
+  readonly markTaskDone: typeof markTaskDone;
+  readonly issueDoneConfirmNonce: typeof issueDoneConfirmNonce;
+  readonly attestHumanCommand: (
+    context: AppSessionContext,
+    nonce: string,
+  ) => HumanCommandAttestation;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
   readonly addTaskEvidenceFile: typeof addTaskEvidenceFile;
@@ -209,7 +216,9 @@ export const defaultTaskCardActionDependencies: Omit<
   getOrCreateAskAdminHistory,
   listTasks,
   markCommentsRead,
-  moveTask,
+  markTaskDone,
+  issueDoneConfirmNonce,
+  attestHumanCommand,
   toggleStep,
   updateTask,
   addTaskEvidenceFile,
@@ -601,13 +610,18 @@ export async function markTaskDoneForCard(
       .filter((task) => task.status === "done")
       .reduce((max, task) => Math.max(max, task.position), 0) + 1;
 
-  const result = await dependencies.moveTask({
+  const nonce = await dependencies.issueDoneConfirmNonce(context.value, input.taskId);
+  if (!nonce.ok) {
+    return err(nonce.error);
+  }
+
+  const result = await dependencies.markTaskDone({
     orgId: context.value.orgId,
     workspaceId: context.value.workspaceId,
     actor,
     taskId: input.taskId,
-    status: "done",
     position: nextDonePosition,
+    humanCommand: dependencies.attestHumanCommand(context.value, nonce.value),
   });
   if (!result.ok) {
     return err(result.error);

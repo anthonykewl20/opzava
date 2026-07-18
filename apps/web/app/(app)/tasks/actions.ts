@@ -2,6 +2,7 @@
 
 import {
   createTask,
+  markTaskDone,
   moveTask,
   taskPriorities,
   taskStatuses,
@@ -15,6 +16,7 @@ import { z } from "zod";
 
 import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
 import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
+import { attestHumanCommand, issueDoneConfirmNonce } from "@/lib/task-attestation";
 
 const taskStatusSchema = z.enum(taskStatuses);
 const taskPrioritySchema = z.enum(taskPriorities);
@@ -204,10 +206,32 @@ export async function moveTaskAction(
     return formValidationState(parsed.error.issues);
   }
 
-  const result = await moveTask({
+  const appContext = {
     orgId: context.orgId,
     workspaceId: context.workspaceId,
     actor: actorFromContext(context),
+  };
+  if (parsed.data.status === "done") {
+    const nonce = await issueDoneConfirmNonce(context, parsed.data.taskId);
+    if (!nonce.ok) {
+      return taskActionErrorState(nonce.error, "Done confirmation could not be issued.");
+    }
+
+    const result = await markTaskDone({
+      ...appContext,
+      taskId: parsed.data.taskId,
+      position: parsed.data.position,
+      humanCommand: attestHumanCommand(context, nonce.value),
+    });
+    if (!result.ok) {
+      return taskActionErrorState(result.error, "Task could not be marked Done.");
+    }
+
+    redirectAfterMutation();
+  }
+
+  const result = await moveTask({
+    ...appContext,
     taskId: parsed.data.taskId,
     status: parsed.data.status as TaskStatus,
     position: parsed.data.position,

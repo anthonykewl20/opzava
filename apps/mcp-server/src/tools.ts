@@ -101,6 +101,7 @@ const optionalAuthorityFields = {
 };
 
 const statusSchema = z.enum(taskStatuses);
+const writableStatusSchema = z.enum(["todo", "in_progress", "blocked"]);
 const prioritySchema = z.enum(taskPriorities);
 const labelsSchema = z.array(z.string()).max(8).optional();
 const uuidSchema = z.uuid();
@@ -124,7 +125,7 @@ export const createTaskSchema = z
   .object({
     title: z.string().min(1).max(180),
     description: z.string().max(4000).optional(),
-    status: statusSchema.optional(),
+    status: writableStatusSchema.optional(),
     priority: prioritySchema.optional(),
     labels: labelsSchema,
     dueAt: z.string().datetime().nullable().optional(),
@@ -140,7 +141,7 @@ export const updateTaskSchema = z
     taskId: uuidSchema,
     title: z.string().min(1).max(180).optional(),
     description: z.string().max(4000).optional(),
-    status: statusSchema.optional(),
+    status: writableStatusSchema.optional(),
     priority: prioritySchema.optional(),
     labels: labelsSchema,
     ...optionalAuthorityFields,
@@ -251,7 +252,11 @@ function okResponse<T>(result: T): ToolResponse {
 }
 
 function publicCode(error: DomainError): ToolErrorPayload["code"] {
-  if (error.code.includes("forbidden")) {
+  if (
+    error.code.includes("forbidden") ||
+    error.code === "projectManagement.taskDoneRequiresHumanAttestation" ||
+    error.code === "projectManagement.taskDoneRequiresApprovedReview"
+  ) {
     return "forbidden";
   }
 

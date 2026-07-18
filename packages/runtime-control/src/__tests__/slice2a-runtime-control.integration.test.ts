@@ -604,7 +604,7 @@ describe("slice 2a Runtime-Control", () => {
       args: {
         taskId: createdTask.id,
         title: "Updated through Runtime-Control tool",
-        status: "done",
+        status: "in_progress",
         priority: "urgent",
         labels: ["Done"],
       },
@@ -618,7 +618,7 @@ describe("slice 2a Runtime-Control", () => {
           task: {
             id: createdTask.id,
             title: "Updated through Runtime-Control tool",
-            status: "done",
+            status: "in_progress",
             priority: "urgent",
             labels: ["done"],
           },
@@ -650,6 +650,64 @@ describe("slice 2a Runtime-Control", () => {
     expect(
       afterReplayList.value.output.tasks.filter((task) => task.id === createdTask.id),
     ).toHaveLength(1);
+  });
+
+  it("forbids create and update tools from assigning the terminal Done status", async () => {
+    const tenant = await adminCreateTenant("task-tools-done-forbidden");
+    const toolContext = await assistantToolContext(tenant, "task-tools-done-forbidden");
+
+    const createDone = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-create-done",
+      args: { title: "Agent cannot create Done", status: "done" },
+    });
+    expect(createDone).toMatchObject({
+      ok: true,
+      value: { status: "failed", code: "forbidden" },
+    });
+
+    const created = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_create",
+      toolCallId: "tool-call-create-open",
+      args: { title: "Agent-created open task", status: "todo" },
+    });
+    expect(created.ok).toBe(true);
+    if (
+      !created.ok ||
+      created.value.status !== "succeeded" ||
+      created.value.output.kind !== "tasks.create"
+    ) {
+      throw new Error("expected open task fixture");
+    }
+
+    const updateDone = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_update",
+      toolCallId: "tool-call-update-done",
+      args: { taskId: created.value.output.task.id, status: "done" },
+    });
+    expect(updateDone).toMatchObject({
+      ok: true,
+      value: { status: "failed", code: "forbidden" },
+    });
+
+    const listed = await executeRuntimeControlTaskTool({
+      context: toolContext,
+      toolName: "opzava_tasks_list",
+      toolCallId: "tool-call-list-open-after-done-denial",
+      args: { limit: 10 },
+    });
+    expect(listed).toMatchObject({
+      ok: true,
+      value: {
+        status: "succeeded",
+        output: {
+          tasks: [{ id: created.value.output.task.id, status: "todo" }],
+        },
+      },
+    });
   });
 
   it("fails task tool execution closed for malformed args, authz denial, and row absence", async () => {

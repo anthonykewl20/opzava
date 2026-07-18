@@ -10,9 +10,11 @@ export type {
   EnsureTaskQualityReviewInput,
   GetCardDetailInput,
   GetTaskInput,
+  HumanCommandAttestation,
   ListTasksInput,
   ListTaskEvidenceInput,
   MarkCommentsReadInput,
+  MarkTaskDoneInput,
   MoveTaskInput,
   ReorderStepsInput,
   SetDueInput,
@@ -51,6 +53,7 @@ export {
   listTaskEvidence,
   listTasks,
   markCommentsRead,
+  markTaskDone,
   moveTask,
   reorderSteps,
   setDue,
@@ -81,7 +84,7 @@ export {
   syncIssueProjection,
 } from "./application/index.js";
 export type { TaskPriority, TaskStatus } from "./domain/index.js";
-export { taskPriorities, taskStatuses } from "./domain/index.js";
+export { isTerminalTaskStatus, taskPriorities, taskStatuses } from "./domain/index.js";
 export type {
   TaskCreatedEvent,
   TaskDomainEvent,

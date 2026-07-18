@@ -3,6 +3,7 @@ export {
   normalizeTaskDescription,
   normalizeTaskLabels,
   normalizeTaskTitle,
+  isTerminalTaskStatus,
   parseTaskPriority,
   parseTaskStatus,
   taskPriorities,

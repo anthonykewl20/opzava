@@ -7,6 +7,8 @@ import {
   sql,
   withTenant,
 } from "@opzava/adapters";
+import type { AuthorizationPort } from "@opzava/ports";
+import { ok } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -23,6 +25,7 @@ import {
   getTask,
   listTaskEvidence,
   listTasks,
+  markTaskDone,
   markCommentsRead,
   moveTask,
   reorderSteps,
@@ -116,6 +119,76 @@ function actor(userId: string) {
   return { userId, roleKeys: ["member"] };
 }
 
+const denyingAuthorizationPort: AuthorizationPort = {
+  async can() {
+    return ok({ allowed: false, reason: "test-denied" });
+  },
+  async hasTenantGrant() {
+    return ok({ allowed: false, reason: "test-denied" });
+  },
+  async hasProjectGrant() {
+    return ok({ allowed: false, reason: "test-denied" });
+  },
+};
+
+async function issueDoneConfirmation(input: {
+  readonly tenant: TenantFixture;
+  readonly taskId: string;
+  readonly issuedForUserId?: string;
+  readonly issuedAt?: Date;
+  readonly expiresAt?: Date;
+}): Promise<string> {
+  const nonce = randomUUID();
+  await withTenant(input.tenant.organizationId, async (tx) => {
+    await tx.execute(sql`
+      insert into public.task_done_confirmation (
+        id,
+        task_id,
+        organization_id,
+        workspace_id,
+        issued_for_user_id,
+        issued_at,
+        expires_at
+      )
+      values (
+        ${nonce},
+        ${input.taskId},
+        ${input.tenant.organizationId},
+        ${input.tenant.workspaceId},
+        ${input.issuedForUserId ?? input.tenant.userId},
+        ${input.issuedAt ?? new Date()},
+        ${input.expiresAt ?? new Date(Date.now() + 5 * 60 * 1000)}
+      )
+    `);
+  });
+  return nonce;
+}
+
+async function approveTaskReview(tenant: TenantFixture, taskId: string): Promise<string> {
+  const review = await ensureTaskQualityReview({
+    orgId: tenant.organizationId,
+    workspaceId: tenant.workspaceId,
+    actor: actor(tenant.userId),
+    taskId,
+  });
+  expect(review.ok).toBe(true);
+  if (!review.ok) {
+    throw review.error;
+  }
+
+  const approved = await approveQualityReview({
+    orgId: tenant.organizationId,
+    workspaceId: tenant.workspaceId,
+    actor: actor(tenant.userId),
+    taskId,
+  });
+  expect(approved.ok).toBe(true);
+  if (!approved.ok) {
+    throw approved.error;
+  }
+  return approved.value.id;
+}
+
 async function selectStepsWithoutWithTenant(
   expectedOrgId: string,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
@@ -129,6 +202,10 @@ async function cleanupCreatedRows(): Promise<void> {
   const userIds = [...createdUserIds];
 
   if (organizationIds.length > 0) {
+    await adminPool.query(
+      "delete from public.task_done_confirmation where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
     await adminPool.query(
       "delete from public.task_quality_reviewer where organization_id = any($1::uuid[])",
       [organizationIds],
@@ -263,7 +340,7 @@ describe("slice 1e tasks", () => {
       workspaceId: tenant.workspaceId,
       actor: actor(tenant.userId),
       taskId: created.value.id,
-      status: "done",
+      status: "in_progress",
       position: 1,
     });
 
@@ -271,7 +348,7 @@ describe("slice 1e tasks", () => {
     if (!moved.ok) {
       throw moved.error;
     }
-    expect(moved.value.status).toBe("done");
+    expect(moved.value.status).toBe("in_progress");
 
     const loaded = await getTask({
       orgId: tenant.organizationId,
@@ -279,7 +356,7 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
       taskId: created.value.id,
     });
-    expect(loaded).toMatchObject({ ok: true, value: { status: "done" } });
+    expect(loaded).toMatchObject({ ok: true, value: { status: "in_progress" } });
 
     const listed = await listTasks({
       orgId: tenant.organizationId,
@@ -287,6 +364,260 @@ describe("slice 1e tasks", () => {
       actor: actor(tenant.userId),
     });
     expect(listed).toMatchObject({ ok: true, value: [{ title: "Ship the admin Tasks board" }] });
+  });
+
+  it("rejects terminal status through the shared create and move setters", async () => {
+    const tenant = await adminCreateTenant("terminal-shared-setters");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Cannot bypass Done on create",
+      status: "done",
+    });
+    expect(created).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Cannot bypass Done on move",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+
+    const moved = await moveTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      status: "done",
+      position: 9,
+    });
+    expect(moved).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+
+    const loaded = await getTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(loaded).toMatchObject({ ok: true, value: { status: "todo", position: 1 } });
+
+    const doneRows = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select id from public.tasks
+        where workspace_id = ${tenant.workspaceId}
+          and status = 'done'::public.task_status
+      `),
+    );
+    expect(rowsFromExecuteResult(doneRows)).toHaveLength(0);
+  });
+
+  it("marks Done only with an approved review and a fresh single-use confirmation", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-success");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Admit Done through the governed command",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+    const reviewId = await approveTaskReview(tenant, task.value.id);
+    const nonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+    const command = {
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 4,
+      humanCommand: {
+        confirmedByUserId: tenant.userId,
+        confirmSource: "admin-web" as const,
+        confirmNonce: nonce,
+      },
+    };
+
+    const completed = await markTaskDone(command);
+    expect(completed).toMatchObject({ ok: true, value: { status: "done", position: 4 } });
+
+    const audit = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select
+          consumed_at as "consumedAt",
+          consumed_by_user_id as "consumedByUserId",
+          quality_review_id as "qualityReviewId"
+        from public.task_done_confirmation
+        where id = ${nonce}
+      `),
+    );
+    expect(rowsFromExecuteResult(audit)[0]).toMatchObject({
+      consumedByUserId: tenant.userId,
+      qualityReviewId: reviewId,
+    });
+    expect(rowsFromExecuteResult(audit)[0]?.["consumedAt"]).not.toBeNull();
+
+    const replay = await markTaskDone(command);
+    expect(replay).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+  });
+
+  it("rejects Done without an approved review before consuming the confirmation", async () => {
+    const tenant = await adminCreateTenant("done-review-required");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Review must be approved",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+    const nonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+
+    const completed = await markTaskDone({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 3,
+      humanCommand: {
+        confirmedByUserId: tenant.userId,
+        confirmSource: "admin-web",
+        confirmNonce: nonce,
+      },
+    });
+    expect(completed).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresApprovedReview" },
+    });
+
+    const state = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select
+          t.status,
+          c.consumed_at as "consumedAt"
+        from public.tasks t
+        join public.task_done_confirmation c on c.task_id = t.id
+        where c.id = ${nonce}
+      `),
+    );
+    expect(rowsFromExecuteResult(state)[0]).toMatchObject({ status: "todo", consumedAt: null });
+  });
+
+  it("rejects expired, mismatched, unknown, and unauthorized Done confirmations", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-rejections");
+    const otherTenant = await adminCreateTenant("done-confirmation-other-user");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Reject invalid confirmations",
+    });
+    const otherTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Wrong confirmation target",
+    });
+    expect(task.ok && otherTask.ok).toBe(true);
+    if (!task.ok || !otherTask.ok) {
+      throw new Error("expected task fixtures");
+    }
+    await approveTaskReview(tenant, task.value.id);
+
+    const expiredNonce = await issueDoneConfirmation({
+      tenant,
+      taskId: task.value.id,
+      issuedAt: new Date(Date.now() - 2 * 60_000),
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const wrongUserNonce = await issueDoneConfirmation({
+      tenant,
+      taskId: task.value.id,
+      issuedForUserId: otherTenant.userId,
+    });
+    const wrongTaskNonce = await issueDoneConfirmation({ tenant, taskId: otherTask.value.id });
+    const unknownNonce = randomUUID();
+
+    for (const confirmNonce of [expiredNonce, wrongUserNonce, wrongTaskNonce, unknownNonce]) {
+      const result = await markTaskDone({
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: actor(tenant.userId),
+        taskId: task.value.id,
+        position: 5,
+        humanCommand: {
+          confirmedByUserId: tenant.userId,
+          confirmSource: "admin-web",
+          confirmNonce,
+        },
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+      });
+    }
+
+    const shapeMismatch = await markTaskDone({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 5,
+      humanCommand: {
+        confirmedByUserId: otherTenant.userId,
+        confirmSource: "admin-web",
+        confirmNonce: await issueDoneConfirmation({ tenant, taskId: task.value.id }),
+      },
+    });
+    expect(shapeMismatch).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+
+    const validNonce = await issueDoneConfirmation({ tenant, taskId: task.value.id });
+    const unauthorized = await markTaskDone(
+      {
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: actor(tenant.userId),
+        taskId: task.value.id,
+        position: 5,
+        humanCommand: {
+          confirmedByUserId: tenant.userId,
+          confirmSource: "admin-web",
+          confirmNonce: validNonce,
+        },
+      },
+      { authorizationPort: denyingAuthorizationPort },
+    );
+    expect(unauthorized).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.forbidden" },
+    });
+
+    const loaded = await getTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+    });
+    expect(loaded).toMatchObject({ ok: true, value: { status: "todo" } });
   });
 
   it("allocates human-readable card numbers per workspace without consuming replays", async () => {

@@ -4,7 +4,7 @@ import type {
   TaskDto,
   TaskStepDto,
 } from "@opzava/project-management";
-import { DomainError, ok } from "@opzava/shared-kernel";
+import { DomainError, err, ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
 import { createTaskCardActivityGetHandler } from "../app/api/tasks/[cardId]/activity/route";
@@ -55,6 +55,7 @@ import {
   type MentionTarget,
 } from "../lib/task-card-mentions";
 import type { AppSessionContext } from "../lib/session";
+import { attestHumanCommand } from "../lib/task-attestation";
 
 const context: AppSessionContext = {
   sessionId: "session-1",
@@ -169,7 +170,9 @@ function actionDependencies(
         task({ id: "33333333-3333-4333-8333-333333333333", status: "done", position: 7 }),
       ]),
     markCommentsRead: async () => ok([comment({ readByUserIds: ["user-1"] })]),
-    moveTask: async () => ok(task({ status: "done", position: 8 })),
+    issueDoneConfirmNonce: async () => ok("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    attestHumanCommand,
+    markTaskDone: async () => ok(task({ status: "done", position: 8 })),
     toggleStep: async () => ok(step({ done: true })),
     updateTask: async () => ok(task()),
     addTaskEvidenceFile: async (input) =>
@@ -621,11 +624,16 @@ describe("Task card load and actions", () => {
   });
 
   it("marks a card done at the next done position and records linked-issue close intent", async () => {
-    let capturedInput: Parameters<TaskCardActionDependencies["moveTask"]>[0] | null = null;
+    let capturedInput: Parameters<TaskCardActionDependencies["markTaskDone"]>[0] | null = null;
+    let issuedForTaskId: string | null = null;
     const result = await markTaskDoneForCard(
       { taskId: "11111111-1111-4111-8111-111111111111" },
       actionDependencies({
-        moveTask: async (input) => {
+        issueDoneConfirmNonce: async (_context, taskId) => {
+          issuedForTaskId = taskId;
+          return ok("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        },
+        markTaskDone: async (input) => {
           capturedInput = input;
           return ok(
             task({
@@ -642,9 +650,14 @@ describe("Task card load and actions", () => {
     if (!result.ok) {
       throw result.error;
     }
+    expect(issuedForTaskId).toBe("11111111-1111-4111-8111-111111111111");
     expect(capturedInput).toMatchObject({
-      status: "done",
       position: 8,
+      humanCommand: {
+        confirmedByUserId: "user-1",
+        confirmSource: "admin-web",
+        confirmNonce: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      },
     });
     expect(result.value.linkedIssueCloseIntent).toEqual({
       kind: "deferred_to_slice_2_5e",
@@ -652,6 +665,33 @@ describe("Task card load and actions", () => {
       cardNumber: 1042,
       targetRef: "github:opzava/opzava#42",
       outbox: null,
+    });
+  });
+
+  it("fails the card Done command when the human attestation is invalid", async () => {
+    const result = await markTaskDoneForCard(
+      { taskId: "11111111-1111-4111-8111-111111111111" },
+      actionDependencies({
+        attestHumanCommand: (_context, nonce) => ({
+          confirmedByUserId: "assistant-forgery",
+          confirmSource: "admin-web",
+          confirmNonce: nonce,
+        }),
+        markTaskDone: async (input) =>
+          input.humanCommand.confirmedByUserId === context.user.id
+            ? ok(task({ status: "done" }))
+            : err(
+                new DomainError({
+                  code: "projectManagement.taskDoneRequiresHumanAttestation",
+                  message: "Marking a task Done requires the confirmed human Done action.",
+                }),
+              ),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
   });
 

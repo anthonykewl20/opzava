@@ -64,6 +64,10 @@
     {
       "path": "0015_crm_removal.sql",
       "sha256": "7b2f22d5237d105d58c2b9768da108d39b2cc3ec53ab4f933cc4c2fd4b17e9ae"
+    },
+    {
+      "path": "0016_task_done_confirmation.sql",
+      "sha256": "e2a0f65d2e1985dd240f915abd63488481c5484a10f700b22ab4954d68c6502b"
     }
   ]
 }
