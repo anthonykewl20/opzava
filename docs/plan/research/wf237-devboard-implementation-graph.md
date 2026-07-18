@@ -7,6 +7,11 @@ Dev Board implementation graph and the reciprocal `#147–#157` mapping. It is p
 only — it authorizes no product code, schema, migration, or route cutover
 (`CLAUDE.md` Q17 quarantine; `#237` body; map `#228` "Out of scope").
 
+> **Refreshed 2026-07-18** to consume the reconciled/enriched source memos (`wf233`/`wf234`/`wf235`).
+> No locked decision changed — every fold is a refined owner-decision default or an added open
+> nuance clearly marked "owner decision, not locked". The canonical tracer-bullet schema, all 33
+> TBs, the coverage matrices, and the acyclic edges are unchanged.
+
 **Schema owner: `#237` (map #228) / Adopter: `#246` (map #241).** Per the 2026-07-18
 `#237 ↔ #246` layered-ownership resolution
 (`#237` comment `…5010325286`), `#237` defines the canonical tracer-bullet format, audit
@@ -550,9 +555,12 @@ adjacency list is in §3.
 ### Vertical F — Archive / retention / redaction (`wf235`)
 
 #### `TB-AR1` — Retention/TTL + tombstone schema + exceptional redaction + governed restore + revocation confirmation
-- **owner/seams:** cross-ledger retention matrix; four-ledger tombstone schema (Releases
-  contamination model as template, `DBF-226`); idempotent terminal-disposition revocation
-  (`wf235:39-100`).
+- **owner/seams:** cross-ledger retention matrix; four-ledger tombstone schema — consumes the
+  enriched `wf235` OPEN-3 **domain-separated keyed-HMAC `AuditTombstone` commitment**
+  (`HMAC-SHA-256` over a dedicated commitment key + purpose/domain tag; key separate from vault
+  secrets with auditable rotation; verification fails closed on key loss; a plain content-hash is
+  rejected as a fingerprint/recovery oracle), Releases contamination model as template
+  (`DBF-226`); idempotent terminal-disposition revocation (`wf235:39-100, 140-166`).
 - **classification:** Feature; Backend/API, Security; P2; Risk High.
 - **deps:** `TB-01`, `TB-GH10` (GitHub managed-comment tombstone path), `TB-RN5` (grant
   disposal).
@@ -918,7 +926,12 @@ decide them.
    (`wf233:90-93`).
 3. **SLO of resumed Sprint coordinator selection** — when system auto-resumes. *Default:*
    system-induced pauses may auto-resume after fresh-claim preconditions; human/governed pauses
-   require explicit Resume (`wf233:95-98`).
+   require explicit Resume (`wf233:186-189`). *Open nuance (owner decision, not locked):* the
+   enriched `wf233` branch-resolution candidate treats `ResumeSprint` as **always-explicit** —
+   nothing auto-consumes resume, not even for system-induced pauses — whereas the landed
+   recommendation permits system-induced auto-resume after preconditions. The owning TB
+   (`TB-SP1`/`TB-SP2`) must pick one at implementation; the two are mutually exclusive
+   (`wf233:186-189`; RECONCILE-NOTES-233 CONFLICT C1).
 4. **Resume/reopen command shape.** *Default:* `ResolveOrSupersedeBlock`/reopen with required
    revocation/fence proofs; never implicit auto-unpause (`wf233:100-103`).
 5. **Ordinary-work tie-break at equal priority.** *Default:* deterministic ordering
@@ -931,13 +944,23 @@ decide them.
 ### From `#234` (Docs) — own by `TB-DC1`
 1. **Approval class** for Planning Brief / Postmortem / Sprint Report (`wf234` O-1). *Default:*
    Planning Brief + Postmortem require Human Owner approval; Sprint Report auto-finalized
-   immutable snapshot.
+   immutable snapshot. *Refinement (owner decision, not locked):* Review Gate and Releases Gate
+   contracts are modeled as **`RFC/Design Spec` profiles** (Document Owner slot **plus** their
+   exact versioned profile-policy approval slots), **not** new Docs types; the high-level
+   governance decision to adopt such a gate stays an ADR, so the owning TB locks the profile-slot
+   policy rather than minting a tenth type (`wf234:62, 72, 90`).
 2. **Unapproved Research Notes / Planning Logs in Ready pins** (O-2). *Default:* only Approved
    docs qualify as dependency pins.
 3. **Canonical state name + shorthand** (O-3). *Default:* enum `{Draft, In Review, Approved,
    Superseded, Archived}`; forbid freeform `Review`.
 4. **Docs revision authority + command names** (O-4). *Default:* reuse `wf230` trusted revision
-   envelope (`Propose/Accept/RejectRevision` + expected-version guard).
+   envelope (`Propose/Accept/RejectRevision` + expected-version guard). *Refinement (owner
+   decision, not locked):* because Docs revisions carry a governed Draft→In Review→Approved
+   lifecycle with multi-slot/profile approval distinct from DevTicket revisions, the owning TB may
+   adopt a **dedicated Docs command family** (`CreateDocumentRevision`,
+   `SubmitDocumentRevisionForReview`, `FinalizeDocumentApproval`, `ResolveDocumentMirrorConflict`,
+   …) that inherits the `wf230` envelope + Secret-Safe admission **without inventing a parallel
+   authority lane** (`wf234:279-314, 412-413`).
 5. **Docs Markdown mirror conflict handling** (O-5). *Default:* extend `wf231`
    `ResolveSyncConflict` three-way field model; same no-wholesale-merge limitation.
 6. **Retention for generated planning artifacts** (O-6). *Default:* sanitized Planning Session
@@ -950,8 +973,12 @@ decide them.
    classes TTL = none. **No numbers exist in any source.**
 2. **Legal/policy redaction authority chain** (OPEN-2). *Default:* Request = Human Owner or Lead
    Orchestrator; Approve/Execute = Secure-UI Admin only.
-3. **Field-level tombstone schema** (OPEN-3) — one row schema across four ledgers (Releases
-   contamination model template, `DBF-226`).
+3. **Field-level tombstone schema** (OPEN-3) — one row schema across four ledgers whose
+   `integrityCommitment` is a **domain-separated keyed HMAC** (`HMAC-SHA-256` over a dedicated
+   commitment key + purpose/domain tag; key separate from vault secrets, with auditable rotation;
+   verification fails closed on key loss). The enriched `wf235` OPEN-3 reconciled this **away from
+   a plain content hash**, which would itself be a fingerprint/recovery oracle. Releases
+   contamination model template `DBF-226` (`wf235:140-166`).
 4. **Restore authority matrix + revocation coupling** (OPEN-4). *Default:* same authority as
    archive; restored Done stays view-only.
 5. **Retention-expiry partial-failure rule** (OPEN-5). *Default:* relied-upon evidence promoted

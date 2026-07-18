@@ -1,5 +1,7 @@
 # Ask Admin Opzava v1 — Assembled Locked Spec (WF-220 synthesis)
 
+> **Refreshed 2026-07-18** to consume the reconciled/enriched source memos (no locked decision changed).
+
 > **What this is.** The assembled, locked v1 spec for **Ask Admin Opzava as the ADMIN-only Lead
 > Orchestrator**, synthesized from every resolved child ticket on wayfinder map
 > [#210](https://github.com/anthonykewl20/opzava/issues/210). It is the deliverable for TASK
@@ -43,10 +45,13 @@
 - Brain model + failover chain (`#223` → `wf223-ask-admin-brain-model.md`).
 - Cost & usage governance, visibility-only (`#224` → issue comment).
 - Skills mechanics (`#221` → `wf221-ask-admin-v1-skills.md`); v1 skill set (`#219` →
-  `wf219-ask-admin-v1-skills.md`).
-- Delegation path (`#216` → `wf216-ask-admin-delegation-path.md`, prototype `prototypes/wf216-delegation/`).
+  `wf219-ask-admin-v1-skills.md`, dual-provider-converged + enriched 2026-07-18).
+- Delegation path (`#216` → `wf216-ask-admin-delegation-path.md`, prototype `prototypes/wf216-delegation/`;
+  **enriched 2026-07-18** — reconciliation note + prior branch depth folded in, now carrying the
+  three-path separation (§Scope) and the §3.8 closed-tool `opzava_support_delegate` alternative
+  surfaced here as D-DELEG-4, plus the §3.9 retention contract and the branch sad-path table §2.4).
 - Governed card authority + hard-gate confirm flow (`#218` → `wf218-governed-card-authority.md`,
-  prototype `prototypes/wf218-hard-gate/`, commit `028ec317`).
+  prototype `prototypes/wf218-hard-gate/`, commit `028ec317`; corrected-contract + enriched 2026-07-18).
 - Principal trust brief (`#194` → `docs/adr/ADR-018-web-broker-principal-trust.md`, Proposed).
 - Product contract (`docs/prd/PRD-005-assistants-chat.md`); Dev Board authority (`ADR-017`, `PRD-019`).
 
@@ -403,6 +408,12 @@ tools.**
   platform reads (`opzava_github_state_read`, `opzava_connections_health_read`) + the 2 net-new
   conversation-search tools (`opzava_conversations_search`, `opzava_conversations_get`) (`#212` §C/§D;
   `#213` amendments; `#219` §6.1 S1).
+- **Delegation subtree = the v1-locked §3.1 surface** (`sessions_spawn`/`sessions_yield`/`subagents`,
+  resolved from `group:sessions` via `alsoAllow` in Slice A12). The enriched `wf216` §3.8 carries a
+  stricter alternative — a single closed `opzava_support_delegate` tool that removes raw
+  `sessions_*/subagents` exposure from the model. That alternative is **not** swapped in here; it is
+  surfaced as an open owner decision (D-DELEG-4 — no raw exposure vs richer control). The 25-name set
+  above is unchanged.
 - **Defense-in-depth deny:** list mutations individually (`write`/`edit`/`apply_patch`, never
   `group:fs`), `group:runtime`, and `group:agents` members individually (never `group:agents`, which
   would also kill the `update_plan` opt-in) (`#212` §E3; `#219` §5).
@@ -989,6 +1000,13 @@ A7 (terminal safety), A8 (audit) · **Blocks:** —
   submitted_for_review → completed | failed`); no private progress channel (`wf216` §2.3, §3.3).
 - [ ] Resolve `group:sessions` → concrete projected tool names via `alsoAllow`; drop the bare group
   token (`wf216` §3.1; `#212` §E4).
+- [ ] **Owner decision to weigh (not a silent change):** the enriched `wf216` §3.8 carries a stricter,
+  better-grounded alternative to the raw delegation subtree above — a single closed
+  `opzava_support_delegate` tool (Mainframe extension `extensions/opzava-support-delegation` +
+  `AssistantDelegationCoordinator`) that removes raw `sessions_*/subagents` from the model surface.
+  v1 ships §3.1's resolved subtree; §3.8 is surfaced for owner sign-off as a fast-follow hardening, not
+  swapped in. Tradeoff: no raw `sessions_*/subagents` exposure (§3.8) vs richer runtime control (§3.1).
+  See D-DELEG-4; full conflict analysis `RECONCILE-NOTES-216.md` §1.A.
 
 **Architecture alignment:** Deepens the **Ask Admin command Adapter** as the named deep module
 (`requestCommand(turnContext, intent)`) — the seam between chat intent and the governed DevTicket command
@@ -1109,6 +1127,20 @@ quota fails over with the A10 marker; GLM/Kimi show "plan limits not available."
   (`wf216` §3.5). *Confirm.*
 - **D-DELEG-3 Boundary source order** — **Default:** #243 > #219 > #232 > #230 > PRD-005 > ADR-017
   (`wf216` §3.6). *Confirm.*
+- **D-DELEG-4 Model-facing delegation surface (OPEN — owner decision, not locked).** The enriched
+  `wf216` carries two alternative surfaces for the v1 delegation tool. §3.1's resolved raw subtree
+  (`sessions_spawn`/`sessions_yield`/`subagents`, admitted via `alsoAllow`) is the surface this spec
+  locks in §1.13 (the 25-name set) and Slice A12. The enriched §3.8 proposes a stricter,
+  better-grounded alternative: a single closed `opzava_support_delegate` tool backed by a new
+  Mainframe extension + `AssistantDelegationCoordinator` that **removes raw `sessions_*/subagents`
+  from the model-facing surface entirely** (no unsafe caller-selected args — target/cwd/runtime/model/
+  thread/context/attachments; no non-idempotent `taskName`) in exchange for a larger self-contained
+  build (extension + coordinator + aggregate + adapter + policy + projection). **Default (unchanged):
+  keep §3.1 for v1** — §3.8 is recorded here as a fast-follow hardening the owner may choose at
+  sign-off, **not a silent swap**; the v1 25-name surface and Slice A12 are unchanged unless the owner
+  overrides. Tradeoff to weigh: **no raw `sessions_*/subagents` exposure (§3.8) vs richer runtime
+  control (§3.1).** Full conflict analysis: `RECONCILE-NOTES-216.md` §1.A (`wf216` §3.1 ↔ §3.8).
+  *Owner decision, not locked.*
 
 ## 3.8 Cost (from #224)
 

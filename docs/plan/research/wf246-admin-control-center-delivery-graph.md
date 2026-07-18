@@ -16,6 +16,8 @@ Status: **READ-ONLY synthesis for [#246](https://github.com/anthonykewl20/opzava
 [#241](https://github.com/anthonykewl20/opzava/issues/241). No git, no GitHub writes, no tickets
 created. Date: 2026-07-18. Every claim carries a citation.
 
+> Refreshed 2026-07-18 to consume the reconciled/enriched source memos (no locked decision changed).
+
 Scope fence (restated from [#241 body](https://github.com/anthonykewl20/opzava/issues/241) and
 [PRD-020:239-247](../../prd/PRD-020-admin-control-center.md#L239-L247)): this graph resolves
 **placement, composition, setup UX, and route migration only**. It preserves — and never redefines —
@@ -524,11 +526,11 @@ same-or-later waves). **Safe frontier** = all Wave-0 TBs plus any Wave-N TB once
 ### Wave 3 — Route migration & cutover (#246-owned synthesis; blockedBy parity)
 
 #### TB-M1 · Canonical routes, aliases, query/fragment mapping, redirect traps
-- **Owners/seams:** #246 route synthesis ([wf242 §migration seams 1-7](../../plan/research/wf242-admin-route-ownership-migration-audit.md); [wf245 §1.4-1.5](../../plan/research/wf245-github-integration-connections-migration.md); [wf249 route disposition](../../plan/research/wf249-admin-ai-runtime-openclaw-parity.md)).
+- **Owners/seams:** #246 route synthesis ([wf242 §migration seams 1-7](../../plan/research/wf242-admin-route-ownership-migration-audit.md); [wf245 §1.3-1.5](../../plan/research/wf245-github-integration-connections-migration.md); [wf249 route disposition](../../plan/research/wf249-admin-ai-runtime-openclaw-parity.md)).
 - **blockedBy:** F4, R1, R2, D1, and each leaf whose target route is being chosen (A1, A2, O1, C1 at minimum) — cutover only after real-stack parity per Seam 6.
 - **blocks:** M4.
 - **Sad paths:** `/connections/gateway` permanent-redirect cache trap → distinct target or cache-aware transition, no chain; unknown fragment → preserve safe state or explicit destination root, no loop, never forward secrets; redirect target forbidden → 403 at target, redirect confers no access.
-- **Edge cases:** `/connections` → Integrations only when all sections proven-to-parity; `/connections/providers` → Models after parity; `/connections/system` split anchor-by-anchor (#245 channels→Integrations; #249 agents→Agents; system-core mixed Gateway/Health preserved until both mappings exist); `notice`/`provider` translated only allowlisted owner outcomes; expand/contract via owner ports, UI route can move while server command stable.
+- **Edge cases:** `/connections` → Integrations only when all sections proven-to-parity; `/connections/providers` → Models after parity; `/connections/system` split anchor-by-anchor (#245 channels→Integrations; #249 agents→Agents; system-core mixed Gateway/Health preserved until both mappings exist); `notice`/`provider` translated only allowlisted owner outcomes; expand/contract via owner ports, UI route can move while server command stable. **Recommended target route family (owner decision, not locked — canonical path still deferred to #246):** from wf245 §1.3/O1, `/integrations`, `/integrations/github`, `/integrations/github/history` with semantic IDs `configure.integrations`, `configure.integrations.github`, `configure.integrations.github.history`; only `configure.integrations` is a shell destination and the nested IDs name page-local views (detail, history) within PRD-020's two-level sidebar limit; final paths may be ratified differently provided the three distinct semantic roles (inventory leaf, GitHub detail, GitHub history) and direct old-route mappings survive.
 - **Acceptance:** each legacy route resolves once to canonical destination; back/forward + deep-link + palette/sidebar/topbar links updated in same cutover; CI checks 403-deny, revoked-auth cache-miss, redirect-chain safety, rollback switchback.
 - **E2E:** bookmarked `/connections/github` post-parity → Integrations GitHub; `/connections/gateway` cached client → not stranded.
 - **Contract:** redirect never bypasses authorization; one canonical destination per legacy route.
@@ -637,7 +639,7 @@ carried the recommendation.
 10. **V1 access model** (#244-O4): enforce `Owner + existing admin-compatible`; defer broader roles.
 11. **Cloud enrollment v1** (#244-O6): expose local as primary; cloud reserved/unavailable absent issuer policy.
 12. **Capacity preset selector** (#244-O7): read-only effective-capacity projection; selector mutability → #233 close.
-13. **Integrations GitHub leaf model** (#245-O1): four-part contract (enrollment, health dimensions, repair, integration history); #246 chooses destination path names + return encoding.
+13. **Integrations GitHub leaf model** (#245-O1): four-part contract (enrollment, health dimensions, repair, integration history); #246 chooses destination path names + return encoding. **Recommended route family (owner decision, not locked — canonical path deferred to #246):** `/integrations`, `/integrations/github`, `/integrations/github/history` (semantic IDs `configure.integrations(.github(.history))`); only `configure.integrations` is a shell destination and nested IDs name page-local views within PRD-020's two-level sidebar limit; final paths remain a #246 owner decision and may be ratified differently so long as the three distinct semantic roles (inventory leaf, GitHub detail, GitHub history) survive ([wf245 §1.3, §3-O1](../../plan/research/wf245-github-integration-connections-migration.md)).
 14. **`/api/connections/*` namespace** (#245-O2): keep `device-flow` as compatibility facade until atomic consumer migration; rename/retire only after telemetry + zero unsupported consumers.
 15. **Compatibility duration / redirect retirement** (#245-O3): retain legacy ≥ one full release after verified parity + telemetry + rollback gates.
 16. **`/connections/system` mixed-owner anchors** (#245-O4): preserve `#system-group-channels`→Integrations; don't invent destinations for unknown anchors; finalize bare-route only after #249/#250 anchor matrices.
