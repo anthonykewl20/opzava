@@ -4,7 +4,14 @@ import type {
   TaskDto,
   TaskStepDto,
 } from "@opzava/project-management";
+import {
+  approveQualityReview,
+  createTask,
+  ensureTaskQualityReview,
+} from "@opzava/project-management";
+import { createPostgresPool } from "@opzava/adapters";
 import { DomainError, err, ok } from "@opzava/shared-kernel";
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createTaskCardActivityGetHandler } from "../app/api/tasks/[cardId]/activity/route";
@@ -28,6 +35,7 @@ import {
   addEvidenceLinkForCard,
   addQualityCheckForCard,
   approveQualityReviewForCard,
+  defaultTaskCardActionDependencies,
   loadTaskCardPageData,
   markTaskCommentsReadForCard,
   markTaskDoneForCard,
@@ -70,6 +78,10 @@ const context: AppSessionContext = {
   workspaceName: "Customer Support",
   roleKeys: ["admin"],
 };
+
+const databaseIntegrationAvailable =
+  typeof process.env["DATABASE_URL"] === "string" &&
+  typeof process.env["DATABASE_MIGRATION_URL"] === "string";
 
 function task(overrides: Partial<TaskDto> = {}): TaskDto {
   return {
@@ -624,14 +636,36 @@ describe("Task card load and actions", () => {
   it("marks a card done at the next done position and records linked-issue close intent", async () => {
     let capturedInput: Parameters<TaskCardActionDependencies["markTaskDone"]>[0] | null = null;
     let issuedForTaskId: string | null = null;
+    const approvedReviewTaskIds = new Set(["11111111-1111-4111-8111-111111111111"]);
+    const issuedConfirmations = new Map<
+      string,
+      { readonly taskId: string; readonly userId: string }
+    >();
     const result = await markTaskDoneForCard(
       { taskId: "11111111-1111-4111-8111-111111111111" },
       actionDependencies({
-        issueDoneConfirmNonce: async (_context, taskId) => {
+        issueDoneConfirmNonce: async (sessionContext, taskId) => {
           issuedForTaskId = taskId;
-          return ok("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+          const nonce = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+          issuedConfirmations.set(nonce, { taskId, userId: sessionContext.user.id });
+          return ok(nonce);
         },
         markTaskDone: async (input) => {
+          const issued = issuedConfirmations.get(input.humanCommand.confirmNonce);
+          if (
+            !approvedReviewTaskIds.has(input.taskId) ||
+            issued?.taskId !== input.taskId ||
+            issued.userId !== input.actor.userId ||
+            input.humanCommand.confirmedByUserId !== input.actor.userId ||
+            input.humanCommand.confirmSource !== "admin-web"
+          ) {
+            return err(
+              new DomainError({
+                code: "projectManagement.taskDoneRequiresHumanAttestation",
+                message: "Done requires an approved review and issued human confirmation.",
+              }),
+            );
+          }
           capturedInput = input;
           return ok(
             task({
@@ -665,6 +699,159 @@ describe("Task card load and actions", () => {
       outbox: null,
     });
   });
+
+  it.skipIf(!databaseIntegrationAvailable)(
+    "marks a card Done with an approved review and a consumed DB confirmation",
+    async () => {
+      const migrationUrl = process.env["DATABASE_MIGRATION_URL"];
+      if (migrationUrl === undefined) {
+        throw new Error("DATABASE_MIGRATION_URL is required for the web Done integration test.");
+      }
+
+      const adminPool = createPostgresPool(migrationUrl);
+      const organizationId = randomUUID();
+      const workspaceId = randomUUID();
+      const userId = randomUUID();
+      const integrationContext: AppSessionContext = {
+        sessionId: `session-${randomUUID()}`,
+        user: {
+          id: userId,
+          email: `${userId}@example.test`,
+          name: "Done Test Admin",
+        },
+        orgId: organizationId,
+        organizationName: "Done Test Organization",
+        organizationLifecycleState: "active",
+        workspaceId,
+        workspaceName: "Admin",
+        roleKeys: ["admin"],
+      };
+
+      try {
+        await adminPool.query(
+          `insert into public.organizations (id, slug, name, lifecycle_state)
+           values ($1, $2, 'Done Test Organization', 'active')`,
+          [organizationId, `web-done-${organizationId}`],
+        );
+        await adminPool.query(
+          `insert into public.workspaces (id, organization_id, slug, name)
+           values ($1, $2, 'admin', 'Admin')`,
+          [workspaceId, organizationId],
+        );
+        await adminPool.query(
+          `insert into public.auth_users (id, name, email, email_verified)
+           values ($1, 'Done Test Admin', $2, true)`,
+          [userId, integrationContext.user.email],
+        );
+        await adminPool.query(
+          `insert into public.memberships (organization_id, user_id, status, membership_version)
+           values ($1, $2, 'active', 1)`,
+          [organizationId, userId],
+        );
+        await adminPool.query(
+          `insert into public.role_grants (
+             organization_id,
+             subject_type,
+             subject_id,
+             role_key,
+             scope_type,
+             scope_id,
+             granted_by_user_id
+           )
+           values ($1, 'user', $2, 'admin', 'organization', $1, $2)`,
+          [organizationId, userId],
+        );
+
+        const appContext = {
+          orgId: organizationId,
+          workspaceId,
+          actor: { userId, roleKeys: ["admin"] },
+        };
+        const created = await createTask({
+          ...appContext,
+          title: "Prove the web Done command",
+        });
+        expect(created.ok).toBe(true);
+        if (!created.ok) {
+          throw created.error;
+        }
+
+        const review = await ensureTaskQualityReview({
+          ...appContext,
+          taskId: created.value.id,
+        });
+        expect(review.ok).toBe(true);
+        if (!review.ok) {
+          throw review.error;
+        }
+        const approved = await approveQualityReview({
+          ...appContext,
+          taskId: created.value.id,
+          expectedReviewId: review.value.id,
+        });
+        expect(approved).toMatchObject({ ok: true, value: { status: "approved" } });
+
+        const completed = await markTaskDoneForCard(
+          { taskId: created.value.id },
+          {
+            ...defaultTaskCardActionDependencies,
+            getSessionContext: async () => integrationContext,
+          },
+        );
+        expect(completed).toMatchObject({ ok: true, value: { task: { status: "done" } } });
+
+        const audit = await adminPool.query<{
+          consumed_at: string | null;
+          consumed_by_user_id: string | null;
+          quality_review_id: string | null;
+        }>(
+          `select consumed_at, consumed_by_user_id, quality_review_id
+           from public.task_done_confirmation
+           where task_id = $1`,
+          [created.value.id],
+        );
+        expect(audit.rows).toEqual([
+          expect.objectContaining({
+            consumed_at: expect.anything(),
+            consumed_by_user_id: userId,
+            quality_review_id: review.value.id,
+          }),
+        ]);
+      } finally {
+        await adminPool.query(
+          "delete from public.task_done_confirmation where organization_id = $1",
+          [organizationId],
+        );
+        await adminPool.query(
+          "delete from public.task_quality_reviewer where organization_id = $1",
+          [organizationId],
+        );
+        await adminPool.query(
+          "delete from public.task_quality_check where organization_id = $1",
+          [organizationId],
+        );
+        await adminPool.query(
+          "delete from public.task_quality_review where organization_id = $1",
+          [organizationId],
+        );
+        await adminPool.query("delete from public.tasks where organization_id = $1", [
+          organizationId,
+        ]);
+        await adminPool.query("delete from public.role_grants where organization_id = $1", [
+          organizationId,
+        ]);
+        await adminPool.query("delete from public.memberships where organization_id = $1", [
+          organizationId,
+        ]);
+        await adminPool.query("delete from public.workspaces where organization_id = $1", [
+          organizationId,
+        ]);
+        await adminPool.query("delete from public.organizations where id = $1", [organizationId]);
+        await adminPool.query("delete from public.auth_users where id = $1", [userId]);
+        await adminPool.end();
+      }
+    },
+  );
 
   it("fails the card Done command when no valid confirmation can be issued", async () => {
     let markTaskDoneCalled = false;
