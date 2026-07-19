@@ -1,7 +1,3 @@
-/**
- * @deprecated Compatibility subpath for shipped approval reaction helpers.
- * New plugin code should use the focused approval runtime/reply subpaths.
- */
 import { sanitizeForPromptLiteral } from "../agents/sanitize-for-prompt.js";
 import { formatApprovalDisplayPath } from "../infra/approval-display-paths.js";
 import { buildPendingApprovalView } from "../infra/approval-view-model.js";
@@ -13,6 +9,11 @@ import {
   type ExecApprovalReplyDecision,
 } from "../infra/exec-approval-reply.js";
 import type { PluginApprovalRequest } from "../infra/plugin-approvals.js";
+/**
+ * @deprecated Compatibility subpath for shipped approval reaction helpers.
+ * New plugin code should use the focused approval runtime/reply subpaths.
+ */
+import { formatFencedCodeBlock } from "../shared/markdown-code.js";
 import {
   buildApprovalPendingReplyPayload,
   buildPluginApprovalPendingReplyPayload,
@@ -61,6 +62,7 @@ export type ApprovalReactionDecisionResolution = {
 /** Stored target metadata needed to convert a reaction into an approval decision. */
 export type ApprovalReactionTargetRecord<TRoute = unknown> = {
   approvalId: string;
+  /** Explicit ownership; omission is supported only by the deprecated resolver. */
   approvalKind?: ApprovalKind;
   allowedDecisions: readonly ExecApprovalReplyDecision[];
   route?: TRoute;
@@ -197,10 +199,10 @@ export function resolveApprovalReactionDecision(params: {
   return null;
 }
 
-/** Resolve a stored target plus reaction key into an approval decision payload. */
-export function resolveApprovalReactionTarget<TRoute = unknown>(params: {
+function resolveApprovalReactionTargetInternal<TRoute>(params: {
   target: ApprovalReactionTargetRecord<TRoute> | null | undefined;
   reactionKey: string;
+  allowLegacyKindInference: boolean;
 }): ApprovalReactionTargetResolution<TRoute> | null {
   const target = params.target;
   if (!target) {
@@ -213,25 +215,45 @@ export function resolveApprovalReactionTarget<TRoute = unknown>(params: {
   if (!decision) {
     return null;
   }
-  const approvalId = target.approvalId.trim();
+  // Typed targets already carry canonical protocol identity. Preserve it byte-for-byte;
+  // only the shipped ownerless path retains its historical trimming behavior.
+  const approvalId = params.allowLegacyKindInference ? target.approvalId.trim() : target.approvalId;
+  const approvalKind = target.approvalKind;
   if (!approvalId) {
+    return null;
+  }
+  const resolvedKind =
+    approvalKind === "exec" || approvalKind === "plugin"
+      ? approvalKind
+      : params.allowLegacyKindInference
+        ? approvalId.startsWith("plugin:")
+          ? "plugin"
+          : "exec"
+        : null;
+  if (!resolvedKind) {
     return null;
   }
   return {
     approvalId,
-    approvalKind: target.approvalKind ?? (approvalId.startsWith("plugin:") ? "plugin" : "exec"),
+    approvalKind: resolvedKind,
     decision: decision.decision,
     normalizedEmoji: decision.normalizedEmoji,
     ...(target.route === undefined ? {} : { route: target.route }),
   };
 }
 
-function buildFence(text: string, language?: string): string {
-  let fence = "```";
-  while (text.includes(fence)) {
-    fence += "`";
-  }
-  return `${fence}${language ?? ""}\n${text}\n${fence}`;
+/** Resolve an explicitly typed target without deriving ownership from its id. */
+export function resolveTypedApprovalReactionTarget<TRoute = unknown>(params: {
+  target:
+    | (ApprovalReactionTargetRecord<TRoute> & { approvalKind: ApprovalKind })
+    | null
+    | undefined;
+  reactionKey: string;
+}): ApprovalReactionTargetResolution<TRoute> | null {
+  return resolveApprovalReactionTargetInternal({
+    ...params,
+    allowLegacyKindInference: false,
+  });
 }
 
 function formatSeverity(value: "info" | "warning" | "critical"): string {
@@ -243,13 +265,16 @@ function buildDecisionText(allowedDecisions: readonly ExecApprovalReplyDecision[
 }
 
 function buildManualInstructionSection(params: {
+  approvalKind: ApprovalKind;
   approvalId: string;
   allowedDecisions: readonly ExecApprovalReplyDecision[];
 }): string[] {
   const lines: string[] = [];
   if (!params.allowedDecisions.includes("allow-always")) {
     lines.push(
-      "Allow Always is unavailable because the effective policy requires approval every time.",
+      params.approvalKind === "exec"
+        ? "Allow Always is unavailable for this command."
+        : "Allow Always is unavailable because the effective policy requires approval every time.",
     );
   }
   if (params.allowedDecisions.length > 0) {
@@ -293,7 +318,7 @@ function buildApprovalReactionPromptText(params: {
     if (warningLines?.length) {
       sections.push(["Command analysis:", ...warningLines.map((line) => `- ${line}`)].join("\n"));
     }
-    sections.push(["Pending command:", buildFence(view.commandText, "sh")].join("\n"));
+    sections.push(["Pending command:", formatFencedCodeBlock(view.commandText, "sh")].join("\n"));
     const info: string[] = [];
     if (view.cwd) {
       info.push(`CWD: ${formatApprovalDisplayPath(sanitizeForPromptLiteral(view.cwd))}`);
@@ -342,6 +367,7 @@ function buildApprovalReactionPromptText(params: {
     sections.push(commandInstructions.join("\n"));
   }
   const manualInstructions = buildManualInstructionSection({
+    approvalKind: view.approvalKind,
     approvalId: view.approvalId,
     allowedDecisions,
   });

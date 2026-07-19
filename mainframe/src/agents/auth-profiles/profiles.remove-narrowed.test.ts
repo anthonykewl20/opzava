@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { removeProviderAuthProfilesFromStore } from "./profiles.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { removeProviderAuthProfilesWithLock } from "./profiles.js";
 import type { AuthProfileStore } from "./types.js";
+
+type UpdateAuthProfileStoreParams = Parameters<
+  typeof import("./store.js").updateAuthProfileStoreWithLock
+>[0];
+
+const mocks = vi.hoisted(() => ({
+  updateAuthProfileStoreWithLock: vi.fn(),
+}));
+
+vi.mock("./store.js", async () => {
+  const actual = await vi.importActual<typeof import("./store.js")>("./store.js");
+  return {
+    ...actual,
+    updateAuthProfileStoreWithLock: mocks.updateAuthProfileStoreWithLock,
+  };
+});
 
 // One API key can be registered under several provider ids (OpenCode shares a key across the
 // `opencode` and `opencode-go` catalogs). Revoking the SHARED profile off one of them must not take
@@ -8,6 +24,7 @@ import type { AuthProfileStore } from "./types.js";
 // operator never asked to revoke.
 function storeWithSharedAndPersonalOpenCodeKeys(): AuthProfileStore {
   return {
+    version: 1,
     profiles: {
       "opencode:default": { provider: "opencode", type: "api_key", key: "shared" },
       "opencode:personal": { provider: "opencode", type: "api_key", key: "personal" },
@@ -15,22 +32,32 @@ function storeWithSharedAndPersonalOpenCodeKeys(): AuthProfileStore {
     order: { opencode: ["opencode:default", "opencode:personal"] },
     lastGood: { opencode: "opencode:default" },
     usageStats: {
-      "opencode:default": { lastUsedAt: 1 },
-      "opencode:personal": { lastUsedAt: 2 },
+      "opencode:default": { lastUsed: 1 },
+      "opencode:personal": { lastUsed: 2 },
     },
-  } as unknown as AuthProfileStore;
+  };
 }
 
-describe("removeProviderAuthProfilesFromStore", () => {
-  it("removes only the named profile and leaves the provider's other credentials intact", () => {
-    const store = storeWithSharedAndPersonalOpenCodeKeys();
+describe("removeProviderAuthProfilesWithLock", () => {
+  let store: AuthProfileStore;
 
-    const changed = removeProviderAuthProfilesFromStore(store, {
+  beforeEach(() => {
+    store = storeWithSharedAndPersonalOpenCodeKeys();
+    mocks.updateAuthProfileStoreWithLock.mockReset();
+    mocks.updateAuthProfileStoreWithLock.mockImplementation(
+      async (params: UpdateAuthProfileStoreParams) => {
+        params.updater(store);
+        return store;
+      },
+    );
+  });
+
+  it("removes only the named profile and leaves the provider's other credentials intact", async () => {
+    await removeProviderAuthProfilesWithLock({
       provider: "opencode",
       profileIds: ["opencode:default"],
     });
 
-    expect(changed).toBe(true);
     expect(Object.keys(store.profiles)).toEqual(["opencode:personal"]);
     // The survivor keeps its place in the order rather than having the whole entry dropped.
     expect(store.order?.opencode).toEqual(["opencode:personal"]);
@@ -38,10 +65,8 @@ describe("removeProviderAuthProfilesFromStore", () => {
     expect(store.usageStats?.["opencode:default"]).toBeUndefined();
   });
 
-  it("keeps lastGood while the provider still has a credential", () => {
-    const store = storeWithSharedAndPersonalOpenCodeKeys();
-
-    removeProviderAuthProfilesFromStore(store, {
+  it("keeps lastGood while the provider still has a credential", async () => {
+    await removeProviderAuthProfilesWithLock({
       provider: "opencode",
       profileIds: ["opencode:personal"],
     });
@@ -50,21 +75,16 @@ describe("removeProviderAuthProfilesFromStore", () => {
     expect(store.lastGood?.opencode).toBe("opencode:default");
   });
 
-  it("removes everything for the provider when no narrowing is given", () => {
-    const store = storeWithSharedAndPersonalOpenCodeKeys();
+  it("removes everything for the provider when no narrowing is given", async () => {
+    await removeProviderAuthProfilesWithLock({ provider: "opencode" });
 
-    const changed = removeProviderAuthProfilesFromStore(store, { provider: "opencode" });
-
-    expect(changed).toBe(true);
     expect(store.profiles).toEqual({});
     expect(store.order?.opencode).toBeUndefined();
     expect(store.lastGood?.opencode).toBeUndefined();
   });
 
-  it("clears the provider's order and lastGood once narrowing removes its last profile", () => {
-    const store = storeWithSharedAndPersonalOpenCodeKeys();
-
-    removeProviderAuthProfilesFromStore(store, {
+  it("clears the provider's order and lastGood once narrowing removes its last profile", async () => {
+    await removeProviderAuthProfilesWithLock({
       provider: "opencode",
       profileIds: ["opencode:default", "opencode:personal"],
     });

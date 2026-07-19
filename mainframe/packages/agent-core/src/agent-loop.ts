@@ -1,16 +1,24 @@
-// Keep the runtime class on the package specifier so built agent-core shares
-// constructor identity with @openclaw/llm-core; source types keep SDK d.ts bundled.
-import { EventStream as LlmEventStream } from "@openclaw/llm-core";
+// Keep the runtime class on the public package specifier so OpenClaw and
+// external consumers share one constructor identity.
+import { EventStream as LlmEventStream } from "@openclaw/ai/event-stream";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
   Context,
   EventStream,
   ToolResultMessage,
-} from "../../llm-core/src/index.js";
-import type { EventStream as SourceEventStream } from "../../llm-core/src/index.js";
+} from "@openclaw/llm-core";
+import type { EventStream as SourceEventStream } from "@openclaw/llm-core";
+import { TranscriptNotContinuableError } from "./errors.js";
 import { resolveAgentReasoningOption } from "./reasoning.js";
 import { type AgentCoreStreamRuntimeDeps, resolveAgentCoreStreamFn } from "./runtime-deps.js";
+import {
+  appendInterruptedTurnMessage,
+  createFailureMessage,
+  createInterruptedTurnMessage,
+  isTurnHandoffAbort,
+  normalizeCoreContextMessages,
+} from "./turn-interruption.js";
 import type {
   AgentContext,
   AgentEvent,
@@ -25,15 +33,6 @@ import { validateToolArguments } from "./validation.js";
 
 /** Callback used by synchronous loop runners to publish agent lifecycle events. */
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
-
-const EMPTY_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-};
 
 const EventStreamConstructor: typeof SourceEventStream = LlmEventStream;
 
@@ -117,7 +116,7 @@ export function agentLoop(
       stream.end(messages);
     })
     .catch((error: unknown) => {
-      pushLoopFailure(stream, config, error, signal?.aborted === true);
+      pushLoopFailure(stream, config, error, signal);
     });
 
   return stream;
@@ -138,12 +137,13 @@ export function agentLoopContinue(
   streamFn?: StreamFn,
   runtime?: AgentCoreStreamRuntimeDeps,
 ): EventStream<AgentEvent, AgentMessage[]> {
-  if (context.messages.length === 0) {
+  const lastMessage = context.messages.at(-1);
+  if (!lastMessage) {
     throw new Error("Cannot continue: no messages in context");
   }
 
-  if (context.messages[context.messages.length - 1].role === "assistant") {
-    throw new Error("Cannot continue from message role: assistant");
+  if (lastMessage.role === "assistant") {
+    throw new TranscriptNotContinuableError(lastMessage.role);
   }
 
   const stream = createAgentStream();
@@ -162,7 +162,7 @@ export function agentLoopContinue(
       stream.end(messages);
     })
     .catch((error: unknown) => {
-      pushLoopFailure(stream, config, error, signal?.aborted === true);
+      pushLoopFailure(stream, config, error, signal);
     });
 
   return stream;
@@ -204,12 +204,13 @@ export async function runAgentLoopContinue(
   streamFn?: StreamFn,
   runtime?: AgentCoreStreamRuntimeDeps,
 ): Promise<AgentMessage[]> {
-  if (context.messages.length === 0) {
+  const lastMessage = context.messages.at(-1);
+  if (!lastMessage) {
     throw new Error("Cannot continue: no messages in context");
   }
 
-  if (context.messages[context.messages.length - 1].role === "assistant") {
-    throw new Error("Cannot continue from message role: assistant");
+  if (lastMessage.role === "assistant") {
+    throw new TranscriptNotContinuableError(lastMessage.role);
   }
 
   const newMessages: AgentMessage[] = [];
@@ -229,35 +230,25 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
   );
 }
 
-function createLoopFailureMessage(
-  config: AgentLoopConfig,
-  error: unknown,
-  aborted: boolean,
-): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text: "" }],
-    api: config.model.api,
-    provider: config.model.provider,
-    model: config.model.id,
-    usage: EMPTY_USAGE,
-    stopReason: aborted ? "aborted" : "error",
-    errorMessage: error instanceof Error ? error.message : String(error),
-    timestamp: Date.now(),
-  };
-}
-
 function pushLoopFailure(
   stream: EventStream<AgentEvent, AgentMessage[]>,
   config: AgentLoopConfig,
   error: unknown,
-  aborted: boolean,
+  signal: AbortSignal | undefined,
 ): void {
-  const failureMessage = createLoopFailureMessage(config, error, aborted);
+  const aborted = signal?.aborted === true;
+  const failureMessage = createFailureMessage(config.model, error, aborted);
   stream.push({ type: "message_start", message: failureMessage });
   stream.push({ type: "message_end", message: failureMessage });
   stream.push({ type: "turn_end", message: failureMessage, toolResults: [] });
-  stream.push({ type: "agent_end", messages: [failureMessage] });
+  const messages: AgentMessage[] = [failureMessage];
+  if (aborted && !isTurnHandoffAbort(signal)) {
+    const interruption = createInterruptedTurnMessage();
+    messages.push(interruption);
+    stream.push({ type: "message_start", message: interruption });
+    stream.push({ type: "message_end", message: interruption });
+  }
+  stream.push({ type: "agent_end", messages });
 }
 
 /**
@@ -284,8 +275,8 @@ async function runLoop(
     }
     // Persist an aborted assistant outcome so session post-processing does not
     // compact or continue from the preceding toolUse message.
-    const abortedMessage = createLoopFailureMessage(
-      config,
+    const abortedMessage = createFailureMessage(
+      config.model,
       signal.reason instanceof Error ? signal.reason : new Error("Agent run aborted"),
       true,
     );
@@ -298,6 +289,9 @@ async function runLoop(
     await emit({ type: "message_end", message: abortedMessage });
     await emit({ type: "turn_end", message: abortedMessage, toolResults: [] });
     turnOpen = false;
+    if (!isTurnHandoffAbort(signal)) {
+      await appendInterruptedTurnMessage(newMessages, emit);
+    }
     await emit({ type: "agent_end", messages: newMessages });
     return true;
   };
@@ -346,6 +340,9 @@ async function runLoop(
 
       if (message.stopReason === "error" || message.stopReason === "aborted") {
         await emit({ type: "turn_end", message, toolResults: [] });
+        if (message.stopReason === "aborted" && signal?.aborted && !isTurnHandoffAbort(signal)) {
+          await appendInterruptedTurnMessage(newMessages, emit);
+        }
         await emit({ type: "agent_end", messages: newMessages });
         return;
       }
@@ -456,6 +453,7 @@ async function streamAssistantResponse(
   if (config.transformContext) {
     messages = await config.transformContext(messages, signal);
   }
+  messages = normalizeCoreContextMessages(messages);
 
   // Convert to LLM-compatible messages (AgentMessage[] → Message[])
   const llmMessages = await config.convertToLlm(messages);
@@ -659,6 +657,7 @@ async function executeToolCallsSequential(
         result: preparation.result,
         isError: preparation.isError,
         executionStarted: false,
+        ...(preparation.errorKind ? { errorKind: preparation.errorKind } : {}),
         ...(hideFromChannelProgress ? { hideFromChannelProgress: true } : {}),
       };
     } else {
@@ -729,6 +728,7 @@ async function executeToolCallsParallel(
         result: preparation.result,
         isError: preparation.isError,
         executionStarted: false,
+        ...(preparation.errorKind ? { errorKind: preparation.errorKind } : {}),
         ...(hideFromChannelProgress ? { hideFromChannelProgress: true } : {}),
       } satisfies FinalizedToolCallOutcome;
       await emitToolExecutionEnd(finalized, emit);
@@ -784,11 +784,13 @@ type ImmediateToolCallOutcome = {
   kind: "immediate";
   result: AgentToolResult<unknown>;
   isError: boolean;
+  errorKind?: "argument-validation";
 };
 
 type ExecutedToolCallOutcome = {
   result: AgentToolResult<unknown>;
   isError: boolean;
+  executionStarted: boolean;
 };
 
 type FinalizedToolCallOutcome = {
@@ -796,6 +798,7 @@ type FinalizedToolCallOutcome = {
   result: AgentToolResult<unknown>;
   isError: boolean;
   executionStarted: boolean;
+  errorKind?: "argument-validation";
   hideFromChannelProgress?: boolean;
 };
 
@@ -904,9 +907,30 @@ async function prepareToolCall(
     };
   }
 
+  let preparedToolCall: AgentToolCall;
   try {
-    const preparedToolCall = prepareToolCallArguments(tool, toolCall);
-    const validatedArgs = validateToolArguments(tool, preparedToolCall);
+    preparedToolCall = prepareToolCallArguments(tool, toolCall);
+  } catch (error) {
+    return {
+      kind: "immediate",
+      result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+      isError: true,
+    };
+  }
+
+  let validatedArgs: unknown;
+  try {
+    validatedArgs = validateToolArguments(tool, preparedToolCall);
+  } catch (error) {
+    return {
+      kind: "immediate",
+      result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+      isError: true,
+      errorKind: "argument-validation",
+    };
+  }
+
+  try {
     if (config.beforeToolCall) {
       const beforeResult = await config.beforeToolCall(
         {
@@ -959,7 +983,18 @@ async function executePreparedToolCall(
   signal: AbortSignal | undefined,
   emit: AgentEventSink,
 ): Promise<ExecutedToolCallOutcome> {
+  // Parallel batches prepare every call first. A later preflight abort must not
+  // let an earlier prepared, side-effectful tool start afterward.
+  if (signal?.aborted) {
+    return {
+      result: createErrorToolResult("Operation aborted"),
+      isError: true,
+      executionStarted: false,
+    };
+  }
+
   const updateEvents: Promise<void>[] = [];
+  let acceptingUpdates = true;
 
   try {
     const result = await prepared.tool.execute(
@@ -967,6 +1002,9 @@ async function executePreparedToolCall(
       prepared.args as never,
       signal,
       (partialResult) => {
+        if (!acceptingUpdates) {
+          return;
+        }
         updateEvents.push(
           Promise.resolve(
             emit({
@@ -983,14 +1021,19 @@ async function executePreparedToolCall(
         );
       },
     );
+    acceptingUpdates = false;
     await Promise.all(updateEvents);
-    return { result, isError: false };
+    return { result, isError: false, executionStarted: true };
   } catch (error) {
+    acceptingUpdates = false;
     await Promise.all(updateEvents);
     return {
       result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
       isError: true,
+      executionStarted: true,
     };
+  } finally {
+    acceptingUpdates = false;
   }
 }
 
@@ -1005,7 +1048,7 @@ async function finalizeExecutedToolCall(
   let result = executed.result;
   let isError = executed.isError;
 
-  if (config.afterToolCall) {
+  if (executed.executionStarted && config.afterToolCall) {
     try {
       const afterResult = await config.afterToolCall(
         {
@@ -1020,6 +1063,7 @@ async function finalizeExecutedToolCall(
       );
       if (afterResult) {
         result = {
+          ...result,
           content: afterResult.content ?? result.content,
           details: afterResult.details ?? result.details,
           terminate: afterResult.terminate ?? result.terminate,
@@ -1036,7 +1080,7 @@ async function finalizeExecutedToolCall(
     toolCall: prepared.toolCall,
     result,
     isError,
-    executionStarted: true,
+    executionStarted: executed.executionStarted,
     ...(prepared.tool.hideFromChannelProgress === true ? { hideFromChannelProgress: true } : {}),
   };
 }
@@ -1059,6 +1103,7 @@ async function emitToolExecutionEnd(
     result: finalized.result,
     isError: finalized.isError,
     executionStarted: finalized.executionStarted,
+    ...(finalized.errorKind ? { errorKind: finalized.errorKind } : {}),
     ...(finalized.hideFromChannelProgress === true ? { hideFromChannelProgress: true } : {}),
   });
 }
@@ -1068,7 +1113,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
     role: "toolResult",
     toolCallId: finalized.toolCall.id,
     toolName: finalized.toolCall.name,
-    content: finalized.result.content,
+    content: finalized.result.content ?? [],
     details: finalized.result.details,
     isError: finalized.isError,
     timestamp: Date.now(),
@@ -1082,3 +1127,4 @@ async function emitToolResultMessage(
   await emit({ type: "message_start", message: toolResultMessage });
   await emit({ type: "message_end", message: toolResultMessage });
 }
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

@@ -25,7 +25,7 @@ const defaultManualReceiveAdapter = {
 } as const satisfies ChannelMessageReceiveAdapterShape;
 
 /** Send result accepted from legacy outbound bridge methods before receipt normalization. */
-export type ChannelMessageOutboundBridgeResult = MessageReceiptSourceResult & {
+type ChannelMessageOutboundBridgeResult = MessageReceiptSourceResult & {
   receipt?: MessageReceipt;
   messageId?: string;
 };
@@ -35,7 +35,7 @@ type ChannelMessageOutboundBridgeContext<TContext> = Omit<TContext, "onDeliveryR
 };
 
 /** Legacy outbound adapter shape bridged into the channel message adapter contract. */
-export type ChannelMessageOutboundBridgeAdapter<TConfig = unknown> = {
+type ChannelMessageOutboundBridgeAdapter<TConfig = unknown> = {
   deliveryCapabilities?: {
     durableFinal?: DurableFinalDeliveryRequirementMap;
   };
@@ -54,7 +54,7 @@ export type ChannelMessageOutboundBridgeAdapter<TConfig = unknown> = {
 };
 
 /** Options for building a message adapter from legacy outbound send functions. */
-export type CreateChannelMessageAdapterFromOutboundParams<TConfig = unknown> = {
+type CreateChannelMessageAdapterFromOutboundParams<TConfig = unknown> = {
   id?: string;
   outbound: ChannelMessageOutboundBridgeAdapter<TConfig>;
   capabilities?: DurableFinalDeliveryRequirementMap;
@@ -131,6 +131,16 @@ function adaptOutboundBridgeContext<
   };
 }
 
+function hasRenderedPresentationBlocks(channelData: Record<string, unknown> | undefined): boolean {
+  return Object.values(channelData ?? {}).some((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    const blocks = (value as Record<string, unknown>).presentationBlocks;
+    return Array.isArray(blocks) && blocks.length > 0;
+  });
+}
+
 function resolvePayloadReceiptKind(
   ctx: ChannelMessageSendPayloadContext<unknown>,
 ): MessageReceiptPartKind {
@@ -143,11 +153,20 @@ function resolvePayloadReceiptKind(
   if (ctx.mediaUrl || ctx.payload.mediaUrl || ctx.payload.mediaUrls?.length) {
     return "media";
   }
+  const hasPortablePresentation = Boolean(
+    ctx.payload.presentation?.title || ctx.payload.presentation?.blocks?.length,
+  );
+  if (hasPortablePresentation || hasRenderedPresentationBlocks(ctx.payload.channelData)) {
+    return "card";
+  }
+  if (ctx.payload.interactive) {
+    return "card";
+  }
+  if (ctx.payload.location) {
+    return "card";
+  }
   if (ctx.payload.text?.trim() || ctx.text.trim()) {
     return "text";
-  }
-  if (ctx.payload.presentation?.blocks?.length || ctx.payload.interactive) {
-    return "card";
   }
   return "unknown";
 }

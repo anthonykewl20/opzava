@@ -2,6 +2,7 @@
 
 // Runs grouped Vitest plans for one or more bundled plugins.
 import path from "node:path";
+import pMap from "p-map";
 import {
   listTrackedTestFilesForRoots,
   resolveExtensionBatchPlan,
@@ -74,17 +75,18 @@ function sanitizeCacheSegment(value) {
 }
 
 function createGroupEnv({ baseEnv, group, groupIndex, useDedicatedCache }) {
-  if (!useDedicatedCache || baseEnv[FS_MODULE_CACHE_PATH_ENV_KEY]?.trim()) {
+  const configuredCacheRoot = baseEnv[FS_MODULE_CACHE_PATH_ENV_KEY]?.trim();
+  if (!useDedicatedCache && !configuredCacheRoot) {
     return baseEnv;
   }
 
+  const cacheRoot = configuredCacheRoot
+    ? path.join(configuredCacheRoot, "extension-batch")
+    : path.join(process.cwd(), "node_modules", ".experimental-vitest-cache", "extension-batch");
   return {
     ...baseEnv,
     [FS_MODULE_CACHE_PATH_ENV_KEY]: path.join(
-      process.cwd(),
-      "node_modules",
-      ".experimental-vitest-cache",
-      "extension-batch",
+      cacheRoot,
       sanitizeCacheSegment(`${groupIndex}-${group.config}`),
     ),
   };
@@ -196,14 +198,11 @@ export async function runExtensionBatchPlan(batchPlan, params = {}) {
     console.log(`[test-extension-batch] Running up to ${parallelism} config groups in parallel`);
   }
 
-  let nextGroupIndex = 0;
   let exitCode = 0;
-  async function worker() {
-    while (exitCode === 0) {
-      const groupIndex = nextGroupIndex;
-      nextGroupIndex += 1;
-      const group = orderedGroups[groupIndex];
-      if (!group) {
+  await pMap(
+    orderedGroups,
+    async (group, groupIndex) => {
+      if (exitCode !== 0) {
         return;
       }
       const groupExitCode = await runPlanGroup(group, {
@@ -215,14 +214,12 @@ export async function runExtensionBatchPlan(batchPlan, params = {}) {
         useDedicatedCache,
         vitestArgs,
       });
-      if (groupExitCode !== 0) {
+      if (groupExitCode !== 0 && exitCode === 0) {
         exitCode = groupExitCode;
-        return;
       }
-    }
-  }
-
-  await Promise.all(Array.from({ length: parallelism }, () => worker()));
+    },
+    { concurrency: parallelism, stopOnError: true },
+  );
   return exitCode;
 }
 

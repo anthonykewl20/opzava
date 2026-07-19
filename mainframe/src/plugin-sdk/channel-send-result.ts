@@ -6,7 +6,11 @@ import type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
 export type { ChannelOutboundAdapter } from "../channels/plugins/outbound.types.js";
 export type { OutboundDeliveryResult } from "../infra/outbound/deliver.js";
 
-/** Legacy raw send result shape accepted from channel SDK adapters. */
+/**
+ * Legacy raw send result shape accepted from channel SDK adapters.
+ * @deprecated Return `OutboundDeliveryResult` and use
+ * `createAttachedChannelResultAdapter`. Removal with the next plugin-SDK major.
+ */
 export type ChannelSendRawResult = {
   /** Whether the channel send operation succeeded. */
   ok: boolean;
@@ -24,8 +28,8 @@ export function attachChannelToResult<T extends object>(
   result: T,
 ) {
   return {
-    channel,
     ...result,
+    channel,
   };
 }
 

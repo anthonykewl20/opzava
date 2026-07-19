@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Upstream | https://github.com/openclaw/openclaw |
-| Version | `v2026.6.11` (`package.json` 2026.6.11) |
-| Commit | `bd2740fedc` — "fix(slack): preserve time colons in interactive labels (#99877)" |
-| Imported | 2026-07-04 (squash import: working tree only, upstream `.git` dropped) |
+| Version | `v2026.7.2-beta.3` (`package.json` 2026.7.2-beta.3) |
+| Commit | `d111bef0eed5aefb1e7c5ac59801c1f0924495f1` — "chore(codex): bump managed runtime to 0.144.6" |
+| Imported | `<IMPORT-DATE>` (squash import: working tree only, upstream `.git` dropped) |
 | License | MIT (see `LICENSE`) |
 
 ## Upstream bump procedure (deliberate operation, never an image-tag change)
