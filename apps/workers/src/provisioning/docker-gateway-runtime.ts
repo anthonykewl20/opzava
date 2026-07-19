@@ -9,8 +9,10 @@ import {
   type GatewayRuntimeAuthProbeQuery,
   type GatewayRuntimeCommandResult,
   type GatewayRuntimeDeviceCodeLogin,
+  type GatewayRuntimeModelRunProbeQuery,
   type GatewayRuntimePort,
   type GatewayRuntimeSetupTokenLogin,
+  type ModelRunProbe,
   type PluginModelCatalog,
   type PluginModelDiscoveryRead,
   type ProviderAuthProbe,
@@ -51,6 +53,9 @@ const authProbeMaxTokens = 8;
 // The exec must outlive the probe's own timeout, or we would time the docker request out while the
 // gateway is still deciding — which reads as "unproven" and silently disarms the guard.
 const authProbeExecTimeoutMs = 60_000;
+const modelCanaryExecTimeoutMs = 60_000;
+const modelCanaryProcessTimeoutSeconds = 45;
+const modelCanaryMaxOutputBytes = 1024 * 1024;
 const pluginModelDiscoveryTimeoutMs = 15_000;
 const pluginModelDiscoveryMaxOutputBytes = 2 * 1024 * 1024;
 const pluginModelDiscoveryTruncatedExitCode = 73;
@@ -730,6 +735,297 @@ function providerAuthProbeVerdict(results: readonly Record<string, unknown>[]): 
   };
 }
 
+function parseModelCanaryEvents(stdout: string): readonly Record<string, unknown>[] | null {
+  const lines = stdout.split("\n").filter((line) => line.trim() !== "");
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const events: Record<string, unknown>[] = [];
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as unknown;
+      if (!isRecord(event)) {
+        return null;
+      }
+      events.push(event);
+    } catch {
+      return null;
+    }
+  }
+  return events;
+}
+
+function modelCanaryVerdict(result: GatewayRuntimeCommandResult): ModelRunProbe {
+  const events = parseModelCanaryEvents(result.stdout);
+  if (events === null) {
+    return { verdict: "unproven", reason: "Could not verify the model; try again." };
+  }
+
+  const unsupported = events.some((event) => {
+    const upstreamError = recordValue(event["error"]);
+    return (
+      event["status"] === 400 && stringValue(upstreamError?.["type"]) === "invalid_request_error"
+    );
+  });
+  if (unsupported) {
+    // This is deliberately structural, never message parsing. The private app-server canary sends
+    // a fixed, minimal, well-formed turn and translates only Codex's structured `badRequest` code
+    // into 400 + invalid_request_error. Malformed-request 400s are excluded by construction, so on
+    // that valid turn this is the model version-floor rejection from #251.
+    return {
+      verdict: "unrunnable",
+      reason: "The gateway's runtime cannot run this model yet.",
+    };
+  }
+
+  if (
+    result.exitCode === 0 &&
+    events.some((event) => stringValue(event["type"]) === "turn.completed")
+  ) {
+    return { verdict: "runnable", reason: "The gateway's runtime ran this model." };
+  }
+
+  // Auth failures, rate limits, provider outages, timeouts, exec failures, and every unknown
+  // shape say only that this attempt proved nothing. Fail open: none may become `unrunnable`.
+  return { verdict: "unproven", reason: "Could not verify the model; try again." };
+}
+
+const modelCanaryScript = String.raw`
+import { pathToFileURL } from "node:url";
+
+const [sharedClientModule, agentDir, providerId, model, codexHome, nativeHome] =
+  process.argv.slice(2);
+const sharedClientExports = await import(pathToFileURL(sharedClientModule).href);
+const sharedClientNamespace = Object.values(sharedClientExports).find(
+  (value) =>
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.createIsolatedCodexAppServerClient === "function",
+);
+const createIsolatedCodexAppServerClient =
+  sharedClientExports.createIsolatedCodexAppServerClient ??
+  sharedClientNamespace?.createIsolatedCodexAppServerClient;
+if (typeof createIsolatedCodexAppServerClient !== "function") {
+  throw new Error("Codex app-server client is unavailable");
+}
+
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const isUnsupportedModelSignal = (value, depth = 0) => {
+  if (!isRecord(value) || depth > 8) return false;
+  if (value.codexErrorInfo === "badRequest") return true;
+  if (
+    value.status === 400 &&
+    isRecord(value.error) &&
+    value.error.type === "invalid_request_error"
+  ) return true;
+  return Object.values(value).some((entry) => isUnsupportedModelSignal(entry, depth + 1));
+};
+
+const startOptions = {
+  transport: "stdio",
+  homeScope: "agent",
+  command: "codex",
+  commandSource: "managed",
+  args: ["app-server", "--listen", "stdio://"],
+  headers: {},
+  env: { CODEX_HOME: codexHome, HOME: nativeHome },
+  clearEnv: ["OPENCLAW_CODEX_APP_SERVER_ARGS"],
+};
+
+let client;
+let closePromise;
+let unsupported = false;
+let settled = false;
+let resolveCompletion;
+const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+const settle = (outcome) => {
+  if (settled) return;
+  settled = true;
+  resolveCompletion(outcome);
+};
+const closeClient = () => {
+  if (closePromise) return closePromise;
+  closePromise = client?.closeAndWait
+    ? client.closeAndWait({ exitTimeoutMs: 1_000, forceKillDelayMs: 250 })
+    : Promise.resolve(client?.close());
+  return closePromise.catch(() => undefined);
+};
+const terminate = () => {
+  void closeClient().finally(() => process.exit(1));
+};
+process.once("SIGTERM", terminate);
+process.once("SIGINT", terminate);
+process.once("SIGHUP", terminate);
+
+try {
+  client = await createIsolatedCodexAppServerClient({
+    startOptions,
+    agentDir,
+    timeoutMs: 20_000,
+  });
+  client.addNotificationHandler((notification) => {
+    const params = isRecord(notification.params) ? notification.params : {};
+    if (notification.method === "error") {
+      unsupported ||= isUnsupportedModelSignal(params);
+      if (params.willRetry !== true) settle("failed");
+      return;
+    }
+    if (notification.method === "turn/completed") {
+      unsupported ||= isUnsupportedModelSignal(params);
+      const turn = isRecord(params.turn) ? params.turn : {};
+      settle(turn.status === "completed" ? "completed" : "failed");
+    }
+  });
+  client.addRequestHandler((request) => {
+    if (request.method === "item/permissions/requestApproval") {
+      return { permissions: {}, scope: "turn" };
+    }
+    if (request.method.includes("requestApproval")) {
+      return { decision: "decline", reason: "The Opzava model canary does not use tools." };
+    }
+    if (request.method === "mcpServer/elicitation/request") return { action: "decline" };
+    return undefined;
+  });
+
+  const threadParams = {
+    model,
+    // Codex is virtual and OAuth-backed OpenAI is native to app-server. OpenClaw's canonical
+    // provider resolver omits modelProvider for both so the elected auth/provider pair is kept.
+    ...(providerId === "codex" || providerId === "openai" ? {} : { modelProvider: providerId }),
+    cwd: process.cwd(),
+    approvalPolicy: "never",
+    sandbox: "read-only",
+    serviceName: "Opzava model canary",
+    developerInstructions: "Return exactly one token: OK. Do not use tools.",
+    config: {
+      "features.multi_agent": false,
+      "features.apps": false,
+      "features.plugins": false,
+      "features.hooks": false,
+      "features.image_generation": false,
+      "features.standalone_web_search": false,
+      web_search: "disabled",
+      notify: [],
+    },
+    environments: [],
+    dynamicTools: [],
+    experimentalRawEvents: true,
+    persistExtendedHistory: false,
+    ephemeral: true,
+  };
+  const threadResponse = await client.request(
+    "thread/start",
+    threadParams,
+    { timeoutMs: 20_000 },
+  );
+  if (!isRecord(threadResponse) || !isRecord(threadResponse.thread)) {
+    throw new Error("invalid thread response");
+  }
+
+  const turnResponse = await client.request("turn/start", {
+    threadId: threadResponse.thread.id,
+    input: [{ type: "text", text: "Reply exactly: OK", text_elements: [] }],
+    cwd: process.cwd(),
+    model,
+  }, { timeoutMs: 20_000 });
+  unsupported ||= isUnsupportedModelSignal(turnResponse);
+  const immediateTurn = isRecord(turnResponse) && isRecord(turnResponse.turn)
+    ? turnResponse.turn
+    : undefined;
+  if (immediateTurn?.status === "completed") settle("completed");
+  if (immediateTurn?.status === "failed" || immediateTurn?.status === "interrupted") {
+    settle("failed");
+  }
+
+  let completionTimer;
+  const outcome = await Promise.race([
+    completion,
+    new Promise((resolve) => {
+      completionTimer = setTimeout(() => resolve("timeout"), 20_000);
+    }),
+  ]);
+  clearTimeout(completionTimer);
+  if (outcome === "completed") {
+    process.stdout.write('{"type":"turn.completed"}\n');
+    process.exitCode = 0;
+  } else if (unsupported) {
+    process.stdout.write(
+      '{"type":"error","status":400,"error":{"type":"invalid_request_error"}}\n',
+    );
+    process.exitCode = 2;
+  } else {
+    process.stdout.write('{"type":"error"}\n');
+    process.exitCode = 1;
+  }
+} catch (error) {
+  unsupported ||= isUnsupportedModelSignal(error?.data);
+  process.stdout.write(
+    unsupported
+      ? '{"type":"error","status":400,"error":{"type":"invalid_request_error"}}\n'
+      : '{"type":"error"}\n',
+  );
+  process.exitCode = unsupported ? 2 : 1;
+} finally {
+  process.removeListener("SIGTERM", terminate);
+  process.removeListener("SIGINT", terminate);
+  process.removeListener("SIGHUP", terminate);
+  await closeClient();
+}
+`;
+
+function modelCanaryCommand(agentId: string, providerId: string, model: string): string {
+  const agentDir = `/home/node/.openclaw/agents/${agentId}/agent`;
+
+  return [
+    "set -u",
+    "flow_dir=$(mktemp -d /tmp/opzava-model-canary.XXXXXX)",
+    'cleanup() { rm -rf "$flow_dir"; }',
+    "trap cleanup EXIT HUP INT TERM",
+    'output="$flow_dir/codex.jsonl"',
+    'status_file="$flow_dir/status"',
+    `printf '%s' ${shellQuote(modelCanaryScript)} > "$flow_dir/canary.mjs"`,
+    'mkdir -m 700 "$flow_dir/codex-home" "$flow_dir/home"',
+    'shared_client_module=""',
+    "for candidate in /app/dist-runtime/extensions/codex/src/app-server/shared-client.js /app/dist/extensions/codex/src/app-server/shared-client.js /app/extensions/codex/src/app-server/shared-client.js /app/dist-runtime/extensions/codex/shared-client-*.js /app/dist/extensions/codex/shared-client-*.js /app/extensions/codex/dist/shared-client-*.js /home/node/.openclaw/npm/projects/openclaw-codex-*/node_modules/@openclaw/codex/dist/shared-client-*.js; do",
+    'if [ -f "$candidate" ]; then shared_client_module="$candidate"; break; fi',
+    "done",
+    'if [ -z "$shared_client_module" ]; then exit 127; fi',
+    'cd "$flow_dir"',
+    // The script emits only an Opzava-owned structural summary. `head` remains a defense-in-depth
+    // output bound; if it ever truncates, the invalid JSON becomes safely `unproven`.
+    `(
+      timeout -k 5s -s TERM ${modelCanaryProcessTimeoutSeconds}s node "$flow_dir/canary.mjs" \
+        "$shared_client_module" \
+        ${shellQuote(agentDir)} \
+        ${shellQuote(providerId)} \
+        ${shellQuote(model)} \
+        "$flow_dir/codex-home" \
+        "$flow_dir/home" 2>/dev/null
+      printf '%s' "$?" > "$status_file"
+    ) | head -c ${modelCanaryMaxOutputBytes} > "$output"`,
+    'cat "$output"',
+    'status=$(cat "$status_file" 2>/dev/null) || status=1',
+    'case "$status" in ""|*[!0-9]*) status=1;; esac',
+    'exit "$status"',
+  ].join("\n");
+}
+
+function logModelCanary(input: GatewayRuntimeModelRunProbeQuery, probe: ModelRunProbe): void {
+  const fields = {
+    providerId: input.providerId,
+    model: input.model,
+    verdict: probe.verdict,
+  };
+  if (probe.verdict === "unrunnable") {
+    console.warn("connections.modelCanary.unrunnable", fields);
+  } else if (probe.verdict === "unproven") {
+    console.warn("connections.modelCanary.unproven", fields);
+  } else {
+    console.info("connections.modelCanary.result", fields);
+  }
+}
+
 function probeReason(result: Record<string, unknown>): string | null {
   const status = stringValue(result["status"]);
   const reasonCode = stringValue(result["reasonCode"]);
@@ -1238,6 +1534,57 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     }
 
     return ok(providerAuthProbeVerdict(results));
+  }
+
+  public async probeModelRunnable(
+    input: GatewayRuntimeModelRunProbeQuery,
+  ): Promise<Result<ModelRunProbe>> {
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(input.agentId)) {
+      return err(
+        provisioningError(
+          "provisioning.connections.modelCanaryAgentInvalid",
+          "The model canary agent id is invalid.",
+        ),
+      );
+    }
+
+    // The bundled Codex app-server harness owns OpenClaw's `openai` and `codex` providers. Other
+    // providers run through different harnesses, so asking Codex about their model id would not be
+    // a valid probe of that provider/model pair and therefore cannot support an `unrunnable` claim.
+    if (input.providerId !== "openai" && input.providerId !== "codex") {
+      const probe: ModelRunProbe = {
+        verdict: "unproven",
+        reason: "Could not verify the model; try again.",
+      };
+      logModelCanary(input, probe);
+      return ok(probe);
+    }
+
+    const result = await this.exec(
+      ["sh", "-lc", modelCanaryCommand(input.agentId, input.providerId, input.model)],
+      undefined,
+      modelCanaryExecTimeoutMs,
+    );
+    if (!result.ok) {
+      // Invalid Docker adapter configuration is not a probe verdict. Docker/gateway/exec outages
+      // are: they make this attempt inconclusive and must fail open.
+      if (
+        result.error.code === "provisioning.docker.unsupportedHost" ||
+        result.error.code === "provisioning.docker.invalidHost"
+      ) {
+        return err(result.error);
+      }
+      const probe: ModelRunProbe = {
+        verdict: "unproven",
+        reason: "Could not verify the model; try again.",
+      };
+      logModelCanary(input, probe);
+      return ok(probe);
+    }
+
+    const probe = modelCanaryVerdict(result.value);
+    logModelCanary(input, probe);
+    return ok(probe);
   }
 
   public async listAgentProviderProfiles(
