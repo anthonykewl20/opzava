@@ -756,7 +756,10 @@ function parseModelCanaryEvents(stdout: string): readonly Record<string, unknown
   return events;
 }
 
-function modelCanaryVerdict(result: GatewayRuntimeCommandResult): ModelRunProbe {
+function modelCanaryVerdict(
+  result: GatewayRuntimeCommandResult,
+  turnStartSchemaProven: boolean,
+): ModelRunProbe {
   const events = parseModelCanaryEvents(result.stdout);
   if (events === null) {
     return { verdict: "unproven", reason: "Could not verify the model; try again." };
@@ -769,6 +772,12 @@ function modelCanaryVerdict(result: GatewayRuntimeCommandResult): ModelRunProbe 
     );
   });
   if (unsupported) {
+    if (!turnStartSchemaProven) {
+      // Conservative bootstrap path: without a distinct known-good model completing this exact
+      // turn/start schema, a structural badRequest could belong to the app-server protocol rather
+      // than the target model. It therefore cannot support an `unrunnable` claim.
+      return { verdict: "unproven", reason: "Could not verify the model; try again." };
+    }
     // This is deliberately structural, never message parsing. The private app-server canary emits
     // this summary only for turn/start or a correlated turn notification after a valid thread/start;
     // setup failures never feed the unsupported flag. On that fixed, minimal turn this is the model
@@ -1589,6 +1598,46 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return ok(probe);
     }
 
+    const baselineModel = input.baselineModel;
+    const hasDistinctBaseline = baselineModel !== undefined && baselineModel !== input.model;
+    if (hasDistinctBaseline) {
+      // Each command creates and cleans up its own isolated app-server client. Keep the known-good
+      // turn strictly first: only its success proves that the identical turn/start schema is usable
+      // on this gateway, and any other result must stop attribution before the target is touched.
+      const baselineResult = await this.exec(
+        [
+          "sh",
+          "-lc",
+          modelCanaryCommand(input.agentId, input.providerId, baselineModel),
+        ],
+        undefined,
+        modelCanaryExecTimeoutMs,
+      );
+      if (!baselineResult.ok) {
+        if (
+          baselineResult.error.code === "provisioning.docker.unsupportedHost" ||
+          baselineResult.error.code === "provisioning.docker.invalidHost"
+        ) {
+          return err(baselineResult.error);
+        }
+        const probe: ModelRunProbe = {
+          verdict: "unproven",
+          reason: "Could not verify the model; try again.",
+        };
+        logModelCanary(input, probe);
+        return ok(probe);
+      }
+
+      if (modelCanaryVerdict(baselineResult.value, false).verdict !== "runnable") {
+        const probe: ModelRunProbe = {
+          verdict: "unproven",
+          reason: "Could not verify the model; try again.",
+        };
+        logModelCanary(input, probe);
+        return ok(probe);
+      }
+    }
+
     const result = await this.exec(
       ["sh", "-lc", modelCanaryCommand(input.agentId, input.providerId, input.model)],
       undefined,
@@ -1611,7 +1660,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return ok(probe);
     }
 
-    const probe = modelCanaryVerdict(result.value);
+    const probe = modelCanaryVerdict(result.value, hasDistinctBaseline);
     logModelCanary(input, probe);
     return ok(probe);
   }

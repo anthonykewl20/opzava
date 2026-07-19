@@ -142,6 +142,11 @@ export interface GatewayRuntimeModelRunProbeQuery {
   readonly providerId: string;
   /** The model key being elected, exactly as the catalog named it. */
   readonly model: string;
+  /**
+   * A known-good reference model: the gateway's currently-working orchestrator/primary model.
+   * Running it first isolates turn/start schema failures from target model-version failures.
+   */
+  readonly baselineModel?: string;
 }
 
 export interface GatewayRuntimePort {
@@ -180,11 +185,10 @@ export interface GatewayRuntimePort {
    * RUN a model before it is elected as an orchestrator (#251).
    *
    * The canary runs on the admin/JIT path (this port), NEVER through the gateway-broker hot-path ACL.
-   * It is a minimal, well-formed, VALID request: a supported model returns success (or an infra
-   * condition), and only an UNSUPPORTED model produces the runtime's version-floor rejection — so a
-   * `400` is attributable to model support by construction rather than by parsing the message.
-   * Callers MUST run this before the control-plane config write and abort the election only on an
-   * `unrunnable` verdict; `unproven` proceeds (see {@link ModelRunProbeVerdict}).
+   * It uses a known-good baseline to prove the minimal turn/start schema before a structural target
+   * rejection can be attributed to the model. Callers MUST run this before the control-plane config
+   * write and abort the election only on an `unrunnable` verdict; `unproven` proceeds (see
+   * {@link ModelRunProbeVerdict}).
    */
   probeModelRunnable(
     input: GatewayRuntimeModelRunProbeQuery,

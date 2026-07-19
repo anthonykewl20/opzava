@@ -189,10 +189,15 @@ type ModelCanaryScenario =
   | "setupRequestBadRequest"
   | "setupNotificationBadRequest"
   | "setupMalformedThreadResponse"
+  | "baselineTurnBadRequest"
+  | "turnCompleted"
   | "turnModelBadRequest"
   | "turnUnrelatedNestedBadRequest";
 
-async function runModelCanaryScript(scenario: ModelCanaryScenario): Promise<{
+const targetCanaryModel = "openai/gpt-5.6-sol";
+const baselineCanaryModel = "openai/gpt-5.5-codex";
+
+async function runModelCanaryScript(scenario: ModelCanaryScenario, model: string): Promise<{
   readonly stdout: string;
   readonly exitCode: number;
 }> {
@@ -211,7 +216,7 @@ export async function createIsolatedCodexAppServerClient() {
   return {
     addNotificationHandler(handler) { notificationHandler = handler; },
     addRequestHandler() {},
-    async request(method) {
+    async request(method, params) {
       if (method === "thread/start") {
         if (scenario === "setupRequestBadRequest") {
           throw { data: { status: 400, error: { type: "invalid_request_error" } } };
@@ -235,11 +240,18 @@ export async function createIsolatedCodexAppServerClient() {
           status: "failed",
           items: [],
         };
-        if (scenario === "turnModelBadRequest" || scenario === "setupMalformedThreadResponse") {
+        if (
+          scenario === "baselineTurnBadRequest" ||
+          (scenario === "turnModelBadRequest" && params.model === ${JSON.stringify(targetCanaryModel)}) ||
+          scenario === "setupMalformedThreadResponse"
+        ) {
           return { turn: { ...turn, error: { codexErrorInfo: "badRequest" } } };
         }
         if (scenario === "turnUnrelatedNestedBadRequest") {
           return { turn: { ...turn, metadata: { codexErrorInfo: "badRequest" } } };
+        }
+        if (scenario === "turnModelBadRequest" || scenario === "turnCompleted") {
+          return { turn: { ...turn, status: "completed" } };
         }
         return { turn };
       }
@@ -260,7 +272,7 @@ export async function createIsolatedCodexAppServerClient() {
           clientPath,
           "/agent",
           "openai",
-          "openai/gpt-5.6-sol",
+          model,
           join(directory, "codex-home"),
           join(directory, "home"),
         ],
@@ -284,14 +296,25 @@ export async function createIsolatedCodexAppServerClient() {
   }
 }
 
-async function modelCanaryVerdictForScenario(scenario: ModelCanaryScenario): Promise<string> {
-  const canary = await runModelCanaryScript(scenario);
-  const docker = fakeDocker(canary);
+async function modelCanaryVerdictForScenario(
+  scenario: ModelCanaryScenario,
+  baselineModel?: string,
+): Promise<string> {
+  const targetCanary = await runModelCanaryScript(scenario, targetCanaryModel);
+  const baselineCanary =
+    baselineModel === undefined ? null : await runModelCanaryScript(scenario, baselineModel);
+  const docker = fakeDocker({
+    stdout: (cmd) =>
+      baselineModel !== undefined && cmd.join("\n").includes(baselineModel)
+        ? (baselineCanary?.stdout ?? "")
+        : targetCanary.stdout,
+  });
 
   const probe = await docker.runtime.probeModelRunnable({
     agentId: "ask-admin-opzava",
     providerId: "openai",
-    model: "openai/gpt-5.6-sol",
+    model: targetCanaryModel,
+    ...(baselineModel === undefined ? {} : { baselineModel }),
   });
 
   if (!probe.ok) throw probe.error;
@@ -315,8 +338,26 @@ describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
     );
   });
 
-  it("classifies a turn result with the model badRequest signal as unrunnable", async () => {
-    await expect(modelCanaryVerdictForScenario("turnModelBadRequest")).resolves.toBe("unrunnable");
+  it("leaves a target model badRequest unproven without a known-good baseline", async () => {
+    await expect(modelCanaryVerdictForScenario("turnModelBadRequest")).resolves.toBe("unproven");
+  });
+
+  it("classifies a target model badRequest as unrunnable after the baseline succeeds", async () => {
+    await expect(
+      modelCanaryVerdictForScenario("turnModelBadRequest", baselineCanaryModel),
+    ).resolves.toBe("unrunnable");
+  });
+
+  it("leaves a target model unproven when the baseline turn/start also badRequests", async () => {
+    await expect(
+      modelCanaryVerdictForScenario("baselineTurnBadRequest", baselineCanaryModel),
+    ).resolves.toBe("unproven");
+  });
+
+  it("classifies the target as runnable when the baseline and target both succeed", async () => {
+    await expect(
+      modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel),
+    ).resolves.toBe("runnable");
   });
 
   it("does not search arbitrary nested turn metadata for badRequest", async () => {

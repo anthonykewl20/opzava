@@ -6569,6 +6569,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       agentId: ASK_ADMIN_AGENT_ID,
       providerId: orchestratorProviderId,
       model: orchestratorModel,
+      ...(primaryModel === null || primaryModel === orchestratorModel
+        ? {}
+        : { baselineModel: primaryModel }),
     });
     if (modelProbe === undefined) {
       console.warn("connections.modelCanary.unproven", {
