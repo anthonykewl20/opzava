@@ -805,6 +805,16 @@ import { pathToFileURL } from "node:url";
 
 const [sharedClientModule, agentDir, providerId, model, codexHome, nativeHome] =
   process.argv.slice(2);
+// The Codex app-server expects a BARE model id, but the elected ref is provider-prefixed
+// (providerModelRef -> e.g. "openai/gpt-5.6-sol"). Passing the prefixed ref makes Codex reject it
+// ("The 'openai/gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account"), even
+// though the bare id runs. Only openai/codex reach a turn here (the port gates other providers to
+// "unproven"), and for those modelProvider is intentionally omitted, so strip just that native
+// prefix. This mirrors OpenClaw's own resolver, which sends model="gpt-5.6-sol" modelProvider="openai".
+const bareModel =
+  (providerId === "codex" || providerId === "openai") && model.startsWith(providerId + "/")
+    ? model.slice(providerId.length + 1)
+    : model;
 const sharedClientExports = await import(pathToFileURL(sharedClientModule).href);
 const sharedClientNamespace = Object.values(sharedClientExports).find(
   (value) =>
@@ -920,7 +930,7 @@ try {
   });
 
   const threadParams = {
-    model,
+    model: bareModel,
     // Codex is virtual and OAuth-backed OpenAI is native to app-server. OpenClaw's canonical
     // provider resolver omits modelProvider for both so the elected auth/provider pair is kept.
     ...(providerId === "codex" || providerId === "openai" ? {} : { modelProvider: providerId }),
@@ -964,7 +974,7 @@ try {
     threadId: threadResponse.thread.id,
     input: [{ type: "text", text: "Reply exactly: OK", text_elements: [] }],
     cwd: process.cwd(),
-    model,
+    model: bareModel,
   }, { timeoutMs: 20_000 });
   unsupported ||= isUnsupportedModelSignal(turnResponse);
   const immediateTurn = isRecord(turnResponse) && isRecord(turnResponse.turn)

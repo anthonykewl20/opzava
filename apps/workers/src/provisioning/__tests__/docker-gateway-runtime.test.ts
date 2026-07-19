@@ -197,6 +197,8 @@ type ModelCanaryScenario =
 
 const targetCanaryModel = "openai/gpt-5.6-sol";
 const baselineCanaryModel = "openai/gpt-5.5-codex";
+// The bare id the canary sends to the app-server after stripping the native provider prefix (#251).
+const bareCanaryModel = (ref: string): string => ref.replace(/^openai\//, "");
 
 async function runModelCanaryScript(scenario: ModelCanaryScenario, model: string): Promise<{
   readonly stdout: string;
@@ -218,6 +220,19 @@ export async function createIsolatedCodexAppServerClient() {
     addNotificationHandler(handler) { notificationHandler = handler; },
     addRequestHandler() {},
     async request(method, params) {
+      // #251 regression guard: the Codex app-server must ALWAYS receive a BARE model id. The canary
+      // strips the provider prefix (providerModelRef -> "openai/gpt-5.6-sol" becomes "gpt-5.6-sol"),
+      // because a prefixed id is rejected live ("... not supported when using Codex with a ChatGPT
+      // account"). A prefixed model reaching here means that strip regressed.
+      if (
+        (method === "thread/start" || method === "turn/start") &&
+        typeof params?.model === "string" &&
+        (params.model.startsWith("openai/") || params.model.startsWith("codex/"))
+      ) {
+        // A native provider prefix specifically — NOT any slash. A stripped bare id may still contain
+        // nested slashes legitimately (e.g. "@cf/openai/gpt-oss-20b" from "openai/@cf/openai/gpt-oss-20b").
+        throw new Error(\`model canary sent a provider-prefixed model to \${method}: \${params.model}\`);
+      }
       if (method === "thread/start") {
         if (scenario === "setupRequestBadRequest") {
           throw { data: { status: 400, error: { type: "invalid_request_error" } } };
@@ -243,7 +258,9 @@ export async function createIsolatedCodexAppServerClient() {
         };
         if (
           scenario === "baselineTurnBadRequest" ||
-          (scenario === "turnModelBadRequest" && params.model === ${JSON.stringify(targetCanaryModel)}) ||
+          (scenario === "turnModelBadRequest" && params.model === ${JSON.stringify(
+            bareCanaryModel(targetCanaryModel),
+          )}) ||
           scenario === "setupMalformedThreadResponse"
         ) {
           return { turn: { ...turn, error: { codexErrorInfo: "badRequest" } } };
@@ -484,6 +501,29 @@ describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
   it("classifies the target as runnable when the baseline and target both succeed", async () => {
     await expect(
       modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel),
+    ).resolves.toBe("runnable");
+  });
+
+  it("strips the provider prefix so the app-server receives a bare model id (#251)", async () => {
+    // The caller passes provider-prefixed refs (targetCanaryModel/baselineCanaryModel are
+    // "openai/..."). Live, the Codex app-server rejects a prefixed id ("... not supported when using
+    // Codex with a ChatGPT account") even though the bare id runs. The mock's request guard THROWS if
+    // any prefixed model reaches thread/start or turn/start, so a clean `runnable` here proves the
+    // canary stripped the prefix before the app-server saw it. Before the fix the script forwarded
+    // the prefixed ref, the guard tripped, and this resolved to `unproven`.
+    await expect(
+      modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel),
+    ).resolves.toBe("runnable");
+    expect(bareCanaryModel(targetCanaryModel)).toBe("gpt-5.6-sol");
+    expect(bareCanaryModel(baselineCanaryModel)).toBe("gpt-5.5-codex");
+  });
+
+  it("strips only the leading provider prefix, keeping nested-slash bare ids intact (#251)", async () => {
+    // "openai/@cf/openai/gpt-oss-20b" strips to "@cf/openai/gpt-oss-20b" — a valid bare id that still
+    // contains slashes. The strip must remove ONLY the leading "openai/", and the app-server must
+    // accept it (the guard rejects a native prefix, not any slash).
+    await expect(
+      modelCanaryVerdictForScenario("turnCompleted", "openai/@cf/openai/gpt-oss-20b"),
     ).resolves.toBe("runnable");
   });
 
