@@ -303,6 +303,18 @@ function provisioningError(
   });
 }
 
+function modelNotRunnableByGateway(input: {
+  readonly providerId: string;
+  readonly model: string;
+  readonly reason: string;
+}): DomainError {
+  return provisioningError(
+    "provisioning.connections.modelNotRunnableByGateway",
+    `The gateway's bundled runtime cannot run ${input.model}: ${input.reason} Choose another model or update the gateway runtime before retrying.`,
+    { providerId: input.providerId, model: input.model },
+  );
+}
+
 interface StoredProviderCredential {
   /** The auth profile the gateway wrote, or `null` when it would not name one. */
   readonly profileId: string | null;
@@ -6551,6 +6563,45 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     });
     if (!patchParams.ok) {
       return err(patchParams.error);
+    }
+
+    const modelProbe = await this.options.gatewayRuntime?.probeModelRunnable({
+      agentId: ASK_ADMIN_AGENT_ID,
+      providerId: orchestratorProviderId,
+      model: orchestratorModel,
+    });
+    if (modelProbe === undefined) {
+      console.warn("connections.modelCanary.unproven", {
+        providerId: orchestratorProviderId,
+        model: orchestratorModel,
+        reason: "the gateway runtime is unavailable",
+      });
+    } else if (!modelProbe.ok) {
+      console.warn("connections.modelCanary.unproven", {
+        providerId: orchestratorProviderId,
+        model: orchestratorModel,
+        reason: "the gateway runtime probe returned an error",
+        code: modelProbe.error.code,
+      });
+    } else if (modelProbe.value.verdict === "unproven") {
+      console.warn("connections.modelCanary.unproven", {
+        providerId: orchestratorProviderId,
+        model: orchestratorModel,
+        reason: modelProbe.value.reason,
+      });
+    } else if (modelProbe.value.verdict === "unrunnable") {
+      console.warn("connections.modelCanary.unrunnable", {
+        providerId: orchestratorProviderId,
+        model: orchestratorModel,
+        reason: modelProbe.value.reason,
+      });
+      return err(
+        modelNotRunnableByGateway({
+          providerId: orchestratorProviderId,
+          model: orchestratorModel,
+          reason: modelProbe.value.reason,
+        }),
+      );
     }
 
     const result = await this.patchOrchestratorConfig(patchParams.value);
