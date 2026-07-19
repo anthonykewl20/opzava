@@ -53,7 +53,7 @@ const mocks = vi.hoisted(() => ({
     (): AuthHealthSummary => ({ now: 0, warnAfterMs: 0, profiles: [], providers: [] }),
   ),
   loadProviderUsageSummary: vi.fn(async (): Promise<UsageSummary> => emptyUsageSummary()),
-  resolvePluginMetadataSnapshot: vi.fn(() => ({ plugins: [] })),
+  resolvePluginProviders: vi.fn(() => []),
 }));
 
 vi.mock("../../config/config.js", () => ({
@@ -96,13 +96,13 @@ vi.mock("../../infra/provider-usage.load.js", () => ({
   loadProviderUsageSummary: mocks.loadProviderUsageSummary,
 }));
 
-vi.mock("../../plugins/plugin-metadata-snapshot.js", async () => {
-  const actual = await vi.importActual<typeof import("../../plugins/plugin-metadata-snapshot.js")>(
-    "../../plugins/plugin-metadata-snapshot.js",
+vi.mock("../../plugins/providers.runtime.js", async () => {
+  const actual = await vi.importActual<typeof import("../../plugins/providers.runtime.js")>(
+    "../../plugins/providers.runtime.js",
   );
   return {
     ...actual,
-    resolvePluginMetadataSnapshot: mocks.resolvePluginMetadataSnapshot,
+    resolvePluginProviders: mocks.resolvePluginProviders,
   };
 });
 
@@ -263,7 +263,7 @@ function resetAuthStatusMocks(): void {
     providers: [],
   });
   mocks.loadProviderUsageSummary.mockResolvedValue(emptyUsageSummary());
-  mocks.resolvePluginMetadataSnapshot.mockReturnValue({ plugins: [] });
+  mocks.resolvePluginProviders.mockReturnValue([]);
   mocks.refreshActiveProviderAuthRuntimeSnapshot.mockResolvedValue(false);
 }
 
@@ -381,23 +381,18 @@ describe("models.authStatus", () => {
     expect(result.providers[0]?.profiles[0]?.logoutSupported).toBe(true);
   });
 
-  it("reports manifest-declared shared auth profile ownership", async () => {
-    mocks.resolvePluginMetadataSnapshot.mockReturnValue({
-      plugins: [
-        {
-          providerAuthChoices: [
-            {
-              provider: "opencode",
-              ownedProfileIds: ["opencode:default", "opencode-go:default"],
-            },
-            {
-              provider: "opencode",
-              ownedProfileIds: ["opencode:default"],
-            },
-          ],
-        },
-      ],
-    } as never);
+  it("reports shared auth profile ownership from the provider auth methods", async () => {
+    // Ownership derives from the SAME resolveProfileIds the write path uses to populate
+    // ProviderAuthMethod.ownedProfileIds, so the declared set cannot drift from what is written (#174).
+    mocks.resolvePluginProviders.mockReturnValue([
+      {
+        id: "opencode",
+        auth: [
+          { ownedProfileIds: ["opencode:default", "opencode-go:default"] },
+          { ownedProfileIds: ["opencode:default"] },
+        ],
+      },
+    ] as never);
 
     const opts = createOptions();
     await handler(opts);
@@ -407,7 +402,7 @@ describe("models.authStatus", () => {
     expect((payload as ModelAuthStatusResult).ownership).toEqual({
       opencode: ["opencode-go:default", "opencode:default"],
     });
-    expect(mocks.resolvePluginMetadataSnapshot).toHaveBeenCalledWith({ config: {} });
+    expect(mocks.resolvePluginProviders).toHaveBeenCalledWith({ config: {}, mode: "setup" });
   });
 
   it("does not offer logout for runtime external CLI profiles", async () => {

@@ -575,29 +575,30 @@ function resolveConfiguredProviders(
 }
 
 /**
- * Declared profile ownership per provider, read from manifest-first auth-choice metadata.
+ * Declared profile ownership per provider, read from the provider plugins' auth methods.
  *
- * Auxiliary like usage enrichment: a plugin-resolution failure must never fail auth status,
- * so this degrades to `undefined` and the client falls back to id-matching.
+ * The ownership MUST come from the same `resolveProfileIds` the write path uses to populate
+ * `ProviderAuthMethod.ownedProfileIds` (Opzava #174) — reading a separate manifest declaration can
+ * drift, and an omitted sibling would silently let an id-matching disconnect leave a live sibling
+ * key behind. Auxiliary like usage enrichment: a plugin-resolution failure must never fail auth
+ * status, so this degrades to `undefined` and the client falls back to id-matching.
  */
 async function resolveProviderAuthProfileOwnership(
   cfg: OpenClawConfig,
 ): Promise<Record<string, string[]> | undefined> {
   try {
-    const { resolvePluginMetadataSnapshot } =
-      await import("../../plugins/plugin-metadata-snapshot.js");
-    const plugins = resolvePluginMetadataSnapshot({ config: cfg }).plugins;
+    const { resolvePluginProviders } = await import("../../plugins/providers.runtime.js");
+    const providers = resolvePluginProviders({ config: cfg, mode: "setup" });
     const ownership: Record<string, string[]> = {};
-    for (const plugin of plugins) {
-      for (const choice of plugin.providerAuthChoices ?? []) {
-        if (!choice.ownedProfileIds?.length) {
-          continue;
-        }
-        const owned = new Set(ownership[choice.provider] ?? []);
-        for (const profileId of choice.ownedProfileIds) {
+    for (const provider of providers) {
+      const owned = new Set<string>();
+      for (const method of provider.auth ?? []) {
+        for (const profileId of method.ownedProfileIds ?? []) {
           owned.add(profileId);
         }
-        ownership[choice.provider] = [...owned].sort();
+      }
+      if (owned.size > 0) {
+        ownership[provider.id] = [...owned].sort();
       }
     }
     return Object.keys(ownership).length > 0 ? ownership : undefined;

@@ -249,9 +249,12 @@ function removeProviderAuthProfilesFromStore(
       }
     }
   }
-  // lastGood points at the provider, not a profile, so it may only be cleared once the provider has
-  // no credential left — clearing it while one survives would strand a working profile.
-  if (store.lastGood?.[providerKey] && !providerHasRemainingProfiles) {
+  // lastGood[providerKey] is a specific profile id, so it must be cleared when the provider has no
+  // credential left OR when that exact profile was the one removed (narrowed removal) — otherwise it
+  // dangles at a deleted credential. Clearing it while an UNremoved profile survives would strand a
+  // working profile, so only clear on those two cases.
+  const lastGoodProfileId = store.lastGood?.[providerKey];
+  if (lastGoodProfileId && (!providerHasRemainingProfiles || removed.has(lastGoodProfileId))) {
     delete store.lastGood[providerKey];
     changed = true;
     if (Object.keys(store.lastGood).length === 0) {

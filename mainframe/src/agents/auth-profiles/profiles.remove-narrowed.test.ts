@@ -75,6 +75,18 @@ describe("removeProviderAuthProfilesWithLock", () => {
     expect(store.lastGood?.opencode).toBe("opencode:default");
   });
 
+  it("clears lastGood when narrowed removal deletes the exact profile it names", async () => {
+    // lastGood is "opencode:default". Removing THAT profile while "opencode:personal" survives must
+    // clear lastGood so it does not dangle at a deleted credential.
+    await removeProviderAuthProfilesWithLock({
+      provider: "opencode",
+      profileIds: ["opencode:default"],
+    });
+
+    expect(store.profiles["opencode:personal"]).toBeDefined();
+    expect(store.lastGood?.opencode).toBeUndefined();
+  });
+
   it("removes everything for the provider when no narrowing is given", async () => {
     await removeProviderAuthProfilesWithLock({ provider: "opencode" });
 
