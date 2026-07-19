@@ -13,6 +13,7 @@ import {
   type GatewayRuntimeAgentCredentialWrite,
   type GitHubConnectionState,
   type ModelProviderAuthChoice,
+  type ModelRunProbe,
   type OpenClawAdminConnectionMetadata,
   type OpenClawAdminRpcPort,
   type OpenClawOperatorScope,
@@ -533,6 +534,11 @@ class RecordingGatewayRuntime {
     readonly providerId: string;
     readonly profileId: string;
   }[] = [];
+  public readonly modelRunProbes: {
+    readonly agentId: string;
+    readonly providerId: string;
+    readonly model: string;
+  }[] = [];
   /** agentId -> providerIds whose credential is physically stored in THAT agent's auth store. */
   public readonly agentStores = new Map<string, Set<string>>();
   /** `${agentId}:${providerId}` -> the credential actually sitting in that store right now. */
@@ -586,6 +592,8 @@ class RecordingGatewayRuntime {
       readonly setupTokenLog?: string | (() => string);
       /** Force every probe to one verdict, e.g. to simulate a rate-limited provider. */
       readonly authProbeResult?: Result<ProviderAuthProbe> | (() => Result<ProviderAuthProbe>);
+      /** Force the #251 canary result while retaining the exact elected target. */
+      readonly modelRunProbeResult?: Result<ModelRunProbe> | (() => Result<ModelRunProbe>);
       /** Suppress the `Auth profile: ...` line, as an older gateway would. */
       readonly omitWrittenProfileId?: boolean;
       /**
@@ -771,6 +779,21 @@ class RecordingGatewayRuntime {
         ? { verdict: "rejected", reason: "auth: invalid api key" }
         : { verdict: "verified", reason: "the provider accepted the credential" },
     );
+  }
+
+  public async probeModelRunnable(input: {
+    readonly agentId: string;
+    readonly providerId: string;
+    readonly model: string;
+  }): Promise<Result<ModelRunProbe>> {
+    this.modelRunProbes.push(input);
+    if (typeof this.options.modelRunProbeResult === "function") {
+      return this.options.modelRunProbeResult();
+    }
+    return this.options.modelRunProbeResult ?? ok({
+      verdict: "runnable",
+      reason: "the test gateway can run the elected model",
+    });
   }
 
   public async listAgentProviderProfiles(input: {
@@ -6558,6 +6581,11 @@ describe("Connections provisioning helpers", () => {
   });
 
   it("does not patch an exact canonical orchestrator and subagent config", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      statusResult: err(
+        new DomainError({ code: "gateway.statusUnavailable", message: "not needed for this no-op" }),
+      ),
+    });
     const admin = new RecordingAdminClient({
       "config.get": ok({
         hash: "config-exact",
@@ -6622,6 +6650,7 @@ describe("Connections provisioning helpers", () => {
       adminClient: admin,
       secretsVault: new MemorySecretsVault(),
       githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
     });
 
     const result = await port.applyOrchestratorDelegation({
@@ -6631,6 +6660,7 @@ describe("Connections provisioning helpers", () => {
 
     expect(result.ok).toBe(true);
     expect(admin.calls.some((call) => call.method === "config.patch")).toBe(false);
+    expect(gatewayRuntime.modelRunProbes).toEqual([]);
   });
 
   it("reconnects after the startup patch and postverifies every canonical owned field", async () => {
@@ -7043,6 +7073,205 @@ describe("Connections provisioning helpers", () => {
       },
     });
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  function modelElectionAdmin(): RecordingAdminClient {
+    return new RecordingAdminClient({
+      "config.get": ok({
+        hash: "config-hash-model-canary",
+        auth: {
+          profiles: {
+            "openai-device": {
+              providerId: "openai",
+              authChoiceId: "openai-device-code",
+            },
+          },
+          order: { openai: ["openai-device"] },
+        },
+        agents: {
+          defaults: { model: { primary: "openai/gpt-5.5" } },
+          list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+        },
+      }),
+      "models.list": ok({
+        providers: [{ id: "openai", label: "OpenAI", suggestedModel: "gpt-5.5" }],
+        models: [
+          { id: "gpt-5.5", name: "GPT 5.5", provider: "openai", available: true },
+          { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", available: true },
+        ],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+  }
+
+  function modelElectionPort(input: {
+    readonly admin?: RecordingAdminClient;
+    readonly gatewayRuntime?: RecordingGatewayRuntime;
+  } = {}): {
+    readonly admin: RecordingAdminClient;
+    readonly port: GatewayAdminConnectionsProvisioningPort;
+  } {
+    const admin = input.admin ?? modelElectionAdmin();
+    return {
+      admin,
+      port: new GatewayAdminConnectionsProvisioningPort({
+        adminClient: admin,
+        secretsVault: new MemorySecretsVault(),
+        githubRepository: "anthonykewl20/opzava",
+        ...(input.gatewayRuntime === undefined ? {} : { gatewayRuntime: input.gatewayRuntime }),
+        now: () => new Date("2026-07-19T00:00:00.000Z"),
+      }),
+    };
+  }
+
+  async function reconcileCanaryModel(
+    port: GatewayAdminConnectionsProvisioningPort,
+  ): Promise<Result<OrchestratorDelegationState>> {
+    return port.applyOrchestratorDelegation({
+      ...principal(),
+      connectedProviderIds: ["openai"],
+    });
+  }
+
+  function modelElectionRuntime(modelRunProbeResult?: Result<ModelRunProbe>): RecordingGatewayRuntime {
+    return new RecordingGatewayRuntime({
+      status: {
+        allowed: ["openai/gpt-5.5", "openai/gpt-5.6-sol"],
+        auth: {
+          providers: [
+            {
+              provider: "openai",
+              profiles: { count: 1, oauth: 1, labels: ["openai:oauth=OAuth"] },
+            },
+          ],
+        },
+      },
+      ...(modelRunProbeResult === undefined ? {} : { modelRunProbeResult }),
+    });
+  }
+
+  it("rejects an unrunnable model election before any orchestrator config write", async () => {
+    const gatewayRuntime = modelElectionRuntime(
+      ok({ verdict: "unrunnable", reason: "the bundled runtime rejects this model version" }),
+    );
+    const { admin, port } = modelElectionPort({ gatewayRuntime });
+
+    const result = await reconcileCanaryModel(port);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected the model canary to block election");
+    expect(result.error.code).toBe("provisioning.connections.modelNotRunnableByGateway");
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(0);
+    expect(gatewayRuntime.modelRunProbes).toEqual([
+      { agentId: "ask-admin-opzava", providerId: "openai", model: "openai/gpt-5.5" },
+    ]);
+  });
+
+  it("elects a runnable model and persists the orchestrator config", async () => {
+    const gatewayRuntime = modelElectionRuntime(
+      ok({ verdict: "runnable", reason: "canary completed" }),
+    );
+    const { admin, port } = modelElectionPort({ gatewayRuntime });
+
+    const result = await reconcileCanaryModel(port);
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("fails open when the model canary is unproven", async () => {
+    const gatewayRuntime = modelElectionRuntime(
+      ok({ verdict: "unproven", reason: "gateway rate limited the canary" }),
+    );
+    const { admin, port } = modelElectionPort({ gatewayRuntime });
+
+    const result = await reconcileCanaryModel(port);
+
+    expect(result.ok).toBe(true);
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("fails open when the model canary errors or the gateway runtime is absent", async () => {
+    const probeError = modelElectionRuntime(
+      err(
+        new DomainError({ code: "gateway.modelProbeUnavailable", message: "probe timed out" }),
+      ),
+    );
+    const errored = modelElectionPort({ gatewayRuntime: probeError });
+    const unavailable = modelElectionPort();
+
+    await expect(reconcileCanaryModel(errored.port)).resolves.toMatchObject({ ok: true });
+    await expect(reconcileCanaryModel(unavailable.port)).resolves.toMatchObject({ ok: true });
+    expect(errored.admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(unavailable.admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("leaves the prior orchestrator intact when auto-reconcile finds an unrunnable replacement", async () => {
+    const askAdminEntry = { id: "ask-admin-opzava", model: "openai/gpt-5.5" };
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      status: {
+        allowed: ["anthropic/claude-opus-4-8"],
+        auth: {
+          providers: [
+            {
+              provider: "anthropic",
+              profiles: { count: 1, token: 1, labels: ["anthropic:default=Setup token"] },
+            },
+          ],
+        },
+      },
+      modelRunProbeResult: ok({ verdict: "unrunnable", reason: "runtime version is too old" }),
+    });
+    const admin = new RecordingAdminClient({
+      "config.get": () =>
+        ok({
+          hash: "config-hash-auto-canary",
+          config: {
+            agents: {
+              defaults: { model: { primary: "anthropic/claude-opus-4-8" } },
+              list: [askAdminEntry],
+            },
+            plugins: { entries: { anthropic: { enabled: true } } },
+          },
+        }),
+      "models.list": ok({
+        providers: [{ id: "anthropic", label: "Anthropic", suggestedModel: "claude-opus-4-8" }],
+      }),
+      "config.patch": ok({ ok: true }),
+    });
+    const port = new GatewayAdminConnectionsProvisioningPort({
+      adminClient: admin,
+      secretsVault: new MemorySecretsVault(),
+      githubRepository: "anthonykewl20/opzava",
+      gatewayRuntime,
+      now: () => new Date("2026-07-19T00:00:00.000Z"),
+    });
+
+    const start = await port.startModelProviderApiKeyConnect({
+      ...principal(),
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      apiKey: `sk-ant-oat01-${"a".repeat(95)}`,
+    });
+    const result = await pollApiKeyConnectUntilTerminal(port, start.ok ? start.value.opId : "");
+
+    expect(result.ok ? result.value : result.error).toMatchObject({ status: "connected" });
+    expect(gatewayRuntime.modelRunProbes).toEqual([
+      {
+        agentId: "ask-admin-opzava",
+        providerId: "anthropic",
+        model: "anthropic/claude-opus-4-8",
+      },
+    ]);
+    const orchestratorWrites = admin.calls
+      .filter((call) => call.method === "config.patch")
+      .map((call) => rawPatch(call.params))
+      .filter((patch) => JSON.stringify(patch).includes("anthropic/claude-opus-4-8"));
+    expect(orchestratorWrites).toEqual([]);
+    expect(askAdminEntry.model).toBe("openai/gpt-5.5");
   });
 
   it("keeps the Ask Admin tool policy when set-main rebuilds agents.list (#146)", async () => {
