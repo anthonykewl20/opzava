@@ -769,10 +769,10 @@ function modelCanaryVerdict(result: GatewayRuntimeCommandResult): ModelRunProbe 
     );
   });
   if (unsupported) {
-    // This is deliberately structural, never message parsing. The private app-server canary sends
-    // a fixed, minimal, well-formed turn and translates only Codex's structured `badRequest` code
-    // into 400 + invalid_request_error. Malformed-request 400s are excluded by construction, so on
-    // that valid turn this is the model version-floor rejection from #251.
+    // This is deliberately structural, never message parsing. The private app-server canary emits
+    // this summary only for turn/start or a correlated turn notification after a valid thread/start;
+    // setup failures never feed the unsupported flag. On that fixed, minimal turn this is the model
+    // version-floor rejection from #251.
     return {
       verdict: "unrunnable",
       reason: "The gateway's runtime cannot run this model yet.",
@@ -791,7 +791,7 @@ function modelCanaryVerdict(result: GatewayRuntimeCommandResult): ModelRunProbe 
   return { verdict: "unproven", reason: "Could not verify the model; try again." };
 }
 
-const modelCanaryScript = String.raw`
+export const modelCanaryScript = String.raw`
 import { pathToFileURL } from "node:url";
 
 const [sharedClientModule, agentDir, providerId, model, codexHome, nativeHome] =
@@ -811,15 +811,19 @@ if (typeof createIsolatedCodexAppServerClient !== "function") {
 }
 
 const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const isUnsupportedModelSignal = (value, depth = 0) => {
-  if (!isRecord(value) || depth > 8) return false;
-  if (value.codexErrorInfo === "badRequest") return true;
-  if (
-    value.status === 400 &&
-    isRecord(value.error) &&
-    value.error.type === "invalid_request_error"
-  ) return true;
-  return Object.values(value).some((entry) => isUnsupportedModelSignal(entry, depth + 1));
+const isBadRequestError = (value) =>
+  isRecord(value) && value.codexErrorInfo === "badRequest";
+const isUnsupportedModelSignal = (value) => {
+  if (!isRecord(value)) return false;
+  const error = isRecord(value.error) ? value.error : undefined;
+  const turn = isRecord(value.turn) ? value.turn : undefined;
+  const turnError = isRecord(turn?.error) ? turn.error : undefined;
+  return (
+    isBadRequestError(value) ||
+    isBadRequestError(error) ||
+    isBadRequestError(turnError) ||
+    (value.status === 400 && error?.type === "invalid_request_error")
+  );
 };
 
 const startOptions = {
@@ -836,6 +840,9 @@ const startOptions = {
 let client;
 let closePromise;
 let unsupported = false;
+let phase = "setup";
+let threadId;
+let turnId;
 let settled = false;
 let resolveCompletion;
 const completion = new Promise((resolve) => { resolveCompletion = resolve; });
@@ -854,6 +861,19 @@ const closeClient = () => {
 const terminate = () => {
   void closeClient().finally(() => process.exit(1));
 };
+const isCurrentTurnNotification = (params) => {
+  if (phase !== "turn" || typeof threadId !== "string") return false;
+  const turn = isRecord(params.turn) ? params.turn : undefined;
+  const notificationThreadId = typeof turn?.threadId === "string"
+    ? turn.threadId
+    : params.threadId;
+  const notificationTurnId = typeof turn?.id === "string" ? turn.id : params.turnId;
+  return (
+    notificationThreadId === threadId &&
+    typeof notificationTurnId === "string" &&
+    (typeof turnId !== "string" || notificationTurnId === turnId)
+  );
+};
 process.once("SIGTERM", terminate);
 process.once("SIGINT", terminate);
 process.once("SIGHUP", terminate);
@@ -867,11 +887,13 @@ try {
   client.addNotificationHandler((notification) => {
     const params = isRecord(notification.params) ? notification.params : {};
     if (notification.method === "error") {
+      if (!isCurrentTurnNotification(params)) return;
       unsupported ||= isUnsupportedModelSignal(params);
       if (params.willRetry !== true) settle("failed");
       return;
     }
     if (notification.method === "turn/completed") {
+      if (!isCurrentTurnNotification(params)) return;
       unsupported ||= isUnsupportedModelSignal(params);
       const turn = isRecord(params.turn) ? params.turn : {};
       settle(turn.status === "completed" ? "completed" : "failed");
@@ -919,9 +941,15 @@ try {
     threadParams,
     { timeoutMs: 20_000 },
   );
-  if (!isRecord(threadResponse) || !isRecord(threadResponse.thread)) {
+  if (
+    !isRecord(threadResponse) ||
+    !isRecord(threadResponse.thread) ||
+    typeof threadResponse.thread.id !== "string"
+  ) {
     throw new Error("invalid thread response");
   }
+  threadId = threadResponse.thread.id;
+  phase = "turn";
 
   const turnResponse = await client.request("turn/start", {
     threadId: threadResponse.thread.id,
@@ -933,6 +961,7 @@ try {
   const immediateTurn = isRecord(turnResponse) && isRecord(turnResponse.turn)
     ? turnResponse.turn
     : undefined;
+  turnId = immediateTurn?.id;
   if (immediateTurn?.status === "completed") settle("completed");
   if (immediateTurn?.status === "failed" || immediateTurn?.status === "interrupted") {
     settle("failed");
@@ -959,7 +988,7 @@ try {
     process.exitCode = 1;
   }
 } catch (error) {
-  unsupported ||= isUnsupportedModelSignal(error?.data);
+  if (phase === "turn") unsupported ||= isUnsupportedModelSignal(error?.data);
   process.stdout.write(
     unsupported
       ? '{"type":"error","status":400,"error":{"type":"invalid_request_error"}}\n'

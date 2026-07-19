@@ -1,8 +1,14 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   type DockerExecStdinConnection,
   DockerOpenClawGatewayRuntime,
+  modelCanaryScript,
 } from "../docker-gateway-runtime.js";
 
 /**
@@ -178,6 +184,147 @@ function generatedCatalog(providers: Record<string, unknown>): string {
     providers,
   });
 }
+
+type ModelCanaryScenario =
+  | "setupRequestBadRequest"
+  | "setupNotificationBadRequest"
+  | "setupMalformedThreadResponse"
+  | "turnModelBadRequest"
+  | "turnUnrelatedNestedBadRequest";
+
+async function runModelCanaryScript(scenario: ModelCanaryScenario): Promise<{
+  readonly stdout: string;
+  readonly exitCode: number;
+}> {
+  const directory = await mkdtemp(join(tmpdir(), "opzava-model-canary-test-"));
+  const scriptPath = join(directory, "canary.mjs");
+  const clientPath = join(directory, "shared-client.mjs");
+  try {
+    await writeFile(scriptPath, modelCanaryScript, "utf8");
+    await writeFile(
+      clientPath,
+      `
+const scenario = ${JSON.stringify(scenario)};
+
+export async function createIsolatedCodexAppServerClient() {
+  let notificationHandler;
+  return {
+    addNotificationHandler(handler) { notificationHandler = handler; },
+    addRequestHandler() {},
+    async request(method) {
+      if (method === "thread/start") {
+        if (scenario === "setupRequestBadRequest") {
+          throw { data: { status: 400, error: { type: "invalid_request_error" } } };
+        }
+        if (scenario === "setupNotificationBadRequest") {
+          notificationHandler?.({
+            method: "error",
+            params: {
+              error: { codexErrorInfo: "badRequest" },
+              willRetry: false,
+            },
+          });
+        }
+        if (scenario === "setupMalformedThreadResponse") return { thread: {} };
+        return { thread: { id: "thread-canary" } };
+      }
+      if (method === "turn/start") {
+        const turn = {
+          id: "turn-canary",
+          threadId: "thread-canary",
+          status: "failed",
+          items: [],
+        };
+        if (scenario === "turnModelBadRequest" || scenario === "setupMalformedThreadResponse") {
+          return { turn: { ...turn, error: { codexErrorInfo: "badRequest" } } };
+        }
+        if (scenario === "turnUnrelatedNestedBadRequest") {
+          return { turn: { ...turn, metadata: { codexErrorInfo: "badRequest" } } };
+        }
+        return { turn };
+      }
+      throw new Error(\`unexpected method \${method}\`);
+    },
+    async closeAndWait() {},
+  };
+}
+`,
+      "utf8",
+    );
+
+    return await new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          scriptPath,
+          clientPath,
+          "/agent",
+          "openai",
+          "openai/gpt-5.6-sol",
+          join(directory, "codex-home"),
+          join(directory, "home"),
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+      child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+      child.once("error", reject);
+      child.once("close", (code) => {
+        if (code === null) {
+          reject(new Error(`model canary exited without a status: ${Buffer.concat(stderr)}`));
+          return;
+        }
+        resolve({ stdout: Buffer.concat(stdout).toString("utf8"), exitCode: code });
+      });
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function modelCanaryVerdictForScenario(scenario: ModelCanaryScenario): Promise<string> {
+  const canary = await runModelCanaryScript(scenario);
+  const docker = fakeDocker(canary);
+
+  const probe = await docker.runtime.probeModelRunnable({
+    agentId: "ask-admin-opzava",
+    providerId: "openai",
+    model: "openai/gpt-5.6-sol",
+  });
+
+  if (!probe.ok) throw probe.error;
+  return probe.value.verdict;
+}
+
+describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
+  it("leaves a thread/start badRequest unproven because setup never reached the model", async () => {
+    await expect(modelCanaryVerdictForScenario("setupRequestBadRequest")).resolves.toBe("unproven");
+  });
+
+  it("leaves an unscoped badRequest notification during setup unproven", async () => {
+    await expect(modelCanaryVerdictForScenario("setupNotificationBadRequest")).resolves.toBe(
+      "unproven",
+    );
+  });
+
+  it("does not enter the turn phase from a malformed thread/start response", async () => {
+    await expect(modelCanaryVerdictForScenario("setupMalformedThreadResponse")).resolves.toBe(
+      "unproven",
+    );
+  });
+
+  it("classifies a turn result with the model badRequest signal as unrunnable", async () => {
+    await expect(modelCanaryVerdictForScenario("turnModelBadRequest")).resolves.toBe("unrunnable");
+  });
+
+  it("does not search arbitrary nested turn metadata for badRequest", async () => {
+    await expect(modelCanaryVerdictForScenario("turnUnrelatedNestedBadRequest")).resolves.toBe(
+      "unproven",
+    );
+  });
+});
 
 describe("DockerOpenClawGatewayRuntime plugin model discovery (#184)", () => {
   it("reads enabled plugins and parses multiple generated catalogs in one exec", async () => {
