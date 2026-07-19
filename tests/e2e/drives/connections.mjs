@@ -53,6 +53,20 @@ function requiredNumber(name, { allowZero }) {
   return value;
 }
 
+// The /connections load-time budget is ADVISORY only (#238): page render cost scales with the
+// count of connected providers and enabled models — exactly the live state the product exists to
+// change — so an absolute time compared to a frozen baseline is not a behavioural regression.
+// Both vars are therefore optional; when unset the advisory is simply disabled.
+function optionalNumber(name, { allowZero }) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw new Error(`${name} must be a ${allowZero ? "nonnegative" : "positive"} number when set.`);
+  }
+  return value;
+}
+
 const expectedHealth = CAPTURE_BASELINE
   ? null
   : requiredChoice("REAL_CONNECTIONS_HEALTH", HEALTH_SCENARIOS);
@@ -77,10 +91,10 @@ if (!CAPTURE_BASELINE && expectedHealth === "degraded") {
 }
 const baselineLoadMs = CAPTURE_BASELINE
   ? null
-  : requiredNumber("REAL_CONNECTIONS_BASELINE_LOAD_MS", { allowZero: false });
+  : optionalNumber("REAL_CONNECTIONS_BASELINE_LOAD_MS", { allowZero: false });
 const maxRegressionMs = CAPTURE_BASELINE
   ? null
-  : requiredNumber("REAL_CONNECTIONS_MAX_REGRESSION_MS", { allowZero: true });
+  : optionalNumber("REAL_CONNECTIONS_MAX_REGRESSION_MS", { allowZero: true });
 const allowedConnectionsLoadMs =
   baselineLoadMs === null || maxRegressionMs === null ? null : baselineLoadMs + maxRegressionMs;
 const reportBase = new URL(BASE).origin;
@@ -134,6 +148,8 @@ const report = {
     baselineLoadMs,
     maxRegressionMs,
     allowedConnectionsLoadMs,
+    observedConnectionsLoadMs: null,
+    exceededAdvisory: false,
   },
   observed: null,
   heroHealth: null,
@@ -149,10 +165,19 @@ const report = {
   baselineCapture: null,
   screenshotPaths: [],
   findings: [],
+  warnings: [],
 };
 
 function finding(detail) {
   report.findings.push(detail);
+}
+
+// Non-blocking signal: surfaced to the human reading the report and stderr, but never gates the
+// exit. Used for advisory measures (e.g. the state-dependent load-time budget) that must not abort
+// the behavioural assertions the drive exists to prove (#238).
+function warn(detail) {
+  report.warnings.push(detail);
+  console.warn(`connections drive WARNING: ${detail}`);
 }
 
 function assertFinding(condition, detail) {
@@ -174,14 +199,18 @@ async function timedGoto(page, route, options = {}) {
   });
   const elapsedMs = Math.round(performance.now() - started);
   (report.navigationTimings[route] ??= []).push(elapsedMs);
-  if (
-    route === "/connections" &&
-    allowedConnectionsLoadMs !== null &&
-    elapsedMs > allowedConnectionsLoadMs
-  ) {
-    finding(
-      `${route} load ${elapsedMs}ms exceeded baseline plus allowed regression (${allowedConnectionsLoadMs}ms)`,
-    );
+  if (route === "/connections") {
+    report.performanceContract.observedConnectionsLoadMs = elapsedMs;
+    if (allowedConnectionsLoadMs !== null && elapsedMs > allowedConnectionsLoadMs) {
+      // ADVISORY, non-blocking (#238): /connections cost scales with connected providers and
+      // enabled models, so exceeding a frozen baseline is state-dependent, not a behavioural
+      // regression. Record and warn; NEVER abort the behavioural assertions on it.
+      report.performanceContract.exceededAdvisory = true;
+      warn(
+        `${route} load ${elapsedMs}ms exceeded the advisory baseline+regression budget ` +
+          `(${allowedConnectionsLoadMs}ms) — non-blocking; page cost scales with live provider/model state`,
+      );
+    }
   }
   return response;
 }

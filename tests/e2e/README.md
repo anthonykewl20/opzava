@@ -69,13 +69,20 @@ jq '.baselineCapture' \
   real-validate-artifacts/connections-fixed-point-baseline/connections-report.json
 ```
 
-Use the measured fixed-point value and an explicitly approved regression budget; neither has a
-default. The drive checks every observed `/connections` navigation against their sum.
+The load-time budget is **advisory only**, and both variables are **optional** (#238).
+`/connections` render cost scales with the count of connected providers and enabled models — exactly
+the live state the product exists to change — so an absolute time compared to a frozen baseline is
+state-dependent, not a behavioural regression. When set, every observed `/connections` navigation is
+checked against their sum and an exceedance is recorded (`performanceContract.exceededAdvisory`, a
+`warnings[]` entry, and a stderr `WARNING`) **without failing the drive**; the behavioural
+assertions always run. When unset, the advisory is simply disabled. Never gate a merge on this
+number — read it as a trend signal.
 
 ```bash
+# Optional: enable the non-blocking load-time advisory
 export REAL_CONNECTIONS_BASELINE_LOAD_MS="$(jq -r '.baselineCapture.suggestedBaselineLoadMs' \
   real-validate-artifacts/connections-fixed-point-baseline/connections-report.json)"
-export REAL_CONNECTIONS_MAX_REGRESSION_MS=REPLACE_WITH_APPROVED_BUDGET_MS
+export REAL_CONNECTIONS_MAX_REGRESSION_MS=YOUR_ADVISORY_BUDGET_MS
 ```
 
 The current Mainframe contract can produce three honest real-stack health states: `partial-unknown`,
