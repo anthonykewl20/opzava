@@ -3356,6 +3356,15 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private recordAudit(input: AppendAuditInput): void {
     void this.audit.appendAudit(input).then((result) => {
       if (!result.ok) {
+        const failure = result.error as { message?: unknown; cause?: unknown } | undefined;
+        const causeOf = (value: unknown): string =>
+          value instanceof Error
+            ? `${value.name}: ${value.message}`
+            : typeof value === "string"
+              ? value
+              : value === undefined
+                ? ""
+                : JSON.stringify(value);
         console.error(
           JSON.stringify({
             level: "error",
@@ -3364,6 +3373,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
             transition: input.transition,
             targetKind: input.targetKind,
             targetRef: input.targetRef,
+            detail: causeOf(failure?.message ?? failure),
+            cause: causeOf(failure?.cause),
           }),
         );
       }

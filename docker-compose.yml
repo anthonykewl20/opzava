@@ -112,6 +112,9 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PROVISIONING_WORKER_PORT:-19188}
       PROVISIONING_WORKER_TOKEN: ${PROVISIONING_WORKER_TOKEN:?PROVISIONING_WORKER_TOKEN is required}
+      # #192: the connections governance audit appends compliance rows to Postgres from the worker,
+      # so it needs the app-role DATABASE_URL (RLS-enforced, INSERT/SELECT only) like web/broker.
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://opzava_app:opzava_app_local_only@postgres:5432/opzava}
       OPENCLAW_GATEWAY_URL: ${COMPOSE_OPENCLAW_GATEWAY_URL:-ws://openclaw-platform-gateway:18789}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       # Worker JIT-admin operator scopes; must match the paired worker-admin device.
