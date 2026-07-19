@@ -192,6 +192,7 @@ type ModelCanaryScenario =
   | "baselineTurnBadRequest"
   | "turnCompleted"
   | "turnModelBadRequest"
+  | "turnTimeout"
   | "turnUnrelatedNestedBadRequest";
 
 const targetCanaryModel = "openai/gpt-5.6-sol";
@@ -237,7 +238,7 @@ export async function createIsolatedCodexAppServerClient() {
         const turn = {
           id: "turn-canary",
           threadId: "thread-canary",
-          status: "failed",
+          status: scenario === "turnTimeout" ? "inProgress" : "failed",
           items: [],
         };
         if (
@@ -346,6 +347,132 @@ describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
     await expect(
       modelCanaryVerdictForScenario("turnModelBadRequest", baselineCanaryModel),
     ).resolves.toBe("unrunnable");
+  });
+
+  it("downgrades a target badRequest when the baseline no longer runs on re-confirmation (#255)", async () => {
+    const runnable = await runModelCanaryScript("turnCompleted", baselineCanaryModel);
+    const targetBadRequest = await runModelCanaryScript("turnModelBadRequest", targetCanaryModel);
+    const nonRunnable = await runModelCanaryScript("baselineTurnBadRequest", baselineCanaryModel);
+    let baselineExecs = 0;
+    const docker = fakeDocker({
+      stdout: (cmd) => {
+        if (cmd.join("\n").includes(baselineCanaryModel)) {
+          baselineExecs += 1;
+          return baselineExecs === 1 ? runnable.stdout : nonRunnable.stdout;
+        }
+        return targetBadRequest.stdout;
+      },
+    });
+
+    const probe = await docker.runtime.probeModelRunnable({
+      agentId: "ask-admin-opzava",
+      providerId: "openai",
+      model: targetCanaryModel,
+      baselineModel: baselineCanaryModel,
+    });
+
+    expect(probe).toMatchObject({ ok: true, value: { verdict: "unproven" } });
+    expect(docker.commands).toHaveLength(3);
+    expect(baselineExecs).toBe(2);
+  });
+
+  it("downgrades a target badRequest when the re-confirmation exec itself fails (#255)", async () => {
+    // The re-confirm exec returning a non-config error (e.g. a transient Docker transport failure)
+    // is inconclusive, so `unrunnable` must fail open to `unproven` — never propagate or stick.
+    const runnable = await runModelCanaryScript("turnCompleted", baselineCanaryModel);
+    const targetBadRequest = await runModelCanaryScript("turnModelBadRequest", targetCanaryModel);
+    let baselineExecs = 0;
+    const docker = fakeDocker({
+      stdout: (cmd) => {
+        if (cmd.join("\n").includes(baselineCanaryModel)) {
+          baselineExecs += 1;
+          if (baselineExecs === 2) {
+            // Throwing inside the `/start` fetch surfaces as a `provisioning.docker.requestFailed`
+            // Result (not a host-config error), exercising the `!reconfirm.ok` downgrade branch.
+            throw new Error("docker exec transport failure on re-confirmation");
+          }
+          return runnable.stdout;
+        }
+        return targetBadRequest.stdout;
+      },
+    });
+
+    const probe = await docker.runtime.probeModelRunnable({
+      agentId: "ask-admin-opzava",
+      providerId: "openai",
+      model: targetCanaryModel,
+      baselineModel: baselineCanaryModel,
+    });
+
+    expect(probe).toMatchObject({ ok: true, value: { verdict: "unproven" } });
+    expect(baselineExecs).toBe(2);
+  });
+
+  it("keeps a target badRequest unrunnable when the re-confirmed baseline still runs (#255)", async () => {
+    const runnable = await runModelCanaryScript("turnCompleted", baselineCanaryModel);
+    const targetBadRequest = await runModelCanaryScript("turnModelBadRequest", targetCanaryModel);
+    const docker = fakeDocker({
+      stdout: (cmd) =>
+        cmd.join("\n").includes(baselineCanaryModel) ? runnable.stdout : targetBadRequest.stdout,
+    });
+
+    const probe = await docker.runtime.probeModelRunnable({
+      agentId: "ask-admin-opzava",
+      providerId: "openai",
+      model: targetCanaryModel,
+      baselineModel: baselineCanaryModel,
+    });
+
+    expect(probe).toMatchObject({ ok: true, value: { verdict: "unrunnable" } });
+    expect(docker.commands).toHaveLength(3);
+  });
+
+  it("leaves malformed canary stdout unproven", async () => {
+    const docker = fakeDocker({ stdout: "not-json" });
+
+    await expect(
+      docker.runtime.probeModelRunnable({
+        agentId: "ask-admin-opzava",
+        providerId: "openai",
+        model: targetCanaryModel,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { verdict: "unproven" } });
+  });
+
+  it("leaves the 20-second turn completion timeout unproven", async () => {
+    await expect(modelCanaryVerdictForScenario("turnTimeout")).resolves.toBe("unproven");
+  }, 30_000);
+
+  it("skips an equal baseline and leaves its target badRequest unproven", async () => {
+    const targetBadRequest = await runModelCanaryScript("turnModelBadRequest", targetCanaryModel);
+    const docker = fakeDocker({ stdout: targetBadRequest.stdout });
+
+    const probe = await docker.runtime.probeModelRunnable({
+      agentId: "ask-admin-opzava",
+      providerId: "openai",
+      model: targetCanaryModel,
+      baselineModel: targetCanaryModel,
+    });
+
+    expect(probe).toMatchObject({ ok: true, value: { verdict: "unproven" } });
+    expect(docker.commands).toHaveLength(1);
+  });
+
+  it("keeps the canary shell command isolated, cleaned up, and model-quoted", async () => {
+    const docker = fakeDocker({ stdout: '{"type":"turn.completed"}\n' });
+
+    await docker.runtime.probeModelRunnable({
+      agentId: "ask-admin-opzava",
+      providerId: "openai",
+      model: targetCanaryModel,
+    });
+
+    const script = docker.commands[0]?.[2] ?? "";
+    expect(script).toContain("mktemp -d /tmp/opzava-model-canary");
+    expect(script).toContain("trap cleanup EXIT");
+    expect(script).toContain('rm -rf "$flow_dir"');
+    expect(script).toContain("shared-client-*.js");
+    expect(script).toContain("'openai/gpt-5.6-sol'");
   });
 
   it("leaves a target model unproven when the baseline turn/start also badRequests", async () => {

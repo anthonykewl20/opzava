@@ -1601,18 +1601,13 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     const baselineModel = input.baselineModel;
     const hasDistinctBaseline = baselineModel !== undefined && baselineModel !== input.model;
     if (hasDistinctBaseline) {
-      // KNOWN RESIDUAL (#251, accepted): the baseline and target run as two separate execs against
-      // the same container seconds apart, so this differential is NOT atomic. A transient, non-model
-      // `400 invalid_request_error` that hits the target but not the just-passed baseline could still
-      // be read as `unrunnable`. This window is narrow (transient infra failures are almost always
-      // 5xx/timeout/429 -> already `unproven`, not a 400 invalid_request), the consequence is a
-      // RETRYABLE, actionable election refusal (categorically milder than the silent bad-config write
-      // this canary replaces), and non-atomicity is inherent to any live behavioral probe (the #183
-      // auth probe shares it). A follow-up tracks fully closing it (single pinned exec / immutable
-      // runtime-identity check). Each command creates and cleans up its own isolated app-server
-      // client. Keep the known-good turn strictly first: only its success proves that the identical
-      // turn/start schema is usable on this gateway, and any other result must stop attribution
-      // before the target is touched.
+      // KNOWN RESIDUAL (#251/#255, accepted): this is still not atomic: the baseline is proven
+      // immediately before, then re-confirmed immediately after, the target in separate execs. A
+      // truly target-only transient `400 invalid_request_error` can therefore still be read as
+      // `unrunnable`; non-model 5xx/timeout/429 already fail open. A single pinned exec or immutable
+      // runtime-identity check would close that remaining window. Each command creates and cleans
+      // up its own isolated app-server client. Keep the known-good turn strictly first: only its
+      // success proves that the identical turn/start schema is usable before the target is touched.
       const baselineResult = await this.exec(
         [
           "sh",
@@ -1669,7 +1664,27 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       return ok(probe);
     }
 
-    const probe = modelCanaryVerdict(result.value, hasDistinctBaseline);
+    let probe = modelCanaryVerdict(result.value, hasDistinctBaseline);
+    if (probe.verdict === "unrunnable" && baselineModel !== undefined) {
+      // An `unrunnable` claim needs a control that STILL runs on this gateway. If it no longer does,
+      // a live gateway wobble could explain the target badRequest, so fail open rather than attribute it.
+      const reconfirm = await this.exec(
+        ["sh", "-lc", modelCanaryCommand(input.agentId, input.providerId, baselineModel)],
+        undefined,
+        modelCanaryExecTimeoutMs,
+      );
+      if (!reconfirm.ok) {
+        if (
+          reconfirm.error.code === "provisioning.docker.unsupportedHost" ||
+          reconfirm.error.code === "provisioning.docker.invalidHost"
+        ) {
+          return err(reconfirm.error);
+        }
+        probe = { verdict: "unproven", reason: "Could not verify the model; try again." };
+      } else if (modelCanaryVerdict(reconfirm.value, false).verdict !== "runnable") {
+        probe = { verdict: "unproven", reason: "Could not verify the model; try again." };
+      }
+    }
     logModelCanary(input, probe);
     return ok(probe);
   }

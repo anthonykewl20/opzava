@@ -538,6 +538,7 @@ class RecordingGatewayRuntime {
     readonly agentId: string;
     readonly providerId: string;
     readonly model: string;
+    readonly baselineModel?: string;
   }[] = [];
   /** agentId -> providerIds whose credential is physically stored in THAT agent's auth store. */
   public readonly agentStores = new Map<string, Set<string>>();
@@ -785,6 +786,7 @@ class RecordingGatewayRuntime {
     readonly agentId: string;
     readonly providerId: string;
     readonly model: string;
+    readonly baselineModel?: string;
   }): Promise<Result<ModelRunProbe>> {
     this.modelRunProbes.push(input);
     if (typeof this.options.modelRunProbeResult === "function") {
@@ -7075,7 +7077,7 @@ describe("Connections provisioning helpers", () => {
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
   });
 
-  function modelElectionAdmin(): RecordingAdminClient {
+  function modelElectionAdmin(orchestratorModel = "openai/gpt-5.5"): RecordingAdminClient {
     return new RecordingAdminClient({
       "config.get": ok({
         hash: "config-hash-model-canary",
@@ -7090,7 +7092,7 @@ describe("Connections provisioning helpers", () => {
         },
         agents: {
           defaults: { model: { primary: "openai/gpt-5.5" } },
-          list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+          list: [{ id: "ask-admin-opzava", model: orchestratorModel }],
         },
       }),
       "models.list": ok({
@@ -7177,6 +7179,42 @@ describe("Connections provisioning helpers", () => {
 
     expect(result.ok).toBe(true);
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("passes the distinct primary model through as the canary baseline", async () => {
+    const gatewayRuntime = modelElectionRuntime();
+    const { port } = modelElectionPort({
+      admin: modelElectionAdmin("openai/gpt-5.6-sol"),
+      gatewayRuntime,
+    });
+
+    await expect(reconcileCanaryModel(port)).resolves.toMatchObject({ ok: true });
+
+    expect(gatewayRuntime.modelRunProbes).toEqual([
+      {
+        agentId: "ask-admin-opzava",
+        providerId: "openai",
+        model: "openai/gpt-5.6-sol",
+        baselineModel: "openai/gpt-5.5",
+      },
+    ]);
+  });
+
+  it("runs concurrent model elections independently through the canary", async () => {
+    const gatewayRuntime = modelElectionRuntime();
+    const first = modelElectionPort({ gatewayRuntime });
+    const second = modelElectionPort({ gatewayRuntime });
+
+    const results = await Promise.all([
+      reconcileCanaryModel(first.port),
+      reconcileCanaryModel(second.port),
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({ ok: true }),
+      expect.objectContaining({ ok: true }),
+    ]);
+    expect(gatewayRuntime.modelRunProbes).toHaveLength(2);
   });
 
   it("fails open when the model canary is unproven", async () => {
