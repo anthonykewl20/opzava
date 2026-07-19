@@ -38,11 +38,16 @@ node tests/e2e/drives/connections.mjs # or call any script directly, with an opt
   exercised nothing must never exit `0`: that is a vacuous pass, so the drive prints a loud
   precondition message and exits `2` instead. `connections-models` and
   `connections-disconnect-orphan` set the precedent for the exit-`2` shape.
-- **Provider-card selectors come from `lib/selectors.mjs`.** Do not hand-roll
-  `article[data-provider-id]` or `[data-provider-tier]` in a drive: #181's table→card port silently
-  rotted two drives that did. Resolve the provider id at the call site (the catalog id, not the
-  display label) and build the selector with `providerCard(id)` / `providerTier(tier)`, so a future
-  port breaks in one place instead of passing green against nothing.
+- **Single-card selectors come from `lib/selectors.mjs`.** For a lookup of one provider's card, do
+  not hand-roll `article[data-provider-id="<id>"]`: #181's table→card port silently rotted two
+  drives that did. Resolve the provider id at the call site (the catalog id, not the display label)
+  and build the selector with `providerCard(id)` / `providerTier(tier)`, so a future port breaks in
+  one place instead of passing green against nothing. `connections-github`, `connections-models`,
+  and `connections-oldbugs` follow this. Two pre-existing working drives still hand-roll compound
+  and enumeration selectors (`connections.mjs`'s tier scans and `:has([data-provider-status])`
+  filters, `connections-apikey-argv.mjs`'s card list) — left as-is rather than risk the repo's only
+  working proofs, and pending migration. The element type still lives in one place; extend
+  `selectors.mjs` (e.g. a status-scoped helper) when you migrate them.
 - **Artifacts** (screenshots + `*-report.json`) go to
   `real-validate-artifacts/<prefix>-<timestamp>/`, which is gitignored. Pass `[outDir]` to pin one.
 - Env overrides: `REAL_BASE`, `REAL_EMAIL`, `REAL_PASSWORD`.
