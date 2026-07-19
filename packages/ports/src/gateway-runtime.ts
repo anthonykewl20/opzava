@@ -181,14 +181,16 @@ export interface GatewayRuntimePort {
    */
   probeProviderAuth(input: GatewayRuntimeAuthProbeQuery): Promise<Result<ProviderAuthProbe>>;
   /**
-   * Spend one real, bounded, side-effect-free model call proving the bundled runtime can actually
-   * RUN a model before it is elected as an orchestrator (#251).
+   * Spend up to two real, bounded, side-effect-free model calls proving the bundled runtime can
+   * actually RUN a model before it is elected as an orchestrator (#251).
    *
    * The canary runs on the admin/JIT path (this port), NEVER through the gateway-broker hot-path ACL.
-   * It uses a known-good baseline to prove the minimal turn/start schema before a structural target
-   * rejection can be attributed to the model. Callers MUST run this before the control-plane config
-   * write and abort the election only on an `unrunnable` verdict; `unproven` proceeds (see
-   * {@link ModelRunProbeVerdict}).
+   * When a distinct `baselineModel` is supplied it runs FIRST as a control turn: only after the
+   * baseline proves the minimal turn/start schema works on this runtime is a structural TARGET
+   * rejection attributed to the model. So this is up to two bounded exec turns (baseline + target),
+   * each within the adapter's per-turn timeout — the extra baseline turn is what buys correct
+   * attribution. Callers MUST run this before the control-plane config write and abort the election
+   * only on an `unrunnable` verdict; `unproven` proceeds fail-open (see {@link ModelRunProbeVerdict}).
    */
   probeModelRunnable(
     input: GatewayRuntimeModelRunProbeQuery,

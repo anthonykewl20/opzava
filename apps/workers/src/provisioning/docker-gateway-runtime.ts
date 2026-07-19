@@ -1601,9 +1601,18 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     const baselineModel = input.baselineModel;
     const hasDistinctBaseline = baselineModel !== undefined && baselineModel !== input.model;
     if (hasDistinctBaseline) {
-      // Each command creates and cleans up its own isolated app-server client. Keep the known-good
-      // turn strictly first: only its success proves that the identical turn/start schema is usable
-      // on this gateway, and any other result must stop attribution before the target is touched.
+      // KNOWN RESIDUAL (#251, accepted): the baseline and target run as two separate execs against
+      // the same container seconds apart, so this differential is NOT atomic. A transient, non-model
+      // `400 invalid_request_error` that hits the target but not the just-passed baseline could still
+      // be read as `unrunnable`. This window is narrow (transient infra failures are almost always
+      // 5xx/timeout/429 -> already `unproven`, not a 400 invalid_request), the consequence is a
+      // RETRYABLE, actionable election refusal (categorically milder than the silent bad-config write
+      // this canary replaces), and non-atomicity is inherent to any live behavioral probe (the #183
+      // auth probe shares it). A follow-up tracks fully closing it (single pinned exec / immutable
+      // runtime-identity check). Each command creates and cleans up its own isolated app-server
+      // client. Keep the known-good turn strictly first: only its success proves that the identical
+      // turn/start schema is usable on this gateway, and any other result must stop attribution
+      // before the target is touched.
       const baselineResult = await this.exec(
         [
           "sh",
