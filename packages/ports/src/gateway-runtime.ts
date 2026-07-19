@@ -109,6 +109,41 @@ export interface GatewayRuntimeAuthProbeQuery {
   readonly profileId: string;
 }
 
+/**
+ * What a live model canary proved about whether the gateway's bundled runtime can actually RUN a
+ * given model (#251).
+ *
+ * The catalog offering a model does NOT mean the bundled Codex can run it: the gateway pins its own
+ * Codex install, and a model can need a newer backend than the pinned one (e.g. `gpt-5.6-sol`
+ * rejected by Codex `0.142.4` with "requires a newer version of Codex"). Structural catalog/status
+ * checks all pass; the only thing that proves runnability is asking the runtime to run it.
+ *
+ * Deliberately three-valued, mirroring {@link ProviderAuthProbeVerdict}. `unproven` is NOT a soft
+ * `unrunnable`: a rate limit, a timeout, an auth hiccup, or a gateway outage says nothing about the
+ * model's version floor, and BLOCKING a valid election (which would rate-limit the operator out of
+ * their 3-writes/60s budget on retry) is worse than the bug this canary exists to catch — so only an
+ * explicit "the runtime cannot run this model" rejection is allowed to fail an election. Everything
+ * else is `unproven` and the election proceeds (fail-open).
+ */
+export type ModelRunProbeVerdict = "runnable" | "unrunnable" | "unproven";
+
+export interface ModelRunProbe {
+  readonly verdict: ModelRunProbeVerdict;
+  /**
+   * Redacted, bounded, Opzava-owned human-facing reason. Safe to surface in the browser. NEVER the
+   * raw upstream error string — the vendor's "requires a newer version of Codex" text changes
+   * without warning and must not be parsed or forwarded.
+   */
+  readonly reason: string;
+}
+
+export interface GatewayRuntimeModelRunProbeQuery {
+  readonly agentId: string;
+  readonly providerId: string;
+  /** The model key being elected, exactly as the catalog named it. */
+  readonly model: string;
+}
+
 export interface GatewayRuntimePort {
   listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
   modelStatus(): Promise<Result<unknown>>;
@@ -140,6 +175,20 @@ export interface GatewayRuntimePort {
    * deliberately bogus keys and reported Connected (#183).
    */
   probeProviderAuth(input: GatewayRuntimeAuthProbeQuery): Promise<Result<ProviderAuthProbe>>;
+  /**
+   * Spend one real, bounded, side-effect-free model call proving the bundled runtime can actually
+   * RUN a model before it is elected as an orchestrator (#251).
+   *
+   * The canary runs on the admin/JIT path (this port), NEVER through the gateway-broker hot-path ACL.
+   * It is a minimal, well-formed, VALID request: a supported model returns success (or an infra
+   * condition), and only an UNSUPPORTED model produces the runtime's version-floor rejection — so a
+   * `400` is attributable to model support by construction rather than by parsing the message.
+   * Callers MUST run this before the control-plane config write and abort the election only on an
+   * `unrunnable` verdict; `unproven` proceeds (see {@link ModelRunProbeVerdict}).
+   */
+  probeModelRunnable(
+    input: GatewayRuntimeModelRunProbeQuery,
+  ): Promise<Result<ModelRunProbe>>;
   /**
    * Auth-profile ids the given agent can actually RESOLVE for a provider, counting the read-through
    * inheritance from the shared store. Empty means that agent would fail with "No API key found".
