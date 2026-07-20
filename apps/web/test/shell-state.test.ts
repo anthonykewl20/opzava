@@ -203,7 +203,7 @@ describe("Admin shell state", () => {
       text: "Degraded",
       dotClassName: "dot dot-warning",
       ariaLabel:
-        "Health: Degraded; OpenClaw system health: 1 component is not checked; checked 2026-07-03T00:00:00.000Z",
+        "Health: Degraded; OpenClaw system health is degraded; checked 2026-07-03T00:00:00.000Z",
     });
     expect(
       shellHealthView({ ...envelope, value: { ...envelope.value, overall: "unhealthy" } }),
