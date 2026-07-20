@@ -6,6 +6,8 @@ type QueryRow = Record<string, unknown>;
 
 export interface AppSessionContext {
   readonly sessionId: string;
+  /** Interim cache discriminator until X1 provides a first-class authorization version. */
+  readonly authorizationVersion?: string;
   readonly user: {
     readonly id: string;
     readonly email: string;
@@ -137,6 +139,7 @@ async function resolveTenantContextForSession(
 
   return {
     sessionId: session.sessionId,
+    authorizationVersion: `membership:${session.identity.activeMembership.membershipVersion}:issued:${session.issuedAt.toISOString()}`,
     user: {
       id: userId,
       email: userEmail,
