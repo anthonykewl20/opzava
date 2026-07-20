@@ -68,7 +68,21 @@ describe("Registry-driven Admin sidebar", () => {
     expect(html).not.toContain('href="/runners"');
     expect(html).not.toContain('href="/settings"');
     expect(html.match(/aria-disabled="true"/g)).toHaveLength(18);
+    expect(html.match(/aria-disabled="true" tabindex="0"/g)).toHaveLength(18);
     expect(html.match(/>Soon</g)).toHaveLength(18);
+  });
+
+  it("places pinned, grouped, and transitional destinations in one named navigation landmark", () => {
+    const html = renderSidebar();
+    const navStart = html.indexOf('<nav aria-label="Admin navigation"');
+    const navEnd = html.indexOf("</nav>", navStart);
+
+    expect(navStart).toBeGreaterThan(-1);
+    expect(html.match(/<nav/g)).toHaveLength(1);
+    expect(html.indexOf("Ask Admin Opzava")).toBeGreaterThan(navStart);
+    expect(html.indexOf("Ask Admin Opzava")).toBeLessThan(navEnd);
+    expect(html.indexOf("Connections")).toBeGreaterThan(navStart);
+    expect(html.indexOf("Connections")).toBeLessThan(navEnd);
   });
 
   it("preserves one clearly labelled transitional Connections link", () => {
