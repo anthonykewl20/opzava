@@ -12,6 +12,7 @@ import type { HealthAttentionItemView, HealthPageViewModel } from "@/lib/health/
 import { AllComponents } from "./all-components";
 import { HealthRing } from "./health-ring";
 import styles from "./health.module.css";
+import { useCountUp } from "./use-count-up";
 
 function statusTone(status: "healthy" | "attention" | "unknown"): string {
   if (status === "healthy") return styles["healthy"]!;
@@ -103,7 +104,7 @@ function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
         <h2>Needs your attention</h2>
         <span className={styles["attentionCount"]!}>
           {view.availability === "live"
-            ? `${view.attentionItems.length} items`
+            ? `${view.attentionItems.length} ${view.attentionItems.length === 1 ? "item" : "items"}`
             : "Current state unverified"}
         </span>
       </CardHeader>
@@ -181,6 +182,7 @@ function RuntimeTile({ view }: { readonly view: HealthPageViewModel }) {
 }
 
 function SessionsTile({ view }: { readonly view: HealthPageViewModel }) {
+  const sessionCount = useCountUp(view.sessions.count ?? 0);
   return (
     <Card
       className={`${styles["tile"]!} ${styles["kpiTile"]!} ${styles["spanTwo"]!} ${styles["interactive"]!}`}
@@ -195,7 +197,9 @@ function SessionsTile({ view }: { readonly view: HealthPageViewModel }) {
           <ArrowRight aria-hidden="true" />
         </div>
         <div className={styles["sessionsValue"]!}>
-          <span className={styles["kpiValue"]!}>{view.sessions.count ?? "—"}</span>
+          <span className={styles["kpiValue"]!}>
+            {view.sessions.count === null ? "—" : sessionCount}
+          </span>
           <p>
             {view.sessions.count === null
               ? "Session count unavailable"

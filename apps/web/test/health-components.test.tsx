@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { AllComponents } from "../components/health/all-components";
-import { HEALTH_RING_CIRCUMFERENCE, healthRingSegments } from "../components/health/health-ring";
+import {
+  HealthRing,
+  HEALTH_RING_CIRCUMFERENCE,
+  healthRingSegments,
+} from "../components/health/health-ring";
 import type { HealthComponentGroupView } from "../lib/health/health-view-model";
 
 const groups: readonly HealthComponentGroupView[] = [
@@ -82,5 +86,13 @@ describe("Health components", () => {
       HEALTH_RING_CIRCUMFERENCE,
       5,
     );
+  });
+
+  it("gives the ring a truthful singular accessible label", () => {
+    const html = renderToStaticMarkup(
+      <HealthRing counts={{ total: 3, healthy: 1, attention: 1, notChecked: 1 }} />,
+    );
+
+    expect(html).toContain('aria-label="1 of 3 checks healthy, 1 needs attention, 1 not checked"');
   });
 });

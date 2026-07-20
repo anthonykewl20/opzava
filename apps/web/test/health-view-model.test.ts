@@ -166,7 +166,13 @@ describe("Health page view model", () => {
     expect(view.attentionItems.map((item) => item.id)).toEqual([
       "component:plugins",
       "component:channel:slack:default",
-      "warning:model-pricing",
+    ]);
+    expect(view.warnings).toEqual([
+      {
+        id: "model-pricing",
+        label: "Model pricing",
+        detail: "Model pricing refresh is degraded; runtime health is unaffected.",
+      },
     ]);
     expect(view.attentionItems.every((item) => item.href.startsWith("/connections/system"))).toBe(
       true,
@@ -211,6 +217,21 @@ describe("Health page view model", () => {
     );
     expect(empty).toMatchObject({ counts: null, overall: "degraded" });
     expect(empty.verdict).toContain("unknown");
+
+    const unknown = buildHealthPageViewModel(
+      pageData(snapshot({ refreshedAt: "2026-07-21T00:01:00.000Z" })),
+      liveContext,
+    );
+    expect(unknown).toMatchObject({
+      availability: "unknown",
+      counts: null,
+      groups: [],
+      attentionItems: [],
+      warnings: [],
+      runtime: { version: null },
+      sessions: { count: null },
+      gateway: { statusLabel: "Unknown", tone: "unknown", live: false },
+    });
   });
 
   it("distinguishes not-configured, unavailable with stale last-known-good, stale, and live", () => {
