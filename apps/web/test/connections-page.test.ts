@@ -1044,6 +1044,9 @@ describe("Connections page state", () => {
     const providerPresentation = await readRepoFile("lib/provider-presentation.ts");
     const skeleton = await readRepoFile("components/ui/skeleton.tsx");
     const appLayout = await readRepoFile("app/(app)/layout.tsx");
+    const topbarHealthAttention = await readRepoFile(
+      "components/shell/topbar-health-attention.tsx",
+    );
     const connectionsLib = await readRepoFile("lib/connections.ts");
     const shellState = await readRepoFile("lib/shell-state.ts");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
@@ -1066,10 +1069,14 @@ describe("Connections page state", () => {
     expect(connectionsLib).toContain("const loadConnectionsPageDataByStablePrincipal = cache(");
     expect(connectionsLib).toContain("context.orgId");
     expect(connectionsLib).toContain("context.workspaceId");
-    expect(appLayout).toContain('href="/connections"');
-    expect(appLayout).toContain("data-health-status={state.status}");
-    expect(appLayout).toContain("data-health-attention-count={state.attentionCount}");
-    expect(appLayout).toContain('data-health-checked-at={state.checkedAt ?? ""}');
+    expect(appLayout).toContain("<HealthPill state={shellState.health} />");
+    expect(appLayout).toContain("<AttentionInbox state={shellState.attention} />");
+    expect(topbarHealthAttention).toContain('href="/connections"');
+    expect(topbarHealthAttention).toContain("data-health-status={state.status}");
+    expect(topbarHealthAttention).not.toContain("data-health-attention-count");
+    expect(topbarHealthAttention).toContain('data-health-checked-at={state.checkedAt ?? ""}');
+    expect(topbarHealthAttention).toContain('href="/#overview-attention-heading"');
+    expect(topbarHealthAttention).toContain("data-attention-count={state.count");
     expect(pageData).toContain('redirect("/login")');
     expect(pageData).toContain('redirect("/")');
     expect(providersPanel).toContain("ProviderToolbar");

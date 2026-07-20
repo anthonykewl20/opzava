@@ -1,5 +1,4 @@
 import type { CSSProperties, ReactNode } from "react";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { forbidden, redirect } from "next/navigation";
 
@@ -11,30 +10,14 @@ import {
 } from "@/components/shell/command-palette";
 import { NotificationBell } from "@/components/shell/notification-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { AttentionInbox, HealthPill } from "@/components/shell/topbar-health-attention";
 import { UserMenu } from "@/components/shell/user-menu";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { admitsAdminControlCenter, buildAdminNavModel } from "@/lib/admin-registry";
 import { getAppSessionContext, isFirstOwnerSetupComplete } from "@/lib/session";
-import { loadAdminShellState, type ShellHealthState } from "@/lib/shell-state";
+import { loadAdminShellState } from "@/lib/shell-state";
 
 export const dynamic = "force-dynamic";
-
-function HealthPill({ state }: { readonly state: ShellHealthState }) {
-  return (
-    <Link
-      href="/connections"
-      className="health-pill"
-      aria-label={state.ariaLabel}
-      title={state.ariaLabel}
-      data-health-status={state.status}
-      data-health-attention-count={state.attentionCount}
-      data-health-checked-at={state.checkedAt ?? ""}
-    >
-      <span className={state.dotClassName} aria-hidden="true" />
-      {state.text}
-    </Link>
-  );
-}
 
 export default async function AppLayout({ children }: { readonly children: ReactNode }) {
   if (!(await isFirstOwnerSetupComplete())) {
@@ -83,6 +66,7 @@ export default async function AppLayout({ children }: { readonly children: React
           <AskOpzavaAgentStatus gatewayReachable={shellState.health.gatewayReachable} />
 
           <HealthPill state={shellState.health} />
+          <AttentionInbox state={shellState.attention} />
 
           <NotificationBell />
           <ThemeToggle />

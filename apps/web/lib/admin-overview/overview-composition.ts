@@ -62,6 +62,11 @@ interface AttentionRowValue {
   readonly href: AdminOverviewAttentionRow["href"];
 }
 
+export interface NeedsYourAttentionProjectionContext {
+  readonly evaluatedAt: string;
+  readonly observationGeneration: number;
+}
+
 export interface AdminOverviewActivityRow {
   readonly id: string;
   readonly occurredAt: string;
@@ -520,6 +525,25 @@ function connectionEvidence(
   ];
 }
 
+export function projectNeedsYourAttention(
+  pageData: ConnectionsPageData | null,
+  context: NeedsYourAttentionProjectionContext,
+): NeedsYourAttentionSection {
+  const evidence = (
+    pageData === null
+      ? failedConnectionEvidence(context.evaluatedAt, context.observationGeneration)
+      : connectionEvidence(pageData, context.evaluatedAt, context.observationGeneration)
+  )
+    .filter(
+      (input) =>
+        input.sourceId === "overview-provider-attention" ||
+        input.sourceId === "overview-health-attention",
+    )
+    .map((input) => deriveAvailabilityState(input, context.evaluatedAt));
+
+  return composeNeedsYourAttention(evidence);
+}
+
 function failedConnectionEvidence(
   evaluatedAt: string,
   observationGeneration: number,
@@ -703,10 +727,9 @@ function envelopeBySourceId(
   return envelope;
 }
 
-function composeFromEvidence(
+function composeNeedsYourAttention(
   evidence: readonly EvidenceEnvelope<AdminOverviewCachedEvidence>[],
-  evaluatedAt: string,
-): AdminOverview {
+): NeedsYourAttentionSection {
   const providerAttention = cachedEnvelope(
     envelopeBySourceId(evidence, "overview-provider-attention"),
     "attention-providers",
@@ -731,7 +754,8 @@ function composeFromEvidence(
         sourceOwner: envelope.sourceOwner,
       })),
     );
-  const needsYourAttention: NeedsYourAttentionSection = {
+
+  return {
     id: "needs-your-attention",
     title: "Needs Your Attention",
     note: "Provider approvals and degraded platform capabilities that need an owner response.",
@@ -747,6 +771,13 @@ function composeFromEvidence(
       envelopePart("health-attention", healthAttention, ADMIN_FRESHNESS_BUDGET_MS.gatewaySession),
     ]),
   };
+}
+
+function composeFromEvidence(
+  evidence: readonly EvidenceEnvelope<AdminOverviewCachedEvidence>[],
+  evaluatedAt: string,
+): AdminOverview {
+  const needsYourAttention = composeNeedsYourAttention(evidence);
 
   const activeDeliveryEnvelope = cachedEnvelope(
     envelopeBySourceId(evidence, "overview-active-delivery"),

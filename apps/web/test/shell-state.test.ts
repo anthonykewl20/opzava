@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
 import type { ConnectionsPageData } from "../lib/connections";
 import { buildAdminNavModel } from "../lib/admin-registry";
 import { repairAdminGroupOpenState } from "../lib/admin-sidebar-state";
-import { openclawHealthSummary, providerConnectionSummary } from "../lib/connections-state";
+import { providerConnectionSummary, projectProviderConnections } from "../lib/connections-state";
 import {
+  attentionInboxView,
   buildCommandPaletteItems,
   loadAdminShellState,
   shellHealthView,
@@ -27,6 +28,11 @@ function context(): AppSessionContext {
     roleKeys: ["admin"],
   };
 }
+
+const projectionClock = {
+  now: () => new Date("2026-07-03T00:00:30.000Z"),
+  observationGeneration: 7,
+} as const;
 
 function task(overrides: Partial<TaskDto> = {}): TaskDto {
   return {
@@ -94,7 +100,7 @@ function snapshot(overrides: Partial<ConnectionsSnapshot> = {}): ConnectionsSnap
       warnings: [],
       runtime: { version: null, uptimeMs: null, hostUptimeMs: null, updateAvailable: null },
       sessions: { count: null, recent: [] },
-      checkedAt: null,
+      checkedAt: "2026-07-03T00:00:00.000Z",
       lastKnownHealthy: null,
     },
     providerCatalog: [],
@@ -133,7 +139,7 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
   return {
     snapshot: current,
     providerSummary,
-    providers: [],
+    providers: projectProviderConnections(current),
     githubSummary: "GitHub",
     provisioningAvailable: true,
   };
@@ -162,109 +168,146 @@ describe("Admin shell state", () => {
     });
   });
 
-  it("maps the canonical OpenClaw rollup into the shell pill states", () => {
-    expect(
-      shellHealthView({
-        summary: {
-          total: 1,
-          healthy: 1,
-          attention: 0,
-          notChecked: 0,
-          percent: 100,
-          status: "healthy",
-        },
-        checkedAt: "2026-07-03T00:00:00.000Z",
-        gatewayReachable: true,
-      }),
-    ).toMatchObject({
+  it("maps readiness independently across healthy, degraded, unhealthy, and unknown health", () => {
+    const envelope = {
+      state: "live" as const,
+      freshnessState: "within-budget" as const,
+      sourceTimestamp: "2026-07-03T00:00:00.000Z",
+      value: {
+        overall: "healthy" as const,
+        componentsTotal: 1,
+        healthy: 1,
+        attention: 0,
+        notChecked: 0,
+        gatewayActive: true,
+      },
+    };
+
+    expect(shellHealthView(envelope)).toMatchObject({
       status: "healthy",
-      text: "All systems healthy",
+      text: "Healthy",
       dotClassName: "dot dot-success",
     });
     expect(
-      shellHealthView({
-        summary: {
-          total: 3,
-          healthy: 1,
-          attention: 1,
-          notChecked: 1,
-          percent: 50,
-          status: "attention",
-        },
-        checkedAt: "2026-07-03T00:00:00.000Z",
-        gatewayReachable: true,
-      }),
-    ).toMatchObject({
-      status: "attention",
-      text: "1 needs attention",
-      dotClassName: "dot dot-warning",
-    });
+      shellHealthView({ ...envelope, value: { ...envelope.value, overall: "degraded" } }),
+    ).toMatchObject({ status: "degraded", text: "Degraded", dotClassName: "dot dot-warning" });
     expect(
-      shellHealthView({
-        summary: {
-          total: 4,
-          healthy: 1,
-          attention: 2,
-          notChecked: 1,
-          percent: 33,
-          status: "attention",
-        },
-        checkedAt: "2026-07-03T00:00:00.000Z",
-        gatewayReachable: true,
-      }),
-    ).toMatchObject({ text: "2 need attention" });
-    expect(
-      shellHealthView({
-        summary: {
-          total: 1,
-          healthy: 0,
-          attention: 0,
-          notChecked: 1,
-          percent: null,
-          status: "unknown",
-        },
-        checkedAt: null,
-        gatewayReachable: null,
-      }),
-    ).toMatchObject({
+      shellHealthView({ ...envelope, value: { ...envelope.value, overall: "unhealthy" } }),
+    ).toMatchObject({ status: "unhealthy", text: "Unhealthy", dotClassName: "dot dot-danger" });
+    expect(shellHealthView(null)).toMatchObject({
       status: "unknown",
-      text: "Health unknown",
+      text: "Unknown",
       dotClassName: "dot",
     });
   });
 
-  it("keeps hero and shell presentation in agreement for one OpenClaw health DTO", () => {
-    const health = {
-      ...snapshot().openclawHealth,
-      checkedAt: "2026-07-03T00:00:00.000Z",
-      components: [
-        {
-          id: "gateway",
-          kind: "gateway" as const,
-          label: "Gateway",
-          status: "healthy" as const,
-          detail: null,
-          lastCheckedAt: "2026-07-03T00:00:00.000Z",
-        },
-        {
-          id: "channel.github",
-          kind: "channel" as const,
-          label: "GitHub",
-          status: "attention" as const,
-          detail: "Disconnected",
-          lastCheckedAt: "2026-07-03T00:00:00.000Z",
-        },
-      ],
-    };
-    const heroSummary = openclawHealthSummary(health);
-    const pill = shellHealthView({
-      summary: openclawHealthSummary(health),
-      checkedAt: health.checkedAt,
-      gatewayReachable: true,
+  it("never renders stale or unavailable readiness as green", () => {
+    const unavailable = shellHealthView({
+      state: "unavailable",
+      freshnessState: "unknown",
+      sourceTimestamp: null,
+      value: null,
     });
 
-    expect(heroSummary).toMatchObject({ status: "attention", attention: 1, percent: 50 });
-    expect(pill).toMatchObject({ status: heroSummary.status, text: "1 needs attention" });
+    expect(unavailable).toMatchObject({ status: "unknown", text: "Unknown" });
+    expect(unavailable.dotClassName).not.toContain("dot-success");
+  });
+
+  it("distinguishes a verified empty attention feed from unavailable evidence", () => {
+    expect(attentionInboxView({ rows: [], status: { state: "live", partial: false } })).toEqual({
+      count: 0,
+      hasItems: false,
+      state: "available",
+      ariaLabel: "Attention: 0 actionable items",
+    });
+    expect(
+      attentionInboxView({ rows: [], status: { state: "unavailable", partial: false } }),
+    ).toEqual({
+      count: null,
+      hasItems: null,
+      state: "unknown",
+      ariaLabel: "Attention: actionable items unavailable",
+    });
+  });
+
+  it("keeps health and attention independent across the four required combinations", async () => {
+    const providerCatalog = [
+      {
+        id: "openai",
+        label: "OpenAI",
+        vendor: "OpenAI",
+        suggestedModel: "gpt-5",
+        roleStrength: "General",
+        whenToUse: "General work",
+        authChoices: [],
+        models: [],
+      },
+    ];
+    const actionableProvider = {
+      providerId: "openai",
+      status: "needs_attention" as const,
+      authChoiceId: null,
+      accountLabel: null,
+      scopes: [],
+      model: null,
+      usageLabel: null,
+      lastCheckedAt: "2026-07-03T00:00:00.000Z",
+      message: "Reconnect",
+    };
+    const healthyWithAttention = snapshot({
+      providerCatalog,
+      providerConnections: [actionableProvider],
+    });
+    const healthyEmpty = snapshot();
+    const degradedEmpty = snapshot({
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: [
+          snapshot().openclawHealth.components[0]!,
+          {
+            id: "optional-channel",
+            kind: "channel",
+            label: "Optional channel",
+            status: "not_checked",
+            detail: null,
+            lastCheckedAt: null,
+          },
+        ],
+      },
+    });
+    const unhealthyWithAttention = snapshot({
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: [
+          {
+            id: "gateway",
+            kind: "gateway",
+            label: "Gateway",
+            status: "attention",
+            detail: "Unavailable",
+            lastCheckedAt: "2026-07-03T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const load = (current: ConnectionsSnapshot) =>
+      loadAdminShellState(context(), {
+        ...projectionClock,
+        listTasks: async () => ok([]),
+        listIssueProjections: async () => ok([]),
+        loadConnectionsPageData: async () => ok(connectionsPageData(current)),
+      });
+
+    const states = await Promise.all(
+      [healthyWithAttention, healthyEmpty, degradedEmpty, unhealthyWithAttention].map(load),
+    );
+
+    expect(states.map(({ health, attention }) => [health.status, attention.count])).toEqual([
+      ["healthy", 1],
+      ["healthy", 0],
+      ["degraded", 0],
+      ["unhealthy", 1],
+    ]);
   });
 
   it("builds command palette entries from navigable registry routes, Connections, tasks, and issues", () => {
@@ -319,6 +362,7 @@ describe("Admin shell state", () => {
 
   it("loads healthy shell health from an active gateway snapshot even when the broker is idle", async () => {
     const dependencies = {
+      ...projectionClock,
       listTasks: async () => ok([task(), task({ id: "task-2", status: "done" })]),
       listIssueProjections: async () =>
         ok([issue(), issue({ id: "issue-2", number: 13, state: "closed" })]),
@@ -347,7 +391,7 @@ describe("Admin shell state", () => {
     const state = await loadAdminShellState(context(), dependencies);
 
     expect(state.health.status).toBe("healthy");
-    expect(state.health.text).toBe("All systems healthy");
+    expect(state.health.text).toBe("Healthy");
     expect(state.commandItems.map((item) => item.id)).toEqual(
       expect.arrayContaining([
         "nav.overview",
@@ -361,6 +405,7 @@ describe("Admin shell state", () => {
   it("degrades shell health when the gateway snapshot is unavailable", async () => {
     const current = snapshot();
     const dependencies = {
+      ...projectionClock,
       listTasks: async () => ok([]),
       listIssueProjections: async () => ok([]),
       loadConnectionsPageData: async () =>
@@ -393,12 +438,14 @@ describe("Admin shell state", () => {
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.health.status).toBe("attention");
+    expect(state.health.status).toBe("unknown");
+    expect(state.health.dotClassName).not.toContain("dot-success");
     expect(state.health.gatewayReachable).toBe(false);
   });
 
   it("degrades shell health when the connections snapshot cannot be loaded", async () => {
     const dependencies = {
+      ...projectionClock,
       listTasks: async () => ok([]),
       listIssueProjections: async () => ok([]),
       loadConnectionsPageData: async () => {
@@ -414,6 +461,7 @@ describe("Admin shell state", () => {
 
   it("does not mix database reachability into the OpenClaw health pill", async () => {
     const dependencies = {
+      ...projectionClock,
       listTasks: async () => ok([]),
       listIssueProjections: async () => ok([]),
       loadConnectionsPageData: async () => ok(connectionsPageData(snapshot())),
