@@ -94,7 +94,7 @@ describe("Ask Opzava page state", () => {
     expect(layout).toContain("AskOpzavaAgentStatus");
     expect(topbar).toContain("usePathname");
     expect(topbar).toContain("pathname.startsWith(askAdmin.href)");
-    expect(topbar).toContain('destination.sourceDestinationId === "ask-admin-opzava"');
+    expect(topbar).toContain('destination.id === "ask-admin-opzava"');
     expect(topbar).toContain("gatewayReachable === true");
     expect(topbar).toContain("Ask Admin Opzava");
     expect(buildLegacyAdminNavModel({ roleKeys: ["admin"] }).pinned).toContainEqual(

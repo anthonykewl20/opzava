@@ -5,6 +5,36 @@ import { useEffect, useState } from "react";
 const THEME_KEY = "opzava-mock-theme";
 export const THEME_CHANGE_EVENT = "opzava-theme-change";
 
+export type ThemePreference = "light" | "dark" | "system";
+
+export function normalizeThemePreference(value: string | null): ThemePreference {
+  if (value === "light" || value === "dark" || value === "system") {
+    return value;
+  }
+
+  if (value === "calm") {
+    return "light";
+  }
+
+  if (value === "hc") {
+    return "dark";
+  }
+
+  return "system";
+}
+
+export function resolveThemePreference(
+  preference: ThemePreference,
+  prefersDark: boolean,
+  lightVariant: string = "light",
+): string {
+  if (preference === "dark" || (preference === "system" && prefersDark)) {
+    return "dark";
+  }
+
+  return lightVariant;
+}
+
 export function isDarkTheme(theme: string) {
   return theme === "dark" || theme === "hc";
 }
@@ -13,16 +43,40 @@ export function currentTheme() {
   return document.documentElement.getAttribute("data-theme") || "dark";
 }
 
-export function setThemePreference(nextTheme: "light" | "dark"): string {
+export function currentThemePreference(): ThemePreference {
+  const rootPreference = document.documentElement.getAttribute("data-theme-preference");
+  if (rootPreference !== null) {
+    return normalizeThemePreference(rootPreference);
+  }
+
+  try {
+    return normalizeThemePreference(localStorage.getItem(THEME_KEY));
+  } catch {
+    return "system";
+  }
+}
+
+function currentLightVariant(): string {
   const root = document.documentElement;
-  const pageDefault = root.getAttribute("data-theme") || "dark";
-  const lightVariant =
-    root.getAttribute("data-light") || (pageDefault === "calm" ? "calm" : "light");
-  const appliedTheme = nextTheme === "dark" ? "dark" : lightVariant;
+  return root.getAttribute("data-light") || (currentTheme() === "calm" ? "calm" : "light");
+}
+
+function systemPrefersDark(): boolean {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
+}
+
+export function setThemePreference(nextTheme: ThemePreference): string {
+  const root = document.documentElement;
+  const appliedTheme = resolveThemePreference(
+    nextTheme,
+    systemPrefersDark(),
+    currentLightVariant(),
+  );
 
   root.setAttribute("data-theme", appliedTheme);
+  root.setAttribute("data-theme-preference", nextTheme);
   try {
-    localStorage.setItem(THEME_KEY, appliedTheme);
+    localStorage.setItem(THEME_KEY, nextTheme);
   } catch {
     /* localStorage can be unavailable in private or embedded contexts. */
   }
@@ -36,34 +90,45 @@ export function toggleThemePreference(): string {
 }
 
 export function ThemeToggle() {
-  const [theme, setThemeState] = useState("dark");
+  const [preference, setPreference] = useState<ThemePreference>("system");
 
   useEffect(() => {
-    setThemeState(currentTheme());
+    setPreference(currentThemePreference());
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
     function syncTheme() {
-      setThemeState(currentTheme());
+      setPreference(currentThemePreference());
+    }
+    function syncSystemTheme() {
+      if (currentThemePreference() === "system") {
+        setThemePreference("system");
+      }
     }
 
     window.addEventListener(THEME_CHANGE_EVENT, syncTheme);
+    media.addEventListener("change", syncSystemTheme);
     return () => {
       window.removeEventListener(THEME_CHANGE_EVENT, syncTheme);
+      media.removeEventListener("change", syncSystemTheme);
     };
   }, []);
 
-  function setTheme(nextTheme: "light" | "dark") {
-    setThemeState(setThemePreference(nextTheme));
+  function setTheme(nextTheme: ThemePreference) {
+    setPreference(nextTheme);
+    setThemePreference(nextTheme);
   }
 
   const segments = [
     { mode: "light" as const, icon: "☀", label: "Light mode" },
     { mode: "dark" as const, icon: "☾", label: "Dark mode" },
+    { mode: "system" as const, icon: "◐", label: "System mode" },
   ];
 
   return (
     <div
       id="theme-switch"
       role="group"
-      aria-label="Theme"
+      aria-label="Appearance"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -84,7 +149,7 @@ export function ThemeToggle() {
         }}
       >
         {segments.map((segment) => {
-          const active = segment.mode === "dark" ? isDarkTheme(theme) : !isDarkTheme(theme);
+          const active = segment.mode === preference;
 
           return (
             <button
@@ -92,7 +157,7 @@ export function ThemeToggle() {
               type="button"
               data-seg={segment.mode}
               aria-label={segment.label}
-              aria-pressed={active ? "true" : "false"}
+              aria-pressed={active}
               title={segment.label}
               style={{
                 display: "inline-flex",

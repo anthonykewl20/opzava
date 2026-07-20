@@ -1,3 +1,18 @@
+@layer tokens {
+  :root,
+  [data-theme],
+  .dark {
+    --sidebar: var(--surface);
+    --sidebar-foreground: var(--fg);
+    --sidebar-primary: var(--accent);
+    --sidebar-primary-foreground: var(--accent-fg);
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--fg);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+  }
+}
+
 /* ============================================================================
  * shadcn.css - shadcn/ui (new-york) component layer mapped onto Opzava tokens.
  * Gives the Essential mockups a refined, distinctive look (our own - not a
@@ -250,4 +265,103 @@
   .sb-copy-btn { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid hsl(240 16% 28%); border-radius: var(--radius-md); background: hsl(240 22% 15%); color: hsl(220 14% 84%); font-size: var(--text-xs); font-weight: var(--fw-medium); cursor: pointer; }
   .sb-copy-btn:hover { background: hsl(240 22% 20%); color: #fff; }
   .sb-copy-btn[data-copied="true"] { color: hsl(142 62% 70%); border-color: hsl(142 40% 38%); }
+}
+
+@layer components {
+  .admin-shell-inset {
+    min-width: 0;
+    min-height: 100svh;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .admin-shell-topbar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    flex: none;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    backdrop-filter: blur(16px);
+  }
+
+  .admin-shell-content {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  [data-mobile="true"] [data-sidebar="menu-button"],
+  [data-mobile="true"] [data-sidebar="group-label"] {
+    min-height: 44px;
+  }
+
+  [data-collapsible="icon"] [data-sidebar="content"] {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  [data-collapsible="icon"] [data-sidebar="menu-button"] {
+    margin-inline: auto;
+  }
+
+  @media (max-width: 767px) {
+    .admin-shell-topbar {
+      height: auto;
+      min-height: var(--header-h);
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      padding: var(--space-2);
+    }
+
+    .admin-shell-topbar > .u-grow {
+      display: none;
+    }
+
+    .admin-shell-topbar .search,
+    .admin-shell-topbar [role="search"] {
+      order: 10;
+      width: 100%;
+      max-width: none;
+      flex: 1 0 100%;
+    }
+
+    .admin-shell-topbar .health-pill,
+    .admin-shell-topbar .notif-btn-wrap,
+    .admin-shell-topbar #theme-switch,
+    .admin-shell-topbar .header-avatar {
+      flex: 0 0 auto;
+    }
+
+    .admin-shell-content .page,
+    .admin-shell-content .oc-page {
+      max-width: none;
+      padding: var(--space-4);
+    }
+  }
+
+  @media (max-width: 420px) {
+    .admin-shell-topbar .search,
+    .admin-shell-topbar [role="search"] {
+      flex-basis: 100%;
+    }
+
+    .admin-shell-topbar .search .u-grow,
+    .admin-shell-topbar .search .kbd,
+    .admin-shell-topbar [role="search"] .u-grow,
+    .admin-shell-topbar [role="search"] .kbd {
+      display: none;
+    }
+
+    .admin-shell-topbar .search,
+    .admin-shell-topbar [role="search"] {
+      min-height: 44px;
+      justify-content: center;
+    }
+
+    .admin-shell-content .page,
+    .admin-shell-content .oc-page {
+      padding: var(--space-3);
+    }
+  }
 }

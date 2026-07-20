@@ -29,8 +29,13 @@ const shell = vi.hoisted(() => ({
   })),
 }));
 
+const request = vi.hoisted(() => ({
+  cookies: vi.fn(async () => ({ get: () => ({ value: "true" }) })),
+}));
+
 vi.mock("next/navigation", () => framework);
 vi.mock("next/link", () => ({ default: () => null }));
+vi.mock("next/headers", () => request);
 vi.mock("@/lib/session", () => ({
   isFirstOwnerSetupComplete: async () => true,
   getAppSessionContext: async () => ({
@@ -45,14 +50,13 @@ vi.mock("@/lib/session", () => ({
   }),
 }));
 vi.mock("@/lib/shell-state", () => shell);
-vi.mock("@/components/shell/admin-nav", () => ({ AdminNav: () => null }));
+vi.mock("@/components/shell/app-sidebar", () => ({ AppSidebar: () => null }));
 vi.mock("@/components/shell/command-palette", () => ({
   AskOpzavaAgentStatus: () => null,
   CommandPalette: () => null,
   TopbarRouteSearchOrBreadcrumb: () => null,
 }));
 vi.mock("@/components/shell/notification-bell", () => ({ NotificationBell: () => null }));
-vi.mock("@/components/shell/sidebar-toggle", () => ({ SidebarToggle: () => null }));
 vi.mock("@/components/shell/theme-toggle", () => ({ ThemeToggle: () => null }));
 vi.mock("@/components/shell/user-menu", () => ({ UserMenu: () => null }));
 
@@ -69,6 +73,7 @@ describe("Admin shell root admission", () => {
 
     expect(framework.forbidden).toHaveBeenCalledTimes(1);
     expect(shell.loadAdminShellState).toHaveBeenCalledTimes(1);
+    expect(request.cookies).toHaveBeenCalledTimes(1);
     expect(framework.redirect).not.toHaveBeenCalled();
   });
 });
