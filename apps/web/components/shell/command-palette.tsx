@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import type { LegacyAdminNavModel } from "@/lib/admin-registry";
 import type { CommandPaletteItem } from "@/lib/shell-state";
 
 const commandPaletteOpenEvent = "opzava:command-palette-open";
@@ -53,15 +54,18 @@ export function TopbarCommandSearch() {
   );
 }
 
-export function TopbarRouteSearchOrBreadcrumb() {
+export function TopbarRouteSearchOrBreadcrumb({ model }: { readonly model: LegacyAdminNavModel }) {
   const pathname = usePathname();
+  const askAdmin = model.pinned.find(
+    (destination) => destination.sourceDestinationId === "ask-admin-opzava",
+  );
 
-  if (pathname.startsWith("/ask-opzava")) {
+  if (askAdmin !== undefined && pathname.startsWith(askAdmin.href)) {
     return (
       <nav className="sb-breadcrumb" aria-label="Breadcrumb">
         <a href="/">Opzava</a>
         <span className="sep">›</span>
-        <span className="current">Ask Admin Opzava</span>
+        <span className="current">{askAdmin.label}</span>
       </nav>
     );
   }

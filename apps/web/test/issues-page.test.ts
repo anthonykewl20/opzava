@@ -9,6 +9,7 @@ import type {
 import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
+import { buildLegacyAdminNavModel } from "../lib/admin-registry";
 import {
   createIssueForContext,
   syncIssuesForContext,
@@ -225,7 +226,6 @@ describe("Issues page state", () => {
   it("wires /issues page, actions, sidebar route, and mockup contract", async () => {
     const page = await readRepoFile("app/(app)/issues/page.tsx");
     const actions = await readRepoFile("app/(app)/issues/actions.ts");
-    const nav = await readRepoFile("components/shell/admin-nav.tsx");
 
     expect(page).toContain("Sync now");
     expect(page).toContain("New issue");
@@ -248,6 +248,8 @@ describe("Issues page state", () => {
     expect(page).not.toContain("issues-table");
     expect(actions).toContain("syncIssuesForContext");
     expect(actions).toContain("createIssueForContext");
-    expect(nav).toContain('href: "/issues"');
+    expect(buildLegacyAdminNavModel({ roleKeys: ["admin"] }).operate).toContainEqual(
+      expect.objectContaining({ label: "Issues", href: "/issues" }),
+    );
   });
 });

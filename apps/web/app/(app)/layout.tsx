@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { forbidden, redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/shell/admin-nav";
 import {
@@ -12,6 +12,7 @@ import { NotificationBell } from "@/components/shell/notification-bell";
 import { SidebarToggle } from "@/components/shell/sidebar-toggle";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { UserMenu } from "@/components/shell/user-menu";
+import { admitsAdminControlCenter } from "@/lib/admin-registry";
 import { getAppSessionContext, isFirstOwnerSetupComplete } from "@/lib/session";
 import { loadAdminShellState, type ShellHealthState } from "@/lib/shell-state";
 
@@ -44,6 +45,10 @@ export default async function AppLayout({ children }: { readonly children: React
     redirect("/login");
   }
 
+  if (!admitsAdminControlCenter(context.roleKeys)) {
+    forbidden();
+  }
+
   const shellState = await loadAdminShellState(context);
 
   return (
@@ -54,7 +59,7 @@ export default async function AppLayout({ children }: { readonly children: React
         <header className="header">
           <SidebarToggle />
 
-          <TopbarRouteSearchOrBreadcrumb />
+          <TopbarRouteSearchOrBreadcrumb model={shellState.nav.model} />
 
           <div className="u-grow" />
 
