@@ -11,7 +11,7 @@ import {
   visibleAskOpzavaTurns,
 } from "../lib/ask-opzava-page-state";
 import type { AskAdminTurnView } from "../lib/ask-admin-history";
-import { buildLegacyAdminNavModel } from "../lib/admin-registry";
+import { buildAdminNavModel } from "../lib/admin-registry";
 
 function turn(overrides: Partial<AskAdminTurnView> = {}): AskAdminTurnView {
   return {
@@ -86,7 +86,7 @@ describe("Ask Opzava page state", () => {
     const page = await readRepoFile("app/(app)/ask-opzava/page.tsx");
     const layout = await readRepoFile("app/(app)/layout.tsx");
     const topbar = await readRepoFile("components/shell/command-palette.tsx");
-    const nav = await readRepoFile("components/shell/admin-nav.tsx");
+    const sidebar = await readRepoFile("components/shell/app-sidebar.tsx");
 
     expect(page).toContain("AskOpzavaChat");
     expect(page).toContain("getOrCreateAskAdminHistory");
@@ -97,10 +97,10 @@ describe("Ask Opzava page state", () => {
     expect(topbar).toContain('destination.id === "ask-admin-opzava"');
     expect(topbar).toContain("gatewayReachable === true");
     expect(topbar).toContain("Ask Admin Opzava");
-    expect(buildLegacyAdminNavModel({ roleKeys: ["admin"] }).pinned).toContainEqual(
+    expect(buildAdminNavModel({ roleKeys: ["admin"] }).pinned).toContainEqual(
       expect.objectContaining({ label: "Ask Admin Opzava", href: "/ask-opzava" }),
     );
-    expect(nav).toContain("pathname.startsWith(href)");
+    expect(sidebar).toContain("isActiveRoute(pathname, destination.href)");
   });
 
   it("keeps the Ask Opzava chat on the shadcn transcript contract and live SSE loop", async () => {

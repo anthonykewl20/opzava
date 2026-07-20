@@ -1,4 +1,3 @@
-import { sql, withTenant } from "@opzava/adapters";
 import {
   listIssueProjections,
   listTasks,
@@ -6,17 +5,12 @@ import {
   type TaskDto,
 } from "@opzava/project-management";
 
-import { askAdminAssistantKey } from "@/lib/ask-admin-history";
 import {
-  buildLegacyAdminNavModel,
-  type LegacyAdminNavModel,
+  buildAdminNavModel,
+  NAVIGABLE_ROUTES,
   type AdminPrincipal,
 } from "@/lib/admin-registry";
-import {
-  hasConnectedProviderOrGitHub,
-  openclawHealthSummary,
-  type OpenClawHealthSummary,
-} from "@/lib/connections-state";
+import { openclawHealthSummary, type OpenClawHealthSummary } from "@/lib/connections-state";
 import { loadConnectionsPageDataForRequest, type loadConnectionsPageData } from "@/lib/connections";
 import { readGitHubIssuesRepository } from "@/lib/issues";
 import { formatCardId } from "@/lib/task-card-format";
@@ -34,19 +28,6 @@ export interface ShellHealthState {
   readonly gatewayReachable: boolean | null;
 }
 
-export interface AdminNavState {
-  readonly model: LegacyAdminNavModel;
-  readonly openTasksCount: number | null;
-  readonly openIssuesCount: number | null;
-  readonly askOpzavaActive: boolean;
-  readonly connectionsConnected: boolean;
-  readonly connections: {
-    readonly providersConnected: number;
-    readonly providersTotal: number;
-    readonly githubConnected: boolean;
-  };
-}
-
 export type CommandPaletteItemKind = "destination" | "task" | "issue";
 
 export interface CommandPaletteItem {
@@ -59,7 +40,6 @@ export interface CommandPaletteItem {
 }
 
 export interface AdminShellState {
-  readonly nav: AdminNavState;
   readonly health: ShellHealthState;
   readonly commandItems: readonly CommandPaletteItem[];
 }
@@ -68,39 +48,6 @@ export interface AdminShellStateDependencies {
   readonly listTasks: typeof listTasks;
   readonly listIssueProjections: typeof listIssueProjections;
   readonly loadConnectionsPageData: typeof loadConnectionsPageData;
-  readonly countActiveAskOpzavaTurns: (context: AppSessionContext) => Promise<number>;
-}
-
-type QueryRow = Record<string, unknown>;
-
-function rowsFromExecuteResult(result: unknown): readonly QueryRow[] {
-  if (Array.isArray(result)) {
-    return result as readonly QueryRow[];
-  }
-
-  if (typeof result !== "object" || result === null || !("rows" in result)) {
-    return [];
-  }
-
-  const rows = (result as { readonly rows?: unknown }).rows;
-  return Array.isArray(rows) ? (rows as readonly QueryRow[]) : [];
-}
-
-function numberValue(value: unknown): number {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
 }
 
 function actorFromContext(context: AppSessionContext) {
@@ -116,14 +63,6 @@ function safeGitHubIssuesRepository(): string | null {
   } catch {
     return null;
   }
-}
-
-export function openTaskCount(tasks: readonly TaskDto[]): number {
-  return tasks.filter((task) => task.status !== "done").length;
-}
-
-export function openIssueCount(issues: readonly IssueProjectionDto[]): number {
-  return issues.filter((issue) => issue.state === "open").length;
 }
 
 export function shellHealthView(input: {
@@ -170,27 +109,11 @@ export function shellHealthView(input: {
   };
 }
 
-async function defaultCountActiveAskOpzavaTurns(context: AppSessionContext): Promise<number> {
-  const result = await withTenant(context.orgId, async (tx) =>
-    tx.execute(sql`
-      select count(*) as active_count
-      from public.assistant_turns
-      where organization_id = ${context.orgId}
-        and workspace_id = ${context.workspaceId}
-        and assistant_key = ${askAdminAssistantKey}
-        and status in ('queued', 'streaming', 'finalizing')
-    `),
-  );
-
-  return numberValue(rowsFromExecuteResult(result)[0]?.["active_count"]);
-}
-
 function defaultDependencies(): AdminShellStateDependencies {
   return {
     listTasks,
     listIssueProjections,
     loadConnectionsPageData: loadConnectionsPageDataForRequest,
-    countActiveAskOpzavaTurns: defaultCountActiveAskOpzavaTurns,
   };
 }
 
@@ -198,24 +121,6 @@ function gatewayReachableFromConnectionsPageData(
   result: Awaited<ReturnType<typeof loadConnectionsPageData>> | null,
 ): boolean {
   return result !== null && result.ok && result.value.snapshot.gateway.status === "active";
-}
-
-function connectionsNavStateFromPageData(
-  result: Awaited<ReturnType<typeof loadConnectionsPageData>> | null,
-): AdminNavState["connections"] {
-  if (result?.ok !== true) {
-    return {
-      providersConnected: 0,
-      providersTotal: 0,
-      githubConnected: false,
-    };
-  }
-
-  return {
-    providersConnected: result.value.providerSummary.connected,
-    providersTotal: result.value.providerSummary.total,
-    githubConnected: result.value.snapshot.github.status === "connected",
-  };
 }
 
 function taskCommandItems(
@@ -251,8 +156,9 @@ export function buildCommandPaletteItems(input: {
   readonly issues: readonly IssueProjectionDto[];
   readonly workspaceName: string;
 }): readonly CommandPaletteItem[] {
-  const navModel = buildLegacyAdminNavModel(input.principal);
-  const destinations = [...navModel.pinned, ...navModel.operate, ...navModel.automate];
+  const navModel = buildAdminNavModel(input.principal);
+  const destinations = [...navModel.pinned, ...navModel.groups.flatMap((group) => group.destinations)]
+    .filter((destination) => NAVIGABLE_ROUTES.has(destination.href));
   if (destinations.length === 0) {
     return [];
   }
@@ -260,16 +166,18 @@ export function buildCommandPaletteItems(input: {
   return [
     ...destinations.map((destination) => ({
       id: `nav.${destination.id}`,
-      label: destination.id === "ask-opzava" ? "Ask Opzava" : destination.label,
+      label: destination.label,
       href: destination.href,
       kind: "destination" as const,
-      meta:
-        destination.group === "pinned"
-          ? "Assistant"
-          : destination.group === "operate"
-            ? "Operate"
-            : "Automate",
+      meta: destination.group === "pinned" ? "Assistant" : "Develop",
     })),
+    {
+      id: "nav.connections",
+      label: "Connections",
+      href: "/connections",
+      kind: "destination" as const,
+      meta: "Automate",
+    },
     ...taskCommandItems(input.tasks, input.workspaceName),
     ...issueCommandItems(input.issues),
   ];
@@ -281,7 +189,7 @@ export async function loadAdminShellState(
 ): Promise<AdminShellState> {
   const actor = actorFromContext(context);
   const repository = safeGitHubIssuesRepository();
-  const [tasksResult, issuesResult, connectionsResult, activeTurnsResult] = await Promise.all([
+  const [tasksResult, issuesResult, connectionsResult] = await Promise.all([
     dependencies.listTasks({
       orgId: context.orgId,
       workspaceId: context.workspaceId,
@@ -297,13 +205,11 @@ export async function loadAdminShellState(
           filter: "all",
         }),
     dependencies.loadConnectionsPageData(context).catch(() => null),
-    dependencies.countActiveAskOpzavaTurns(context).catch(() => 0),
   ]);
 
   const tasks = tasksResult.ok ? tasksResult.value : [];
   const issues = issuesResult?.ok === true ? issuesResult.value : [];
   const gatewayReachable = gatewayReachableFromConnectionsPageData(connectionsResult);
-  const connections = connectionsNavStateFromPageData(connectionsResult);
   const openclawHealth =
     connectionsResult?.ok === true ? connectionsResult.value.snapshot.openclawHealth : null;
   const healthSummary =
@@ -319,16 +225,6 @@ export async function loadAdminShellState(
       : openclawHealthSummary(openclawHealth);
 
   return {
-    nav: {
-      model: buildLegacyAdminNavModel(context),
-      openTasksCount: tasksResult.ok ? openTaskCount(tasks) : null,
-      openIssuesCount: issuesResult?.ok === true ? openIssueCount(issues) : null,
-      askOpzavaActive: activeTurnsResult > 0,
-      connectionsConnected:
-        connectionsResult?.ok === true &&
-        hasConnectedProviderOrGitHub(connectionsResult.value.snapshot),
-      connections,
-    },
     health: shellHealthView({
       summary: healthSummary,
       checkedAt: openclawHealth?.checkedAt ?? null,

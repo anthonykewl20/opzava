@@ -9,7 +9,7 @@ import type {
 import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
-import { buildLegacyAdminNavModel } from "../lib/admin-registry";
+import { buildAdminNavModel } from "../lib/admin-registry";
 import {
   createIssueForContext,
   syncIssuesForContext,
@@ -248,8 +248,10 @@ describe("Issues page state", () => {
     expect(page).not.toContain("issues-table");
     expect(actions).toContain("syncIssuesForContext");
     expect(actions).toContain("createIssueForContext");
-    expect(buildLegacyAdminNavModel({ roleKeys: ["admin"] }).operate).toContainEqual(
-      expect.objectContaining({ label: "Issues", href: "/issues" }),
+    expect(buildAdminNavModel({ roleKeys: ["admin"] }).groups.flatMap(
+      (group) => group.destinations,
+    )).toContainEqual(
+      expect.objectContaining({ label: "Dev Board", href: "/dev-board" }),
     );
   });
 });

@@ -46,14 +46,16 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
-import type { AdminDestination, AdminNavModel } from "@/lib/admin-registry";
+import {
+  NAVIGABLE_ROUTES,
+  type AdminDestination,
+  type AdminNavModel,
+} from "@/lib/admin-registry";
 import {
   ADMIN_GROUP_STATE_STORAGE_KEY,
   repairAdminGroupOpenState,
   type AdminGroupOpenState,
 } from "@/lib/admin-sidebar-state";
-
-const NAVIGABLE = new Set(["/", "/ask-opzava", "/dev-board"]);
 
 const destinationIcons: Readonly<Record<string, LucideIcon>> = {
   Activity,
@@ -153,7 +155,7 @@ function DestinationItem({
   readonly pathname: string;
   readonly onNavigate: (destination: AdminDestination) => void;
 }) {
-  const navigable = NAVIGABLE.has(destination.href);
+  const navigable = NAVIGABLE_ROUTES.has(destination.href);
   const active = isActiveRoute(pathname, destination.href);
 
   return (

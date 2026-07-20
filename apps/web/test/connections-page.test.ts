@@ -1047,7 +1047,7 @@ describe("Connections page state", () => {
     const connectionsLib = await readRepoFile("lib/connections.ts");
     const shellState = await readRepoFile("lib/shell-state.ts");
     const route = await readRepoFile("app/api/connections/device-flow/route.ts");
-    const nav = await readRepoFile("components/shell/admin-nav.tsx");
+    const sidebar = await readRepoFile("components/shell/app-sidebar.tsx");
     const componentsCss = await readRepoFile("app/styles/components.css");
     const systemMockup = await readRepoFile("../../ux-redesign/mockups/connections-system.html");
 
@@ -1289,19 +1289,8 @@ describe("Connections page state", () => {
     expect(setupTokenCodeRoute).toContain("submitModelProviderSetupTokenCodeForContext");
     expect(deviceStartRoute).toContain("startModelProviderDeviceFlowForContext");
     expect(route).toContain("pollConnectionDeviceFlowForContext");
-    expect(nav).toContain('href: "/connections"');
-    expect(nav).not.toContain('href: "/connections/gateway"');
-    expect(nav).not.toContain('href: "/connections/system"');
-    expect(nav).toContain('href: "/connections/providers"');
-    expect(nav).toContain('href: "/connections/github"');
-    expect(nav).toContain('href: "/connections/add"');
-    expect(nav).toContain("aria-expanded={expanded}");
-    expect(nav).toContain('aria-current={active ? "page" : undefined}');
-    expect(nav).toContain("connectionRailActiveHref(pathname)");
-    expect(nav).toContain(">Automate</div>");
-    expect(nav).toContain('label: "Model Providers"');
-    expect(nav).toContain("connections.githubConnected");
-    expect(nav).toContain("${connections.providersConnected}/${connections.providersTotal}");
+    expect(sidebar).toContain('href="/connections"');
+    expect(sidebar).toContain('aria-label="Connections (legacy)"');
   });
 
   it("keeps model-provider disconnect on the fetch mutation client with sad paths", async () => {

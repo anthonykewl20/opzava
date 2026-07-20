@@ -10,8 +10,6 @@ import { openclawHealthSummary, providerConnectionSummary } from "../lib/connect
 import {
   buildCommandPaletteItems,
   loadAdminShellState,
-  openIssueCount,
-  openTaskCount,
   shellHealthView,
   type AdminShellStateDependencies,
 } from "../lib/shell-state";
@@ -164,13 +162,6 @@ describe("Admin shell state", () => {
     });
   });
 
-  it("counts only open tasks and open issue projections", () => {
-    expect(openTaskCount([task(), task({ id: "task-2", status: "done" })])).toBe(1);
-    expect(openIssueCount([issue(), issue({ id: "issue-2", number: 13, state: "closed" })])).toBe(
-      1,
-    );
-  });
-
   it("maps the canonical OpenClaw rollup into the shell pill states", () => {
     expect(
       shellHealthView({
@@ -276,7 +267,7 @@ describe("Admin shell state", () => {
     expect(pill).toMatchObject({ status: heroSummary.status, text: "1 needs attention" });
   });
 
-  it("builds command palette entries from nav routes, task titles, and issue titles", () => {
+  it("builds command palette entries from navigable registry routes, Connections, tasks, and issues", () => {
     const items = buildCommandPaletteItems({
       principal: context(),
       tasks: [task()],
@@ -284,9 +275,19 @@ describe("Admin shell state", () => {
       workspaceName: "Admin",
     });
 
-    expect(items).toContainEqual(
-      expect.objectContaining({ id: "nav.tasks", label: "Tasks", href: "/tasks" }),
-    );
+    const destinations = items.filter((item) => item.kind === "destination");
+    expect(destinations.map(({ id, label, href }) => ({ id, label, href }))).toEqual([
+      { id: "nav.ask-admin-opzava", label: "Ask Admin Opzava", href: "/ask-opzava" },
+      { id: "nav.overview", label: "Overview", href: "/" },
+      { id: "nav.dev-board", label: "Dev Board", href: "/dev-board" },
+      { id: "nav.connections", label: "Connections", href: "/connections" },
+    ]);
+    const soonHrefs = buildAdminNavModel(context())
+      .groups.flatMap((group) => group.destinations)
+      .map((destination) => destination.href)
+      .filter((href) => href !== "/" && href !== "/dev-board");
+    expect(soonHrefs).toHaveLength(18);
+    expect(destinations.some((destination) => soonHrefs.includes(destination.href))).toBe(false);
     expect(items).toContainEqual(
       expect.objectContaining({
         id: "task.task-1",
@@ -341,32 +342,19 @@ describe("Admin shell state", () => {
             }),
           ),
         ),
-      countActiveAskOpzavaTurns: async () => 1,
-      checkGatewayHealth: async () => false,
     };
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.nav).toMatchObject({
-      openTasksCount: 1,
-      openIssuesCount: 1,
-      askOpzavaActive: true,
-      connectionsConnected: true,
-      connections: {
-        providersConnected: 0,
-        providersTotal: 0,
-        githubConnected: false,
-      },
-    });
-    expect(state.nav.model.operate.map((item) => item.label)).toEqual([
-      "Overview",
-      "Tasks",
-      "Issues",
-    ]);
     expect(state.health.status).toBe("healthy");
     expect(state.health.text).toBe("All systems healthy");
     expect(state.commandItems.map((item) => item.id)).toEqual(
-      expect.arrayContaining(["nav.tasks", "task.task-1", "issue.anthonykewl20/opzava.12"]),
+      expect.arrayContaining([
+        "nav.overview",
+        "nav.connections",
+        "task.task-1",
+        "issue.anthonykewl20/opzava.12",
+      ]),
     );
   });
 
@@ -401,79 +389,12 @@ describe("Admin shell state", () => {
             }),
           ),
         ),
-      countActiveAskOpzavaTurns: async () => 0,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
 
     expect(state.health.status).toBe("attention");
     expect(state.health.gatewayReachable).toBe(false);
-  });
-
-  it("derives the rail connections sub-tree status from the loaded snapshot", async () => {
-    const dependencies = {
-      listTasks: async () => ok([]),
-      listIssueProjections: async () => ok([]),
-      loadConnectionsPageData: async () =>
-        ok(
-          connectionsPageData(
-            snapshot({
-              providerCatalog: [
-                {
-                  id: "openai",
-                  label: "OpenAI",
-                  vendor: "OpenAI",
-                  authChoices: [],
-                  suggestedModel: "openai/gpt-5.5",
-                  models: [],
-                  roleStrength: "orchestration",
-                  whenToUse: "front-door chat",
-                },
-                {
-                  id: "zai",
-                  label: "z.ai",
-                  vendor: "z.ai",
-                  authChoices: [],
-                  suggestedModel: "zai/glm-5.2",
-                  models: [],
-                  roleStrength: "implementation",
-                  whenToUse: "coding tasks",
-                },
-              ],
-              providerConnections: [
-                {
-                  providerId: "openai",
-                  status: "connected",
-                  authChoiceId: "openai-device-code",
-                  accountLabel: "GPT Pro",
-                  scopes: ["chatgpt"],
-                  model: "openai/gpt-5.5",
-                  usageLabel: "within limits",
-                  lastCheckedAt: "2026-07-03T00:00:00.000Z",
-                  message: null,
-                },
-              ],
-              github: {
-                status: "connected",
-                accountLabel: "anthonykewl20",
-                scopes: ["repo"],
-                repository: "anthonykewl20/opzava",
-                lastCheckedAt: "2026-07-03T00:00:00.000Z",
-                message: null,
-              },
-            }),
-          ),
-        ),
-      countActiveAskOpzavaTurns: async () => 0,
-    } satisfies AdminShellStateDependencies;
-
-    const state = await loadAdminShellState(context(), dependencies);
-
-    expect(state.nav.connections).toEqual({
-      providersConnected: 1,
-      providersTotal: 2,
-      githubConnected: true,
-    });
   });
 
   it("degrades shell health when the connections snapshot cannot be loaded", async () => {
@@ -483,18 +404,12 @@ describe("Admin shell state", () => {
       loadConnectionsPageData: async () => {
         throw new Error("connections unavailable");
       },
-      countActiveAskOpzavaTurns: async () => 0,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
 
     expect(state.health.status).toBe("unknown");
     expect(state.health.gatewayReachable).toBe(false);
-    expect(state.nav.connections).toEqual({
-      providersConnected: 0,
-      providersTotal: 0,
-      githubConnected: false,
-    });
   });
 
   it("does not mix database reachability into the OpenClaw health pill", async () => {
@@ -502,7 +417,6 @@ describe("Admin shell state", () => {
       listTasks: async () => ok([]),
       listIssueProjections: async () => ok([]),
       loadConnectionsPageData: async () => ok(connectionsPageData(snapshot())),
-      countActiveAskOpzavaTurns: async () => 0,
     } satisfies AdminShellStateDependencies;
 
     const state = await loadAdminShellState(context(), dependencies);
