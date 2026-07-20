@@ -103,17 +103,7 @@ function healthCapabilityLabel(
   if (envelope?.value === null || envelope === null || status === "unknown") return null;
   const source = envelope.provenance.label;
   if (status === "healthy") return source;
-
-  const reasons = [
-    envelope.value.attention > 0
-      ? `${envelope.value.attention} ${envelope.value.attention === 1 ? "component needs" : "components need"} attention`
-      : null,
-    envelope.value.notChecked > 0
-      ? `${envelope.value.notChecked} ${envelope.value.notChecked === 1 ? "component is" : "components are"} not checked`
-      : null,
-  ].filter((reason): reason is string => reason !== null);
-
-  return reasons.length === 0 ? `${source} is ${status}` : `${source}: ${reasons.join("; ")}`;
+  return `${source} is ${status}`;
 }
 
 export function shellHealthView(envelope: ShellHealthEvidence | null): ShellHealthState {
