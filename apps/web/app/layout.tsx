@@ -6,14 +6,28 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Opzava",
-  description: "Opzava admin workspace"
+  description: "Opzava admin workspace",
 };
 
 const themeInitScript = `
 (function () {
   try {
     var saved = localStorage.getItem('opzava-mock-theme');
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    var preference = saved === 'light' || saved === 'dark' || saved === 'system'
+      ? saved
+      : saved === 'calm'
+        ? 'light'
+        : saved === 'hc'
+          ? 'dark'
+          : 'system';
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var lightVariant = document.documentElement.getAttribute('data-light') ||
+      (saved === 'calm' ? 'calm' : 'light');
+    var applied = preference === 'dark' || (preference === 'system' && prefersDark)
+      ? (saved === 'hc' && preference === 'dark' ? 'hc' : 'dark')
+      : lightVariant;
+    document.documentElement.setAttribute('data-theme', applied);
+    document.documentElement.setAttribute('data-theme-preference', preference);
   } catch (error) {
     // localStorage may be unavailable before the app hydrates.
   }
@@ -21,7 +35,7 @@ const themeInitScript = `
 `;
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: ReactNode;
 }>) {

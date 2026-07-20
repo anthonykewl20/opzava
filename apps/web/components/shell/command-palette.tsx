@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import type { LegacyAdminNavModel } from "@/lib/admin-registry";
+import type { AdminNavModel } from "@/lib/admin-registry";
 import type { CommandPaletteItem } from "@/lib/shell-state";
 
 const commandPaletteOpenEvent = "opzava:command-palette-open";
@@ -54,11 +54,9 @@ export function TopbarCommandSearch() {
   );
 }
 
-export function TopbarRouteSearchOrBreadcrumb({ model }: { readonly model: LegacyAdminNavModel }) {
+export function TopbarRouteSearchOrBreadcrumb({ model }: { readonly model: AdminNavModel }) {
   const pathname = usePathname();
-  const askAdmin = model.pinned.find(
-    (destination) => destination.sourceDestinationId === "ask-admin-opzava",
-  );
+  const askAdmin = model.pinned.find((destination) => destination.id === "ask-admin-opzava");
 
   if (askAdmin !== undefined && pathname.startsWith(askAdmin.href)) {
     return (

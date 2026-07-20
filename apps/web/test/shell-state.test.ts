@@ -4,6 +4,8 @@ import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
 import type { ConnectionsPageData } from "../lib/connections";
+import { buildAdminNavModel } from "../lib/admin-registry";
+import { repairAdminGroupOpenState } from "../lib/admin-sidebar-state";
 import { openclawHealthSummary, providerConnectionSummary } from "../lib/connections-state";
 import {
   buildCommandPaletteItems,
@@ -140,6 +142,28 @@ function connectionsPageData(current: ConnectionsSnapshot): ConnectionsPageData 
 }
 
 describe("Admin shell state", () => {
+  it("repairs persisted sidebar group state against the current registry", () => {
+    const groups = buildAdminNavModel(context()).groups;
+
+    expect(
+      repairAdminGroupOpenState(
+        JSON.stringify({ develop: false, "ai-runtime": true, removed: false, operate: "no" }),
+        groups,
+      ),
+    ).toEqual({
+      develop: false,
+      "ai-runtime": true,
+      operate: true,
+      configure: true,
+    });
+    expect(repairAdminGroupOpenState("not-json", groups)).toEqual({
+      develop: true,
+      "ai-runtime": true,
+      operate: true,
+      configure: true,
+    });
+  });
+
   it("counts only open tasks and open issue projections", () => {
     expect(openTaskCount([task(), task({ id: "task-2", status: "done" })])).toBe(1);
     expect(openIssueCount([issue(), issue({ id: "issue-2", number: 13, state: "closed" })])).toBe(

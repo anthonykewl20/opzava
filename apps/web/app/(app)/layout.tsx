@@ -1,18 +1,19 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { forbidden, redirect } from "next/navigation";
 
-import { AdminNav } from "@/components/shell/admin-nav";
+import { AppSidebar } from "@/components/shell/app-sidebar";
 import {
   AskOpzavaAgentStatus,
   CommandPalette,
   TopbarRouteSearchOrBreadcrumb,
 } from "@/components/shell/command-palette";
 import { NotificationBell } from "@/components/shell/notification-bell";
-import { SidebarToggle } from "@/components/shell/sidebar-toggle";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { UserMenu } from "@/components/shell/user-menu";
-import { admitsAdminControlCenter } from "@/lib/admin-registry";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { admitsAdminControlCenter, buildAdminNavModel } from "@/lib/admin-registry";
 import { getAppSessionContext, isFirstOwnerSetupComplete } from "@/lib/session";
 import { loadAdminShellState, type ShellHealthState } from "@/lib/shell-state";
 
@@ -49,32 +50,44 @@ export default async function AppLayout({ children }: { readonly children: React
     forbidden();
   }
 
+  const navModel = buildAdminNavModel(context);
   const shellState = await loadAdminShellState(context);
+  const sidebarCookie = (await cookies()).get("sidebar_state")?.value;
 
   return (
-    <div className="app">
-      <AdminNav state={shellState.nav} />
+    <SidebarProvider
+      defaultOpen={sidebarCookie !== "false"}
+      style={
+        {
+          "--sidebar-width": "15.5rem",
+          "--sidebar-width-icon": "4.25rem",
+        } as CSSProperties
+      }
+    >
+      <AppSidebar model={navModel} />
       <CommandPalette items={shellState.commandItems} />
-      <div className="main-col">
-        <header className="header">
-          <SidebarToggle />
+      <SidebarInset id="main-content" tabIndex={-1} className="admin-shell-inset">
+        <header className="header admin-shell-topbar">
+          <SidebarTrigger
+            className="admin-shell-trigger size-11 md:size-7"
+            aria-label="Toggle Admin navigation"
+          />
 
-          <TopbarRouteSearchOrBreadcrumb model={shellState.nav.model} />
+          <TopbarRouteSearchOrBreadcrumb model={navModel} />
 
           <div className="u-grow" />
 
           <AskOpzavaAgentStatus gatewayReachable={shellState.health.gatewayReachable} />
 
-          <ThemeToggle />
-
           <HealthPill state={shellState.health} />
 
           <NotificationBell />
+          <ThemeToggle />
           <UserMenu context={context} />
         </header>
 
-        <main className="main">{children}</main>
-      </div>
-    </div>
+        <div className="main admin-shell-content">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
