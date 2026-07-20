@@ -5,11 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { CompositionCache } from "../lib/admin-evidence";
 import {
   composeAdminOverview,
+  projectNeedsYourAttention,
   type AdminOverviewCachedEvidence,
 } from "../lib/admin-overview/overview-composition";
 import type { ConnectionsPageData } from "../lib/connections";
 import { providerConnectionSummary, projectProviderConnections } from "../lib/connections-state";
 import type { AppSessionContext } from "../lib/session";
+import { attentionInboxView } from "../lib/shell-state";
 
 const observedAt = "2026-07-20T00:00:00.000Z";
 const evaluatedAt = "2026-07-20T00:00:30.000Z";
@@ -297,6 +299,39 @@ describe("Admin Overview composition", () => {
       ]),
     );
     expect(overview.needsYourAttention.empty).toBe(false);
+  });
+
+  it("uses the exact Overview actionable-item list for the topbar attention count", async () => {
+    const current = snapshot({
+      providerConnections: [
+        {
+          ...snapshot().providerConnections[0]!,
+          status: "needs_attention",
+        },
+      ],
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: [
+          {
+            ...snapshot().openclawHealth.components[0]!,
+            status: "attention",
+          },
+        ],
+      },
+    });
+    const overview = await composeAdminOverview(
+      context,
+      dependencies({ loadConnectionsPageData: async () => ok(pageData(current)) }),
+    );
+    const shellAttention = attentionInboxView(
+      projectNeedsYourAttention(pageData(current), {
+        evaluatedAt,
+        observationGeneration: 7,
+      }),
+    );
+
+    expect(shellAttention.count).toBe(overview.needsYourAttention.rows.length);
+    expect(shellAttention.count).toBe(2);
   });
 
   it("isolates cache entries by authorizationVersion", async () => {

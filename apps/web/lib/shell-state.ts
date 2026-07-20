@@ -5,27 +5,38 @@ import {
   type TaskDto,
 } from "@opzava/project-management";
 
+import { buildAdminNavModel, NAVIGABLE_ROUTES, type AdminPrincipal } from "@/lib/admin-registry";
+import type { EvidenceEnvelope } from "@/lib/admin-evidence";
 import {
-  buildAdminNavModel,
-  NAVIGABLE_ROUTES,
-  type AdminPrincipal,
-} from "@/lib/admin-registry";
-import { openclawHealthSummary, type OpenClawHealthSummary } from "@/lib/connections-state";
+  projectNeedsYourAttention,
+  type NeedsYourAttentionSection,
+} from "@/lib/admin-overview/overview-composition";
+import {
+  projectHealthReadiness,
+  type HealthReadiness,
+} from "@/lib/admin-overview/readiness-projections";
 import { loadConnectionsPageDataForRequest, type loadConnectionsPageData } from "@/lib/connections";
 import { readGitHubIssuesRepository } from "@/lib/issues";
 import { formatCardId } from "@/lib/task-card-format";
 import type { AppSessionContext } from "@/lib/session";
 
-export type ShellHealthStatus = "healthy" | "attention" | "unknown";
+export type ShellHealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
 export interface ShellHealthState {
   readonly status: ShellHealthStatus;
   readonly text: string;
   readonly dotClassName: string;
   readonly ariaLabel: string;
-  readonly attentionCount: number;
   readonly checkedAt: string | null;
+  readonly freshnessState: EvidenceEnvelope<unknown>["freshnessState"];
   readonly gatewayReachable: boolean | null;
+}
+
+export interface ShellAttentionState {
+  readonly count: number | null;
+  readonly hasItems: boolean | null;
+  readonly state: "available" | "partial" | "unknown";
+  readonly ariaLabel: string;
 }
 
 export type CommandPaletteItemKind = "destination" | "task" | "issue";
@@ -41,6 +52,7 @@ export interface CommandPaletteItem {
 
 export interface AdminShellState {
   readonly health: ShellHealthState;
+  readonly attention: ShellAttentionState;
   readonly commandItems: readonly CommandPaletteItem[];
 }
 
@@ -48,6 +60,8 @@ export interface AdminShellStateDependencies {
   readonly listTasks: typeof listTasks;
   readonly listIssueProjections: typeof listIssueProjections;
   readonly loadConnectionsPageData: typeof loadConnectionsPageData;
+  readonly now?: () => Date;
+  readonly observationGeneration?: number;
 }
 
 function actorFromContext(context: AppSessionContext) {
@@ -65,47 +79,59 @@ function safeGitHubIssuesRepository(): string | null {
   }
 }
 
-export function shellHealthView(input: {
-  readonly summary: OpenClawHealthSummary;
-  readonly checkedAt: string | null;
-  readonly gatewayReachable: boolean | null;
-}): ShellHealthState {
-  const status = input.summary.status;
+type ShellHealthEvidence = Pick<
+  EvidenceEnvelope<HealthReadiness>,
+  "state" | "freshnessState" | "sourceTimestamp" | "value"
+>;
 
-  if (status === "healthy") {
-    return {
-      status,
-      text: "All systems healthy",
-      dotClassName: "dot dot-success",
-      ariaLabel: "System health: All systems healthy",
-      attentionCount: input.summary.attention,
-      checkedAt: input.checkedAt,
-      gatewayReachable: input.gatewayReachable,
-    };
-  }
-
-  if (status === "attention") {
-    const count = input.summary.attention;
-    const text = `${count} ${count === 1 ? "needs" : "need"} attention`;
-    return {
-      status,
-      text,
-      dotClassName: "dot dot-warning",
-      ariaLabel: `System health: ${text}`,
-      attentionCount: count,
-      checkedAt: input.checkedAt,
-      gatewayReachable: input.gatewayReachable,
-    };
-  }
+export function shellHealthView(envelope: ShellHealthEvidence | null): ShellHealthState {
+  const status = envelope?.state === "live" ? (envelope.value?.overall ?? "unknown") : "unknown";
+  const presentation = {
+    healthy: { text: "Healthy", dotClassName: "dot dot-success" },
+    degraded: { text: "Degraded", dotClassName: "dot dot-warning" },
+    unhealthy: { text: "Unhealthy", dotClassName: "dot dot-danger" },
+    unknown: { text: "Unknown", dotClassName: "dot" },
+  } as const;
+  const view = presentation[status];
 
   return {
     status,
-    text: "Health unknown",
-    dotClassName: "dot",
-    ariaLabel: "System health: Health unknown",
-    attentionCount: input.summary.attention,
-    checkedAt: input.checkedAt,
-    gatewayReachable: input.gatewayReachable,
+    text: view.text,
+    dotClassName: view.dotClassName,
+    ariaLabel: `Health: ${view.text}`,
+    checkedAt: envelope?.sourceTimestamp ?? null,
+    freshnessState: envelope?.freshnessState ?? "unknown",
+    gatewayReachable: envelope?.value?.gatewayActive ?? null,
+  };
+}
+
+type AttentionProjection = Pick<NeedsYourAttentionSection, "rows"> & {
+  readonly status: Pick<NeedsYourAttentionSection["status"], "state" | "partial">;
+};
+
+export function attentionInboxView(projection: AttentionProjection): ShellAttentionState {
+  const count = projection.rows.length;
+  if (projection.status.state === "live") {
+    return {
+      count,
+      hasItems: count > 0,
+      state: "available",
+      ariaLabel: `Attention: ${count} actionable ${count === 1 ? "item" : "items"}`,
+    };
+  }
+  if (count > 0) {
+    return {
+      count,
+      hasItems: true,
+      state: "partial",
+      ariaLabel: `Attention: at least ${count} actionable ${count === 1 ? "item" : "items"}; feed partial`,
+    };
+  }
+  return {
+    count: null,
+    hasItems: null,
+    state: projection.status.partial ? "partial" : "unknown",
+    ariaLabel: "Attention: actionable items unavailable",
   };
 }
 
@@ -157,8 +183,10 @@ export function buildCommandPaletteItems(input: {
   readonly workspaceName: string;
 }): readonly CommandPaletteItem[] {
   const navModel = buildAdminNavModel(input.principal);
-  const destinations = [...navModel.pinned, ...navModel.groups.flatMap((group) => group.destinations)]
-    .filter((destination) => NAVIGABLE_ROUTES.has(destination.href));
+  const destinations = [
+    ...navModel.pinned,
+    ...navModel.groups.flatMap((group) => group.destinations),
+  ].filter((destination) => NAVIGABLE_ROUTES.has(destination.href));
   if (destinations.length === 0) {
     return [];
   }
@@ -210,26 +238,22 @@ export async function loadAdminShellState(
   const tasks = tasksResult.ok ? tasksResult.value : [];
   const issues = issuesResult?.ok === true ? issuesResult.value : [];
   const gatewayReachable = gatewayReachableFromConnectionsPageData(connectionsResult);
-  const openclawHealth =
-    connectionsResult?.ok === true ? connectionsResult.value.snapshot.openclawHealth : null;
-  const healthSummary =
-    openclawHealth === null
-      ? {
-          total: 0,
-          healthy: 0,
-          attention: 0,
-          notChecked: 0,
-          percent: null,
-          status: "unknown" as const,
-        }
-      : openclawHealthSummary(openclawHealth);
+  const pageData = connectionsResult?.ok === true ? connectionsResult.value : null;
+  const now = dependencies.now?.() ?? new Date();
+  const projectionContext = {
+    evaluatedAt: now.toISOString(),
+    observationGeneration: dependencies.observationGeneration ?? now.getTime(),
+  };
+  const healthReadiness =
+    pageData === null ? null : projectHealthReadiness(pageData, projectionContext);
+  const needsYourAttention = projectNeedsYourAttention(pageData, projectionContext);
 
   return {
-    health: shellHealthView({
-      summary: healthSummary,
-      checkedAt: openclawHealth?.checkedAt ?? null,
+    health: {
+      ...shellHealthView(healthReadiness),
       gatewayReachable,
-    }),
+    },
+    attention: attentionInboxView(needsYourAttention),
     commandItems: buildCommandPaletteItems({
       principal: context,
       tasks,
