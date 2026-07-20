@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 
 import type { HealthCountsView } from "@/lib/health/health-view-model";
 
 import styles from "./health.module.css";
+import { useCountUp } from "./use-count-up";
 
 export const HEALTH_RING_CIRCUMFERENCE = 2 * Math.PI * 70;
 
@@ -39,37 +40,9 @@ export function healthRingSegments(counts: HealthCountsView): readonly HealthRin
   });
 }
 
-function useCountUp(value: number, durationMs = 900): number {
-  const [displayValue, setDisplayValue] = useState(value);
-
-  useEffect(() => {
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion || value <= 0) {
-      setDisplayValue(value);
-      return;
-    }
-
-    let frameId = 0;
-    let startTime: number | null = null;
-    setDisplayValue(0);
-    const frame = (time: number) => {
-      startTime ??= time;
-      const progress = Math.min(1, (time - startTime) / durationMs);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplayValue(Math.round(value * eased));
-      if (progress < 1) frameId = window.requestAnimationFrame(frame);
-    };
-    frameId = window.requestAnimationFrame(frame);
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [durationMs, value]);
-
-  return displayValue;
-}
-
 function ringLabel(counts: HealthCountsView | null): string {
   if (counts === null) return "No current health check is available";
-  return `${counts.healthy} of ${counts.total} checks healthy, ${counts.attention} need attention, ${counts.notChecked} not checked`;
+  return `${counts.healthy} of ${counts.total} checks healthy, ${counts.attention} ${counts.attention === 1 ? "needs" : "need"} attention, ${counts.notChecked} not checked`;
 }
 
 export function HealthRing({ counts }: { readonly counts: HealthCountsView | null }) {

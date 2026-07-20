@@ -43,26 +43,26 @@ const groupDefinitions = [
     id: "system-core",
     label: "System Core",
     href: "/connections/system#system-group-system-core",
-    kinds: new Set<OpenClawHealthComponent["kind"]>([
-      "gateway",
-      "event-loop",
-      "plugins",
-      "context-engines",
-    ]),
   },
   {
     id: "channels",
     label: "Channels",
     href: "/connections/system#system-group-channels",
-    kinds: new Set<OpenClawHealthComponent["kind"]>(["channel"]),
   },
   {
     id: "agents",
     label: "Agents",
     href: "/connections/system#system-group-agents",
-    kinds: new Set<OpenClawHealthComponent["kind"]>(["agent"]),
   },
 ] as const;
+
+export function overviewHealthGroupId(
+  kind: OpenClawHealthComponent["kind"],
+): OverviewHealthGroup["id"] {
+  if (kind === "channel") return "channels";
+  if (kind === "agent") return "agents";
+  return "system-core";
+}
 
 function rollupStatus(attention: number, notChecked: number, total: number): OverviewHealthStatus {
   return attention > 0 ? "attention" : notChecked > 0 || total === 0 ? "unknown" : "healthy";
@@ -72,7 +72,9 @@ export function overviewHealthGroups(
   components: readonly OpenClawHealthComponent[],
 ): readonly OverviewHealthGroup[] {
   return groupDefinitions.map((definition) => {
-    const grouped = components.filter((component) => definition.kinds.has(component.kind));
+    const grouped = components.filter(
+      (component) => overviewHealthGroupId(component.kind) === definition.id,
+    );
     const healthy = grouped.filter((component) => component.status === "healthy").length;
     const attention = grouped.filter((component) => component.status === "attention").length;
     const notChecked = grouped.filter((component) => component.status === "not_checked").length;

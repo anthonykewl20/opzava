@@ -662,4 +662,14 @@
   .disclosureChevron {
     transition: none !important;
   }
+
+  .interactive:hover,
+  .interactive:focus-within {
+    transform: none;
+  }
+
+  .attentionItem a:hover svg,
+  .interactive:hover .kpiTop > svg {
+    transform: none;
+  }
 }

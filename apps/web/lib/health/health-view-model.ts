@@ -8,6 +8,7 @@ import {
   type ReadinessProjectionContext,
 } from "@/lib/admin-overview/readiness-projections";
 import type { ConnectionsPageData } from "@/lib/connections";
+import { overviewHealthGroupId } from "@/lib/connections-overview";
 import { openclawHealthSummary } from "@/lib/connections-state";
 
 export interface HealthCountsView {
@@ -41,6 +42,12 @@ export interface HealthAttentionItemView {
   readonly detail: string;
   readonly href: string;
   readonly actionLabel: string;
+}
+
+export interface HealthWarningView {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
 }
 
 export interface HealthLastKnownGoodView {
@@ -86,6 +93,7 @@ export interface HealthPageViewModel {
   readonly description: string;
   readonly counts: HealthCountsView | null;
   readonly attentionItems: readonly HealthAttentionItemView[];
+  readonly warnings: readonly HealthWarningView[];
   readonly groups: readonly HealthComponentGroupView[];
   readonly gateway: HealthGatewayView;
   readonly runtime: HealthRuntimeView;
@@ -98,12 +106,6 @@ const groupDefinitions = [
   { id: "channels", label: "Channels" },
   { id: "agents", label: "Agents" },
 ] as const;
-
-function componentGroupId(component: OpenClawHealthComponent): HealthComponentGroupId {
-  if (component.kind === "channel") return "channels";
-  if (component.kind === "agent") return "agents";
-  return "system-core";
-}
 
 function ownerHref(groupId: HealthComponentGroupId): string {
   return `/connections/system#system-group-${groupId}`;
@@ -135,7 +137,7 @@ function componentView(
   component: OpenClawHealthComponent,
   evaluatedAt: string,
 ): HealthComponentView {
-  const groupId = componentGroupId(component);
+  const groupId = overviewHealthGroupId(component.kind);
   return {
     id: component.id,
     label: component.label,
@@ -162,7 +164,7 @@ function groupComponents(
     .map((definition) => ({
       ...definition,
       components: components
-        .filter((component) => componentGroupId(component) === definition.id)
+        .filter((component) => overviewHealthGroupId(component.kind) === definition.id)
         .map((component) => componentView(component, evaluatedAt)),
     }))
     .filter((group) => group.components.length > 0);
@@ -177,7 +179,7 @@ function attentionItems(
   const componentItems = data.snapshot.openclawHealth.components
     .filter((component) => component.status === "attention")
     .map((component) => {
-      const groupId = componentGroupId(component);
+      const groupId = overviewHealthGroupId(component.kind);
       return {
         id: `component:${component.id}`,
         title: component.label,
@@ -186,15 +188,7 @@ function attentionItems(
         actionLabel: component.kind === "plugins" ? "Inspect plugins" : "Open owner",
       };
     });
-  const warningItems = data.snapshot.openclawHealth.warnings.map((warning) => ({
-    id: `warning:${warning.id}`,
-    title: warning.label,
-    detail: warning.detail,
-    href: ownerHref("system-core"),
-    actionLabel: "Inspect warning",
-  }));
-
-  return [...componentItems, ...warningItems];
+  return componentItems;
 }
 
 function formatUptime(uptimeMs: number | null): string | null {
@@ -210,6 +204,7 @@ function formatUptime(uptimeMs: number | null): string | null {
 function verdictCopy(input: {
   readonly availability: AvailabilityState;
   readonly counts: HealthCountsView | null;
+  readonly overall: HealthPageViewModel["overall"];
 }): Pick<HealthPageViewModel, "verdict" | "description"> {
   if (input.availability === "not-configured") {
     return {
@@ -244,7 +239,13 @@ function verdictCopy(input: {
       description: "No component checks were returned, so there is no healthy zero to report.",
     };
   }
-  if (input.counts.attention > 0) {
+  if (input.overall === "healthy") {
+    return {
+      verdict: "Platform checks are healthy",
+      description: `All ${input.counts.total} checked components reported healthy.`,
+    };
+  }
+  if (input.overall === "unhealthy" || input.counts.attention > 0) {
     return {
       verdict:
         input.counts.attention === 1
@@ -260,8 +261,8 @@ function verdictCopy(input: {
     };
   }
   return {
-    verdict: "Platform checks are healthy",
-    description: `All ${input.counts.total} checked components reported healthy.`,
+    verdict: "Platform health is degraded",
+    description: "The readiness projection did not classify the current evidence as healthy.",
   };
 }
 
@@ -333,8 +334,7 @@ export function buildHealthPageViewModel(
   const includeCurrentSnapshot =
     healthEnvelope.value !== null &&
     data.snapshot.gateway.status === "active" &&
-    healthEnvelope.state !== "unavailable" &&
-    healthEnvelope.state !== "not-configured";
+    (healthEnvelope.state === "live" || healthEnvelope.state === "stale");
   const counts =
     includeCurrentSnapshot && (healthEnvelope.value?.componentsTotal ?? 0) > 0
       ? {
@@ -345,7 +345,7 @@ export function buildHealthPageViewModel(
         }
       : null;
   const overall = includeCurrentSnapshot ? (healthEnvelope.value?.overall ?? "unknown") : "unknown";
-  const verdict = verdictCopy({ availability: healthEnvelope.state, counts });
+  const verdict = verdictCopy({ availability: healthEnvelope.state, counts, overall });
   const lastKnownGood = health.lastKnownHealthy;
 
   return {
@@ -360,6 +360,13 @@ export function buildHealthPageViewModel(
     ...verdict,
     counts,
     attentionItems: attentionItems(data, includeCurrentSnapshot),
+    warnings: includeCurrentSnapshot
+      ? health.warnings.map((warning) => ({
+          id: warning.id,
+          label: warning.label,
+          detail: warning.detail,
+        }))
+      : [],
     groups: includeCurrentSnapshot ? groupComponents(health.components, context.evaluatedAt) : [],
     gateway: gatewayView(data, gatewayEnvelope.state, context.evaluatedAt),
     runtime: {
