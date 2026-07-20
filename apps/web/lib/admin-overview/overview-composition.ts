@@ -31,7 +31,6 @@ import {
 import { askAdminRouteId } from "@/lib/ask-admin-history";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
 import { loadConnectionsPageDataForRequest, type ConnectionsPageData } from "@/lib/connections";
-import { overviewProviders } from "@/lib/connections-overview";
 import { openclawHealthSummary } from "@/lib/connections-state";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
 import type { AppSessionContext } from "@/lib/session";
@@ -344,8 +343,11 @@ function envelopeInput<K extends AdminOverviewEvidenceKind>(
 }
 
 function providerAttentionRows(pageData: ConnectionsPageData): readonly AttentionRowValue[] {
-  return overviewProviders(pageData.providers)
+  // Attention is an actionable queue: count and list EVERY provider needing attention, not just the
+  // top-4 the Connections overview card curates (that slice would silently under-report the count).
+  return [...pageData.providers]
     .filter((provider) => provider.status === "needs_attention" || provider.status === "pending")
+    .sort((left, right) => left.label.localeCompare(right.label))
     .map((provider) => ({
       id: `provider:${provider.id}`,
       title: provider.label,
@@ -354,7 +356,7 @@ function providerAttentionRows(pageData: ConnectionsPageData): readonly Attentio
           ? "Provider connection is waiting for approval."
           : "Provider connection needs attention before it can be relied on.",
       actionLabel: provider.status === "pending" ? "Waiting for approval" : "Fix",
-      href: provider.href,
+      href: "/connections/providers",
     }));
 }
 
