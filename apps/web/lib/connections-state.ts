@@ -480,22 +480,6 @@ export function connectedProviderIds(snapshot: ConnectionsSnapshot): readonly st
     .map((connection) => connection.providerId);
 }
 
-export function hasConnectedProviderOrGitHub(
-  snapshot: Pick<ConnectionsSnapshot, "providerConnections" | "github">,
-): boolean {
-  // "Any connection" for the shell gate: GitHub, or any connected provider that is a canonical LLM.
-  // A connected non-LLM provider (curated out of the surface) must never claim a connection the user
-  // cannot see. Kept catalog-independent so it holds even before the catalog snapshot resolves.
-  return (
-    snapshot.github.status === "connected" ||
-    snapshot.providerConnections.some(
-      (connection) =>
-        connection.status === "connected" &&
-        classifyModelProvider(connection.providerId).category === "llm",
-    )
-  );
-}
-
 function deviceFlowCodeFields(input: {
   readonly current: DeviceFlowUiState;
   readonly event: DeviceFlowPollState;

@@ -15,6 +15,13 @@ export interface AdminNavModel {
 
 const groupOrder = ["develop", "ai-runtime", "operate", "configure"] as const;
 
+export const NAVIGABLE_ROUTES: ReadonlySet<string> = new Set([
+  "/",
+  "/ask-opzava",
+  "/dev-board",
+  "/connections",
+]);
+
 const groupLabels: Readonly<Record<(typeof groupOrder)[number], string>> = {
   develop: "Develop",
   "ai-runtime": "AI Runtime",
