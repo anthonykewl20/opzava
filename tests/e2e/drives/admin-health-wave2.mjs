@@ -61,7 +61,7 @@ try {
     .first();
   const ringLabel = (await ring.getAttribute("aria-label")) ?? "";
   const counts = ringLabel.match(
-    /(\d+) of (\d+) checks healthy, (\d+) need attention, (\d+) not checked/,
+    /(\d+) of (\d+) checks healthy, (\d+) needs? attention, (\d+) not checked/,
   );
   const currentCountsTruthful =
     counts !== null &&
