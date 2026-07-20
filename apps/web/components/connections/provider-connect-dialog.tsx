@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type {
@@ -76,10 +76,18 @@ export function OrchestratorModelPicker({
   const currentModel = provider.model ?? null;
   const [choice, setChoice] = useState<string>(currentModel ?? "");
   const [pending, setPending] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const [requestId] = useState(() => globalThis.crypto.randomUUID());
   const [failure, setFailure] = useState<{
     readonly message: string;
     readonly code: string | null;
   } | null>(null);
+
+  useEffect(() => {
+    if (!accepted) return;
+    const timeoutId = window.setTimeout(() => setAccepted(false), 5_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [accepted]);
 
   const elect = useCallback(async () => {
     if (pending || choice === "" || choice === currentModel) {
@@ -89,16 +97,16 @@ export function OrchestratorModelPicker({
     setFailure(null);
     const result = await postConnectionsMutation<unknown>(
       "/api/connections/orchestrator/set-main",
-      { providerId: provider.connectionProviderId, model: choice },
-      { timeoutMs: 120_000 },
+      { requestId, providerId: provider.connectionProviderId, model: choice },
     );
     setPending(false);
     if (!result.ok) {
       setFailure({ message: result.message, code: result.code });
       return;
     }
+    setAccepted(true);
     router.refresh();
-  }, [choice, currentModel, pending, provider.connectionProviderId, router]);
+  }, [choice, currentModel, pending, provider.connectionProviderId, requestId, router]);
 
   if (catalogModels.length === 0) {
     return null;
@@ -139,13 +147,13 @@ export function OrchestratorModelPicker({
         <Button
           type="button"
           size="sm"
-          disabled={pending || choice === "" || choice === currentModel}
+          disabled={pending || accepted || choice === "" || choice === currentModel}
           onClick={() => void elect()}
         >
-          {pending ? (
+          {pending || accepted ? (
             <span className="flex items-center gap-1.5">
               <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
-              Electing…
+              {accepted ? `Verifying ${choice}…` : "Electing…"}
             </span>
           ) : (
             "Use for orchestrator"

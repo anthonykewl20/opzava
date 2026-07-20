@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OrchestratorDelegationState } from "@opzava/ports";
 
@@ -29,30 +29,45 @@ function OrchestratorReconcileNotice({
 }) {
   if (reconcile.status === "idle") return null;
   if (reconcile.status === "running") {
+    const message =
+      reconcile.reason === "set-main"
+        ? reconcile.phase === "queued"
+          ? `Queued election for ${reconcile.model}.`
+          : reconcile.phase === "verifying"
+            ? `Verifying ${reconcile.model}…`
+            : `Committing ${reconcile.model} as the main orchestrator…`
+        : "Re-electing the main orchestrator - this can take a minute.";
     return (
       <div
         className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
         role="status"
       >
         <span className="sb-spinner sb-spinner--sm" aria-hidden="true" />
-        <span>Re-electing the main orchestrator - this can take a minute.</span>
+        <span>{message}</span>
       </div>
     );
   }
   const recovery =
-    reconcile.reason === "disconnect"
-      ? `The main orchestrator may still point to a disconnected provider. Set another connected provider as main, or reconnect ${reconcile.providerId ?? "the provider"} before using Ask Admin.`
-      : "The gateway primary and main orchestrator may disagree. Set a connected provider as main before using Ask Admin.";
+    reconcile.reason === "set-main"
+      ? `Could not elect ${reconcile.model}.`
+      : reconcile.reason === "disconnect"
+        ? `The main orchestrator may still point to a disconnected provider. Set another connected provider as main, or reconnect ${reconcile.providerId ?? "the provider"} before using Ask Admin.`
+        : "The gateway primary and main orchestrator may disagree. Set a connected provider as main before using Ask Admin.";
   return (
     <div
       className="grid gap-1 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm"
       role="alert"
     >
-      <p className="font-medium">Main orchestrator re-election failed</p>
-      <p>{recovery}</p>
+      <p className="font-medium">
+        {reconcile.reason === "set-main" ? recovery : "Main orchestrator re-election failed"}
+      </p>
+      {reconcile.reason === "set-main" ? null : <p>{recovery}</p>}
       {reconcile.message === undefined ? null : (
         <p className="text-muted-foreground">{reconcile.message}</p>
       )}
+      {reconcile.reason === "set-main" ? (
+        <p className="font-mono text-xs text-muted-foreground">{reconcile.code}</p>
+      ) : null}
     </div>
   );
 }
@@ -66,8 +81,6 @@ export function ModelProvidersPanel({
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [activeTier, setActiveTier] = useState<string | undefined>(undefined);
-  const [optimisticLeadProviderId, setOptimisticLeadProviderId] = useState<string | null>(null);
-  const providersAtOptimisticSetRef = useRef<readonly ProviderRow[] | null>(null);
   const sortedProviders = useMemo(() => [...providers].sort(providerSort), [providers]);
   const filteredProviders = useMemo(
     () => filterProviders(sortedProviders, query),
@@ -91,33 +104,11 @@ export function ModelProvidersPanel({
     return () => window.clearInterval(intervalId);
   }, [orchestratorReconcile.status, router]);
 
-  const handleSetMainOrchestratorSuccess = useCallback(
-    (providerId: string) => {
-      providersAtOptimisticSetRef.current = providers;
-      setOptimisticLeadProviderId(providerId);
-    },
-    [providers],
-  );
-  useEffect(() => {
-    if (optimisticLeadProviderId === null) return;
-    const optimisticProvider = providers.find(
-      (provider) => provider.id === optimisticLeadProviderId,
-    );
-    if (
-      providers !== providersAtOptimisticSetRef.current ||
-      optimisticProvider === undefined ||
-      optimisticProvider.status !== "connected"
-    ) {
-      providersAtOptimisticSetRef.current = null;
-      setOptimisticLeadProviderId(null);
-    }
-  }, [optimisticLeadProviderId, providers]);
+  const handleSetMainOrchestratorSuccess = useCallback(() => router.refresh(), [router]);
 
   const connectedProviders = sortedProviders.filter((provider) => provider.status === "connected");
-  const leadProvider = connectedProviders.find((provider) =>
-    optimisticLeadProviderId === null
-      ? provider.roleLabel === "Lead orchestrator"
-      : provider.id === optimisticLeadProviderId,
+  const leadProvider = connectedProviders.find(
+    (provider) => provider.roleLabel === "Lead orchestrator",
   );
   const subagents = connectedProviders.filter((provider) => provider.id !== leadProvider?.id);
 
@@ -178,7 +169,7 @@ export function ModelProvidersPanel({
                     tierId={tier.id}
                     tierLabel={tier.label}
                     providers={tier.providers}
-                    optimisticLeadProviderId={optimisticLeadProviderId}
+                    optimisticLeadProviderId={null}
                     onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
                   />
                 ))}
@@ -191,7 +182,7 @@ export function ModelProvidersPanel({
                   tierId={tier.id}
                   tierLabel={tier.label}
                   providers={tier.providers}
-                  optimisticLeadProviderId={optimisticLeadProviderId}
+                  optimisticLeadProviderId={null}
                   onSetMainOrchestratorSuccess={handleSetMainOrchestratorSuccess}
                 />
               </TabsContent>

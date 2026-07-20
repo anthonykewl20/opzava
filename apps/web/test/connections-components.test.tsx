@@ -162,6 +162,50 @@ describe("Connections components", () => {
     expect(failedHtml).toContain("may still point to a disconnected provider");
     expect(failedHtml).toContain("Gateway rejected the orchestrator patch.");
     expect(failedHtml).toContain('role="alert"');
+
+    for (const [phase, copy] of [
+      ["queued", "Queued election for openai/gpt-5.6-sol."],
+      ["verifying", "Verifying openai/gpt-5.6-sol"],
+      ["committing", "Committing openai/gpt-5.6-sol as the main orchestrator"],
+    ] as const) {
+      const manualHtml = renderToStaticMarkup(
+        createElement(ModelProvidersPanel, {
+          gatewayStatus: "active",
+          providers: [],
+          summary: emptySummary,
+          orchestratorReconcile: {
+            status: "running",
+            reason: "set-main",
+            phase,
+            requestId: "manual-election-1",
+            providerId: "openai",
+            model: "openai/gpt-5.6-sol",
+            startedAt: "2026-07-20T00:00:00.000Z",
+          },
+        }),
+      );
+      expect(manualHtml).toContain(copy);
+    }
+
+    const manualFailureHtml = renderToStaticMarkup(
+      createElement(ModelProvidersPanel, {
+        gatewayStatus: "active",
+        providers: [],
+        summary: emptySummary,
+        orchestratorReconcile: {
+          status: "failed",
+          reason: "set-main",
+          requestId: "manual-election-1",
+          providerId: "openai",
+          model: "openai/gpt-5.6-sol",
+          message: "The bundled runtime rejected this model.",
+          code: "provisioning.connections.modelNotRunnableByGateway",
+          startedAt: "2026-07-20T00:00:00.000Z",
+        },
+      }),
+    );
+    expect(manualFailureHtml).toContain("Could not elect openai/gpt-5.6-sol");
+    expect(manualFailureHtml).toContain("modelNotRunnableByGateway");
   });
 
   it("renders an explicit three-state health breakdown without progress semantics", () => {

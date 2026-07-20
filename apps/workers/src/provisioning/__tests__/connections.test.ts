@@ -595,6 +595,7 @@ class RecordingGatewayRuntime {
       readonly authProbeResult?: Result<ProviderAuthProbe> | (() => Result<ProviderAuthProbe>);
       /** Force the #251 canary result while retaining the exact elected target. */
       readonly modelRunProbeResult?: Result<ModelRunProbe> | (() => Result<ModelRunProbe>);
+      readonly modelRunProbeBarrier?: Promise<void>;
       /** Suppress the `Auth profile: ...` line, as an older gateway would. */
       readonly omitWrittenProfileId?: boolean;
       /**
@@ -789,13 +790,17 @@ class RecordingGatewayRuntime {
     readonly baselineModel?: string;
   }): Promise<Result<ModelRunProbe>> {
     this.modelRunProbes.push(input);
+    await this.options.modelRunProbeBarrier;
     if (typeof this.options.modelRunProbeResult === "function") {
       return this.options.modelRunProbeResult();
     }
-    return this.options.modelRunProbeResult ?? ok({
-      verdict: "runnable",
-      reason: "the test gateway can run the elected model",
-    });
+    return (
+      this.options.modelRunProbeResult ??
+      ok({
+        verdict: "runnable",
+        reason: "the test gateway can run the elected model",
+      })
+    );
   }
 
   public async listAgentProviderProfiles(input: {
@@ -1471,12 +1476,28 @@ describe("Connections provisioning helpers", () => {
 
   it("serves the internal Connections provisioning endpoint behind the shared token", async () => {
     const refreshInputs: unknown[] = [];
+    const setMainInputs: unknown[] = [];
     const server = createConnectionsInternalHttpServer({
       provisioningPort: {
         ...fakeProvisioningPort(),
         refreshConnectionsSnapshot: async (input) => {
           refreshInputs.push(input);
           return ok(connectionsSnapshot());
+        },
+        setMainOrchestrator: async (input) => {
+          setMainInputs.push(input);
+          return ok({
+            ...connectionsSnapshot().orchestrator,
+            reconcile: {
+              status: "running",
+              reason: "set-main",
+              phase: "queued",
+              requestId: input.requestId,
+              providerId: input.providerId,
+              model: input.model ?? "zai/glm-5.2",
+              startedAt: "2026-07-20T00:00:00.000Z",
+            },
+          });
         },
       },
       internalToken: "local-provisioning-token",
@@ -1530,6 +1551,40 @@ describe("Connections provisioning helpers", () => {
       });
       expect(refreshed.status).toBe(200);
       expect(refreshInputs).toEqual([expect.objectContaining({ workspaceId: "workspace-1" })]);
+
+      const setMainBody = {
+        orgId: "org-1",
+        workspaceId: "workspace-1",
+        actorUserId: "user-1",
+        roleKeys: ["admin"],
+        providerId: "zai",
+        model: "glm-5.2",
+      };
+      const invalidSetMain = await fetch(`${baseUrl}/internal/connections/orchestrator/set-main`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer local-provisioning-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(setMainBody),
+      });
+      expect(invalidSetMain.status).toBe(400);
+      const queuedSetMain = await fetch(`${baseUrl}/internal/connections/orchestrator/set-main`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer local-provisioning-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ...setMainBody, requestId: "http-set-main-1" }),
+      });
+      expect(queuedSetMain.status).toBe(202);
+      expect(setMainInputs).toEqual([
+        expect.objectContaining({
+          requestId: "http-set-main-1",
+          providerId: "zai",
+          model: "glm-5.2",
+        }),
+      ]);
     } finally {
       await closeServer(server);
     }
@@ -6585,7 +6640,10 @@ describe("Connections provisioning helpers", () => {
   it("does not patch an exact canonical orchestrator and subagent config", async () => {
     const gatewayRuntime = new RecordingGatewayRuntime({
       statusResult: err(
-        new DomainError({ code: "gateway.statusUnavailable", message: "not needed for this no-op" }),
+        new DomainError({
+          code: "gateway.statusUnavailable",
+          message: "not needed for this no-op",
+        }),
       ),
     });
     const admin = new RecordingAdminClient({
@@ -7040,16 +7098,26 @@ describe("Connections provisioning helpers", () => {
 
     const result = await port.setMainOrchestrator({
       ...principal(),
+      requestId: "set-main-catalog-model",
       providerId: "openai",
       model: "gpt-5.6-sol",
     });
 
     expect(result.ok).toBe(true);
     expect(result.ok ? result.value : null).toMatchObject({
-      orchestratorModel: "openai/gpt-5.6-sol",
+      orchestratorModel: "openai/gpt-5.5",
       orchestratorProviderId: "openai",
-      allowAgents: ["subagent-zai"],
+      reconcile: {
+        status: "running",
+        reason: "set-main",
+        phase: "queued",
+        requestId: "set-main-catalog-model",
+        model: "openai/gpt-5.6-sol",
+      },
     });
+    await vi.waitFor(() =>
+      expect(admin.calls.some((call) => call.method === "config.patch")).toBe(true),
+    );
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     expect(patchCall?.params).toMatchObject({
       baseHash: "config-hash-set-main",
@@ -7106,10 +7174,12 @@ describe("Connections provisioning helpers", () => {
     });
   }
 
-  function modelElectionPort(input: {
-    readonly admin?: RecordingAdminClient;
-    readonly gatewayRuntime?: RecordingGatewayRuntime;
-  } = {}): {
+  function modelElectionPort(
+    input: {
+      readonly admin?: RecordingAdminClient;
+      readonly gatewayRuntime?: RecordingGatewayRuntime;
+    } = {},
+  ): {
     readonly admin: RecordingAdminClient;
     readonly port: GatewayAdminConnectionsProvisioningPort;
   } {
@@ -7135,7 +7205,9 @@ describe("Connections provisioning helpers", () => {
     });
   }
 
-  function modelElectionRuntime(modelRunProbeResult?: Result<ModelRunProbe>): RecordingGatewayRuntime {
+  function modelElectionRuntime(
+    modelRunProbeResult?: Result<ModelRunProbe>,
+  ): RecordingGatewayRuntime {
     return new RecordingGatewayRuntime({
       status: {
         allowed: ["openai/gpt-5.5", "openai/gpt-5.6-sol"],
@@ -7151,6 +7223,342 @@ describe("Connections provisioning helpers", () => {
       ...(modelRunProbeResult === undefined ? {} : { modelRunProbeResult }),
     });
   }
+
+  function mutableManualElectionAdmin(
+    input: {
+      readonly patchResults?: readonly Result<unknown>[];
+      readonly applyFailedPatch?: boolean;
+    } = {},
+  ): RecordingAdminClient {
+    let hash = 1;
+    let config: Record<string, unknown> = {
+      auth: {
+        profiles: {
+          "openai-device": { providerId: "openai", authChoiceId: "openai-device-code" },
+        },
+        order: { openai: ["openai-device"] },
+      },
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.5" },
+          models: { "openai/gpt-5.5": {} },
+        },
+        list: [{ id: "ask-admin-opzava", model: "openai/gpt-5.5" }],
+      },
+    };
+    let patchAttempt = 0;
+    const admin = new RecordingAdminClient({
+      "config.get": () => ok({ hash: `manual-election-${hash}`, config }),
+      "models.list": ok({
+        providers: [{ id: "openai", label: "OpenAI", suggestedModel: "gpt-5.5" }],
+        models: [
+          { id: "gpt-5.5", name: "GPT 5.5", provider: "openai", available: true },
+          { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", available: true },
+        ],
+      }),
+      "config.patch": () => {
+        const forced = input.patchResults?.[patchAttempt];
+        patchAttempt += 1;
+        const call = admin.calls.at(-1);
+        if (forced?.ok !== false || input.applyFailedPatch === true) {
+          config = applyJsonMergePatch(config, rawPatch(call!.params)) as Record<string, unknown>;
+        }
+        hash += 1;
+        return forced ?? ok({ ok: true });
+      },
+    });
+    return admin;
+  }
+
+  it("starts manual election before the canary settles, deduplicates its request, and holds the config reservation", async () => {
+    let releaseProbe!: () => void;
+    const probeBarrier = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    const admin = mutableManualElectionAdmin();
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["openai/gpt-5.5", "openai/gpt-5.6-sol"],
+        auth: { providers: [{ provider: "openai", profiles: { count: 1, oauth: 1 } }] },
+      },
+      modelRunProbeBarrier: probeBarrier,
+    });
+    const port = modelElectionPort({ admin, gatewayRuntime }).port;
+    const election = {
+      ...principal(),
+      requestId: "manual-election-dedup",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    };
+
+    const started = await port.setMainOrchestrator(election);
+    expect(started).toMatchObject({
+      ok: true,
+      value: {
+        orchestratorModel: "openai/gpt-5.5",
+        reconcile: { status: "running", reason: "set-main", phase: "queued" },
+      },
+    });
+    await vi.waitFor(() => expect(gatewayRuntime.modelRunProbes).toHaveLength(1));
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(0);
+
+    await expect(port.setMainOrchestrator(election)).resolves.toMatchObject({ ok: true });
+    await expect(
+      port.setMainOrchestrator({ ...election, requestId: "another-request" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.orchestratorElectionInFlight" },
+    });
+    await expect(
+      port.setModelProviderModelEnabled({
+        ...principal(),
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        enabled: false,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.providerConnectInFlight" },
+    });
+
+    releaseProbe();
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator : null).toMatchObject({
+        orchestratorModel: "openai/gpt-5.6-sol",
+        reconcile: { status: "idle" },
+      });
+    });
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(gatewayRuntime.modelRunProbes).toEqual([
+      {
+        agentId: "ask-admin-opzava",
+        providerId: "openai",
+        model: "openai/gpt-5.6-sol",
+        baselineModel: "openai/gpt-5.5",
+      },
+    ]);
+  });
+
+  it("publishes an actionable manual failure and leaves config untouched when the canary is unrunnable", async () => {
+    const admin = mutableManualElectionAdmin();
+    const gatewayRuntime = modelElectionRuntime(
+      ok({ verdict: "unrunnable", reason: "the bundled runtime is too old" }),
+    );
+    const port = modelElectionPort({ admin, gatewayRuntime }).port;
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "manual-election-unrunnable",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      const reconcile = snapshot.ok ? snapshot.value.orchestrator.reconcile : null;
+      expect(reconcile).toMatchObject({
+        status: "failed",
+        reason: "set-main",
+        code: "provisioning.connections.modelNotRunnableByGateway",
+        model: "openai/gpt-5.6-sol",
+      });
+      expect(JSON.stringify(reconcile)).not.toContain(principal().actorUserId);
+      expect(JSON.stringify(reconcile)).not.toContain("roleKeys");
+    });
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(0);
+  });
+
+  it("treats a lost patch response as success only when readback proves the desired config", async () => {
+    const lostResponse = err(
+      new DomainError({
+        code: "gateway.connectionClosed",
+        message: "connection closed before config.patch response",
+      }),
+    );
+    const committedAdmin = mutableManualElectionAdmin({
+      patchResults: [lostResponse],
+      applyFailedPatch: true,
+    });
+    const uncommittedAdmin = mutableManualElectionAdmin({ patchResults: [lostResponse] });
+
+    const committed = modelElectionPort({ admin: committedAdmin }).port;
+    const uncommitted = modelElectionPort({ admin: uncommittedAdmin }).port;
+    await committed.setMainOrchestrator({
+      ...principal(),
+      requestId: "ambiguous-committed",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+    await uncommitted.setMainOrchestrator({
+      ...principal(),
+      requestId: "ambiguous-uncommitted",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+
+    await vi.waitFor(async () => {
+      const committedSnapshot = await committed.getConnectionsSnapshot(principal());
+      const uncommittedSnapshot = await uncommitted.getConnectionsSnapshot(principal());
+      expect(committedSnapshot.ok ? committedSnapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+      expect(
+        uncommittedSnapshot.ok ? uncommittedSnapshot.value.orchestrator.reconcile : null,
+      ).toMatchObject({
+        status: "failed",
+        code: "provisioning.connections.orchestratorElectionVerifyFailed",
+      });
+    });
+    expect(committedAdmin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(uncommittedAdmin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("rebuilds from a fresh hash and re-probes after a rejected stale-base patch", async () => {
+    const admin = mutableManualElectionAdmin({
+      patchResults: [
+        err(new DomainError({ code: "gateway.staleBaseHash", message: "baseHash is stale" })),
+        ok({ ok: true }),
+      ],
+    });
+    const gatewayRuntime = modelElectionRuntime();
+    const port = modelElectionPort({ admin, gatewayRuntime }).port;
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "stale-base-rebuild",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+    });
+    const patches = admin.calls.filter((call) => call.method === "config.patch");
+    expect(patches).toHaveLength(2);
+    expect(patches.map((call) => call.params["baseHash"])).toEqual([
+      "manual-election-1",
+      "manual-election-2",
+    ]);
+    expect(gatewayRuntime.modelRunProbes).toHaveLength(2);
+  });
+
+  it("fails open for manual unproven, probe-error, and absent-runtime canaries", async () => {
+    const cases: readonly [string, RecordingGatewayRuntime | undefined][] = [
+      [
+        "unproven",
+        modelElectionRuntime(ok({ verdict: "unproven", reason: "the canary timed out" })),
+      ],
+      [
+        "error",
+        modelElectionRuntime(
+          err(new DomainError({ code: "gateway.probeFailed", message: "probe unavailable" })),
+        ),
+      ],
+      ["absent", undefined],
+    ];
+
+    for (const [name, gatewayRuntime] of cases) {
+      const admin = mutableManualElectionAdmin();
+      const port = modelElectionPort({
+        admin,
+        ...(gatewayRuntime === undefined ? {} : { gatewayRuntime }),
+      }).port;
+      await port.setMainOrchestrator({
+        ...principal(),
+        requestId: `fail-open-${name}`,
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+      });
+      await vi.waitFor(async () => {
+        const snapshot = await port.getConnectionsSnapshot(principal());
+        expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toEqual({
+          status: "idle",
+        });
+      });
+      expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    }
+  });
+
+  it("treats an already-current retry as a no-probe, no-write queued no-op", async () => {
+    const admin = mutableManualElectionAdmin();
+    const gatewayRuntime = modelElectionRuntime();
+    const port = modelElectionPort({ admin, gatewayRuntime }).port;
+    const elect = (requestId: string) =>
+      port.setMainOrchestrator({
+        ...principal(),
+        requestId,
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+      });
+
+    await elect("already-current-first");
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+    });
+    const probesAfterFirst = gatewayRuntime.modelRunProbes.length;
+    const writesAfterFirst = admin.calls.filter((call) => call.method === "config.patch").length;
+
+    await expect(elect("already-current-second")).resolves.toMatchObject({
+      ok: true,
+      value: { orchestratorModel: "openai/gpt-5.6-sol" },
+    });
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+    });
+    expect(gatewayRuntime.modelRunProbes).toHaveLength(probesAfterFirst);
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(
+      writesAfterFirst,
+    );
+  });
+
+  it("keeps the shared tail usable after unexpected manual-election work throws", async () => {
+    let probes = 0;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      status: {
+        allowed: ["openai/gpt-5.5", "openai/gpt-5.6-sol"],
+        auth: { providers: [{ provider: "openai", profiles: { count: 1, oauth: 1 } }] },
+      },
+      modelRunProbeResult: () => {
+        probes += 1;
+        if (probes === 1) throw new Error("synthetic probe crash");
+        return ok({ verdict: "runnable", reason: "recovered" });
+      },
+    });
+    const admin = mutableManualElectionAdmin();
+    const port = modelElectionPort({ admin, gatewayRuntime }).port;
+    const election = (requestId: string) =>
+      port.setMainOrchestrator({
+        ...principal(),
+        requestId,
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+      });
+
+    await election("tail-throws-first");
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toMatchObject({
+        status: "failed",
+        code: "provisioning.connections.orchestratorElectionFailed",
+      });
+    });
+    await election("tail-recovers-second");
+    await vi.waitFor(async () => {
+      const snapshot = await port.getConnectionsSnapshot(principal());
+      expect(snapshot.ok ? snapshot.value.orchestrator.reconcile : null).toEqual({
+        status: "idle",
+      });
+    });
+    expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
 
   it("rejects an unrunnable model election before any orchestrator config write", async () => {
     const gatewayRuntime = modelElectionRuntime(
@@ -7231,9 +7639,7 @@ describe("Connections provisioning helpers", () => {
 
   it("fails open when the model canary errors or the gateway runtime is absent", async () => {
     const probeError = modelElectionRuntime(
-      err(
-        new DomainError({ code: "gateway.modelProbeUnavailable", message: "probe timed out" }),
-      ),
+      err(new DomainError({ code: "gateway.modelProbeUnavailable", message: "probe timed out" })),
     );
     const errored = modelElectionPort({ gatewayRuntime: probeError });
     const unavailable = modelElectionPort();
@@ -7241,7 +7647,9 @@ describe("Connections provisioning helpers", () => {
     await expect(reconcileCanaryModel(errored.port)).resolves.toMatchObject({ ok: true });
     await expect(reconcileCanaryModel(unavailable.port)).resolves.toMatchObject({ ok: true });
     expect(errored.admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
-    expect(unavailable.admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+    expect(unavailable.admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(
+      1,
+    );
   });
 
   it("leaves the prior orchestrator intact when auto-reconcile finds an unrunnable replacement", async () => {
@@ -7372,9 +7780,16 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+    const result = await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "set-main-policy",
+      providerId: "zai",
+    });
 
     expect(result.ok).toBe(true);
+    await vi.waitFor(() =>
+      expect(admin.calls.some((call) => call.method === "config.patch")).toBe(true),
+    );
     const patchCall = admin.calls.find((call) => call.method === "config.patch");
     const askAdmin = (
       rawPatch(patchCall!.params) as {
@@ -7451,13 +7866,21 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.setMainOrchestrator({ ...principal(), providerId: "openai" });
+    const result = await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "set-main-runtime",
+      providerId: "openai",
+    });
 
     expect(result.ok).toBe(true);
     expect(result.ok ? result.value : null).toMatchObject({
-      orchestratorModel: "openai/gpt-5.5",
-      orchestratorProviderId: "openai",
+      orchestratorModel: null,
+      orchestratorProviderId: null,
+      reconcile: { status: "running", reason: "set-main", phase: "queued" },
     });
+    await vi.waitFor(() =>
+      expect(admin.calls.some((call) => call.method === "config.patch")).toBe(true),
+    );
     expect(admin.calls.some((call) => call.method === "config.patch")).toBe(true);
     expect(result.ok ? null : result.error).not.toMatchObject({
       code: "provisioning.connections.orchestratorProviderNotConnected",
@@ -7493,7 +7916,11 @@ describe("Connections provisioning helpers", () => {
       now: () => new Date("2026-07-03T00:00:00.000Z"),
     });
 
-    const result = await port.setMainOrchestrator({ ...principal(), providerId: "zai" });
+    const result = await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "set-main-disconnected",
+      providerId: "zai",
+    });
 
     expect(result.ok).toBe(false);
     expect(result.ok ? null : result.error).toMatchObject({
@@ -9455,8 +9882,9 @@ describe("Connections provisioning helpers", () => {
       providerId: "openai",
       startedAt: "2026-07-14T00:00:00.000Z",
     });
-    expect(reconcile?.message).toContain("Gateway rejected config.patch");
-    expect(reconcile?.message).not.toContain("secret-reconcile-value");
+    const reconcileMessage = reconcile?.status === "failed" ? reconcile.message : undefined;
+    expect(reconcileMessage).toContain("Gateway rejected config.patch");
+    expect(reconcileMessage).not.toContain("secret-reconcile-value");
 
     await Promise.resolve();
     const laterSnapshot = await port.getConnectionsSnapshot(principal());

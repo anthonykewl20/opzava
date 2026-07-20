@@ -115,6 +115,7 @@ export function SetMainOrchestratorForm({
   readonly onPendingChange: (pending: boolean) => void;
   readonly onSuccess: () => void;
 }) {
+  const [requestId] = useState(() => globalThis.crypto.randomUUID());
   const [phase, setPhase] = useState<SetMainOrchestratorPhase>({ step: "idle" });
   const isPending = phase.step === "pending" || phase.step === "verifying";
 
@@ -123,6 +124,7 @@ export function SetMainOrchestratorForm({
       postConnectionsMutation<OrchestratorDelegationState>(
         "/api/connections/orchestrator/set-main",
         {
+          requestId,
           providerId: provider.connectionProviderId,
         },
       );
@@ -141,7 +143,7 @@ export function SetMainOrchestratorForm({
       return;
     }
     setPhase({ step: "failed", message: result.message, code: result.code });
-  }, [onPendingChange, onSuccess, provider.connectionProviderId]);
+  }, [onPendingChange, onSuccess, provider.connectionProviderId, requestId]);
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -167,9 +169,12 @@ export function SetMainOrchestratorForm({
         Other connected providers stay available as subagents after this change.
       </DialogNotice>
       {phase.step === "verifying" ? (
-        <DialogNotice tone="neutral" role="status" title="Verifying orchestrator">
-          The first attempt did not answer in time; confirming the main orchestrator with the
-          gateway.
+        <DialogNotice
+          tone="neutral"
+          role="status"
+          title={`Verifying ${provider.model ?? provider.label}…`}
+        >
+          The election request is safe to retry while Opzava verifies the model with the gateway.
         </DialogNotice>
       ) : null}
       {phase.step === "failed" ? (

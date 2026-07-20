@@ -201,13 +201,41 @@ export interface OrchestratorSubagentRole {
   readonly whenToUse: string;
 }
 
-export interface OrchestratorReconcileState {
-  readonly status: "idle" | "running" | "failed";
-  readonly reason?: "disconnect" | "connect";
-  readonly providerId?: string;
-  readonly message?: string;
-  readonly startedAt?: string;
-}
+export type OrchestratorReconcileState =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "running";
+      readonly reason: "disconnect" | "connect";
+      readonly providerId: string;
+      readonly startedAt: string;
+    }
+  | {
+      readonly status: "running";
+      readonly reason: "set-main";
+      readonly phase: "queued" | "verifying" | "committing";
+      readonly requestId: string;
+      readonly providerId: string;
+      readonly model: string;
+      readonly startedAt: string;
+    }
+  | {
+      readonly status: "failed";
+      readonly reason: "disconnect" | "connect";
+      readonly providerId: string;
+      readonly message: string;
+      readonly code?: string;
+      readonly startedAt: string;
+    }
+  | {
+      readonly status: "failed";
+      readonly reason: "set-main";
+      readonly requestId: string;
+      readonly providerId: string;
+      readonly model: string;
+      readonly message: string;
+      readonly code: string;
+      readonly startedAt: string;
+    };
 
 export interface OrchestratorDelegationState {
   readonly orchestratorAgentId: string;
@@ -336,6 +364,7 @@ export interface ApplyOrchestratorDelegationInput extends ConnectionProvisioning
 }
 
 export interface SetMainOrchestratorInput extends ConnectionProvisioningPrincipal {
+  readonly requestId: string;
   readonly providerId: string;
   readonly model?: string;
 }

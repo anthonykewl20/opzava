@@ -92,6 +92,16 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
+function mutationErrorStatus(code: string): number {
+  return code === "provisioning.connections.providerConnectInFlight" ||
+    code === "provisioning.connections.orchestratorElectionInFlight" ||
+    code === "provisioning.connections.orchestratorProviderNotConnected" ||
+    code === "provisioning.connections.orchestratorModelUnknown" ||
+    code === "provisioning.connections.orchestratorModelUnavailable"
+    ? 409
+    : 502;
+}
+
 function errorPayload(error: unknown): {
   readonly code: string;
   readonly message: string;
@@ -474,7 +484,13 @@ async function handleConnectionsRequest(
     }
 
     const providerId = stringValue(body["providerId"]);
-    if (providerId === null) {
+    const requestId = stringValue(body["requestId"]);
+    if (
+      providerId === null ||
+      requestId === null ||
+      body["requestId"] !== requestId ||
+      requestId.length > 128
+    ) {
       writeJson(response, 400, { error: "invalid_request" });
       return;
     }
@@ -483,12 +499,13 @@ async function handleConnectionsRequest(
     const model = stringValue(body["model"]);
     const result = await options.provisioningPort.setMainOrchestrator({
       ...principal,
+      requestId,
       providerId,
       ...(model === null ? {} : { model }),
     });
     writeJson(
       response,
-      result.ok ? 200 : 502,
+      result.ok ? 202 : mutationErrorStatus(result.error.code),
       result.ok ? result.value : errorPayload(result.error),
     );
     return;

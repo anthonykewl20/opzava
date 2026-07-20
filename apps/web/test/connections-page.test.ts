@@ -16,6 +16,7 @@ import {
   loadConnectionsPageData,
   pollConnectionDeviceFlowForContext,
   pollModelProviderApiKeyConnectForContext,
+  setMainOrchestratorForContext,
   startModelProviderApiKeyConnectForContext,
   startGitHubDeviceFlowForContext,
   startModelProviderDeviceFlowForContext,
@@ -32,6 +33,7 @@ import {
   projectModelProviders,
 } from "../lib/connections-state";
 import type { AppSessionContext } from "../lib/session";
+import { connectionsMutationErrorResponse } from "../lib/connections-route-errors";
 
 function context(overrides: Partial<AppSessionContext> = {}): AppSessionContext {
   return {
@@ -478,6 +480,18 @@ async function readRepoFile(path: string): Promise<string> {
 }
 
 describe("Connections page state", () => {
+  it("maps synchronous set-main validation and busy failures to conflict responses", () => {
+    for (const code of [
+      "provisioning.connections.providerConnectInFlight",
+      "provisioning.connections.orchestratorElectionInFlight",
+      "provisioning.connections.orchestratorProviderNotConnected",
+      "provisioning.connections.orchestratorModelUnknown",
+      "provisioning.connections.orchestratorModelUnavailable",
+    ]) {
+      expect(connectionsMutationErrorResponse({ code, message: "actionable" }).status).toBe(409);
+    }
+  });
+
   it("projects curated LLM parent providers from the gateway-driven catalog", () => {
     const views = projectModelProviders(snapshot());
     const ids = views.map((view) => view.id);
@@ -937,6 +951,50 @@ describe("Connections page state", () => {
     expect(calls).toBe(0);
   });
 
+  it("propagates the stable set-main request id and applies the mutation role gate", async () => {
+    const inputs: unknown[] = [];
+    const guardedDependencies: ConnectionsDependencies = {
+      provisioningPort: {
+        ...fakePort(),
+        setMainOrchestrator: async (input) => {
+          inputs.push(input);
+          return fakePort().setMainOrchestrator(input);
+        },
+      },
+    };
+
+    await expect(
+      setMainOrchestratorForContext(
+        context(),
+        "set-main-request-1",
+        "openai",
+        "gpt-5.6-sol",
+        guardedDependencies,
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        requestId: "set-main-request-1",
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+      }),
+    ]);
+
+    await expect(
+      setMainOrchestratorForContext(
+        context({ roleKeys: ["member"] }),
+        "set-main-request-2",
+        "openai",
+        undefined,
+        guardedDependencies,
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "web.connectionsForbidden" },
+    });
+    expect(inputs).toHaveLength(1);
+  });
+
   it("wires /connections routes, actions, API poll route, and sidebar without JSX imports", async () => {
     const layout = await readRepoFile("app/(app)/connections/layout.tsx");
     const page = await readRepoFile("app/(app)/connections/page.tsx");
@@ -1168,7 +1226,7 @@ describe("Connections page state", () => {
     expect(providerConnectDialog).toContain('"/api/connections/model/api-key"');
     expect(providerConnectDialog).toContain("Start device flow");
     expect(providerConnectDialog).toContain("Retry device flow");
-    expect(providerConnectDialog).toContain("setDevicePhase({ step: \"started\"");
+    expect(providerConnectDialog).toContain('setDevicePhase({ step: "started"');
     expect(providerConnectDialog).toContain("router.refresh()");
     expect(providerConnectDialog).toContain("openclaw onboard --auth-choice");
     expect(providerConnectDialog).not.toContain("no in-browser device flow");

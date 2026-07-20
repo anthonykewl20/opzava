@@ -422,6 +422,7 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
 
   public async setMainOrchestrator(
     input: ConnectionProvisioningPrincipal & {
+      readonly requestId: string;
       readonly providerId: string;
       readonly model?: string;
     },
@@ -840,6 +841,7 @@ export async function applyOrchestratorRolesForContext(
 
 export async function setMainOrchestratorForContext(
   context: AppSessionContext,
+  requestId: string,
   providerId: string,
   model?: string,
   dependencies: ConnectionsDependencies = defaultConnectionsDependencies(),
@@ -851,6 +853,7 @@ export async function setMainOrchestratorForContext(
 
   return dependencies.provisioningPort.setMainOrchestrator({
     ...principalFromContext(context),
+    requestId,
     providerId,
     ...(model === undefined ? {} : { model }),
   });
