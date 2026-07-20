@@ -343,6 +343,7 @@ describe("Admin shell state", () => {
       { id: "nav.ask-admin-opzava", label: "Ask Admin Opzava", href: "/ask-opzava" },
       { id: "nav.overview", label: "Overview", href: "/" },
       { id: "nav.dev-board", label: "Dev Board", href: "/dev-board" },
+      { id: "nav.gateway", label: "Gateway", href: "/gateway" },
       { id: "nav.health", label: "Health", href: "/health" },
       { id: "nav.connections", label: "Connections", href: "/connections" },
     ]);
@@ -350,7 +351,7 @@ describe("Admin shell state", () => {
       .groups.flatMap((group) => group.destinations)
       .map((destination) => destination.href)
       .filter((href) => !NAVIGABLE_ROUTES.has(href));
-    expect(soonHrefs).toHaveLength(17);
+    expect(soonHrefs).toHaveLength(16);
     expect(destinations.some((destination) => soonHrefs.includes(destination.href))).toBe(false);
     expect(items).toContainEqual(
       expect.objectContaining({

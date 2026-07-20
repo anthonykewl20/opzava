@@ -20,6 +20,7 @@ export const NAVIGABLE_ROUTES: ReadonlySet<string> = new Set([
   "/ask-opzava",
   "/dev-board",
   "/connections",
+  "/gateway",
   "/health",
 ]);
 
