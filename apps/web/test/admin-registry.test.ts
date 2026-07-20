@@ -46,8 +46,9 @@ const expectedGroups = [
 ] as const;
 
 describe("Admin destination registry", () => {
-  it("marks the Health destination as navigable", () => {
+  it("marks the landed Health and Gateway destinations as navigable", () => {
     expect(NAVIGABLE_ROUTES.has("/health")).toBe(true);
+    expect(NAVIGABLE_ROUTES.has("/gateway")).toBe(true);
   });
 
   it.each([
