@@ -15,9 +15,8 @@ export const MODEL_PROVIDER_AUTH_ALIASES: Readonly<Record<string, string>> = Obj
   moonshotai: "moonshot",
   "novita-ai": "novita",
   novitaai: "novita",
-  "qwen-cli": "qwen-oauth",
-  "qwen-portal": "qwen-oauth",
   "volcengine-plan": "volcengine",
+  "x-ai": "xai",
 });
 
 export function canonicalModelProviderAuthId(providerId: string): string {

@@ -17,9 +17,8 @@ const mainframeProviderAuthAliasParity = [
   ["moonshotai", "moonshot"],
   ["novita-ai", "novita"],
   ["novitaai", "novita"],
-  ["qwen-cli", "qwen-oauth"],
-  ["qwen-portal", "qwen-oauth"],
   ["volcengine-plan", "volcengine"],
+  ["x-ai", "xai"],
 ] as const;
 
 function bundledMainframeProviderAuthAliases(): Readonly<Record<string, string>> {
