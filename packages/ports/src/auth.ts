@@ -9,6 +9,8 @@ export interface AuthMembership {
   readonly orgId: OrgId;
   readonly tenantId: TenantId;
   readonly membershipVersion: number;
+  /** Opaque authorization state token. Consumers must not parse it. */
+  readonly authorizationVersion: string;
   readonly roleKeys: readonly string[];
 }
 

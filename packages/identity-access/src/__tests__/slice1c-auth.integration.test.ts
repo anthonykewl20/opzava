@@ -5,13 +5,17 @@ import {
   pool,
   withAuthenticatedIdentity,
 } from "@opzava/adapters";
-import { makeOrgId } from "@opzava/shared-kernel";
+import { makeOrgId, makeUserId } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { BetterAuthPortAdapter } from "../adapters/better-auth/auth-port-adapter.js";
-import { withTenantForSession } from "../adapters/better-auth/session-principal.js";
+import {
+  listActiveMembershipsForUser,
+  withTenantForSession,
+} from "../adapters/better-auth/session-principal.js";
+import { bumpAuthorizationVersion } from "../application/authorization-version.js";
 import { FirstOwnerSetupService } from "../application/first-owner-setup.js";
 
 const testRunId = randomUUID();
@@ -366,6 +370,7 @@ describe("slice 1c auth acceptance", () => {
     const activeOrgId = session.identity.activeMembership.orgId;
     expect(session.identity.email).toBe(ownerEmail);
     expect(session.identity.memberships).toHaveLength(1);
+    expect(session.identity.activeMembership.authorizationVersion).toBe("av:1");
     expect(activeOrgId).toBe(created.value.organizationId);
 
     const resolved = await authPort.getSession({ sessionToken: session.sessionToken });
@@ -374,6 +379,7 @@ describe("slice 1c auth acceptance", () => {
       throw new Error("Expected DB-backed session to resolve.");
     }
     expect(resolved.value.identity.activeMembership.orgId).toBe(activeOrgId);
+    expect(resolved.value.identity.activeMembership.authorizationVersion).toBe("av:1");
 
     await withTenantForSession(resolved.value, activeOrgId, async (tx) => {
       const result = await tx.execute(sql`
@@ -456,5 +462,64 @@ describe("slice 1c auth acceptance", () => {
       sessionToken: signedInAgain.value.sessionToken,
     });
     expect(afterLogoutAll).toMatchObject({ ok: true, value: null });
+
+    const signedInForAuthorizationBump = await authPort.signIn({
+      email: ownerEmail,
+      password: ownerPassword,
+    });
+    expect(signedInForAuthorizationBump.ok).toBe(true);
+    if (!signedInForAuthorizationBump.ok || "challengeId" in signedInForAuthorizationBump.value) {
+      throw new Error("Expected owner sign-in to issue a session for the authorization bump.");
+    }
+
+    const bumpSession = signedInForAuthorizationBump.value;
+    expect(bumpSession.identity.activeMembership.authorizationVersion).toBe("av:1");
+
+    await expect(
+      withTenantForSession(bumpSession, activeOrgId, async (tx) =>
+        bumpAuthorizationVersion(tx, {
+          orgId: activeOrgId,
+          userId: makeUserId("missing-user"),
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "postgres.forbidden" });
+
+    const forcedRollback = new Error("force authorization bump rollback");
+    await expect(
+      withTenantForSession(bumpSession, activeOrgId, async (tx) => {
+        await bumpAuthorizationVersion(tx, {
+          orgId: activeOrgId,
+          userId: bumpSession.identity.userId,
+        });
+        const insideTransaction = await tx.execute(sql`
+          select membership_version
+          from public.memberships
+          where organization_id = ${activeOrgId}
+            and user_id = ${bumpSession.identity.userId}
+        `);
+        expect(rowsFromExecuteResult(insideTransaction)[0]?.["membership_version"]).toBe(2);
+        throw forcedRollback;
+      }),
+    ).rejects.toBe(forcedRollback);
+
+    const afterRollback = await listActiveMembershipsForUser(bumpSession.identity.userId);
+    expect(afterRollback[0]?.membershipVersion).toBe(1);
+    expect(afterRollback[0]?.authorizationVersion).toBe("av:1");
+
+    await withTenantForSession(bumpSession, activeOrgId, async (tx) =>
+      bumpAuthorizationVersion(tx, {
+        orgId: activeOrgId,
+        userId: bumpSession.identity.userId,
+      }),
+    );
+
+    const afterCommit = await listActiveMembershipsForUser(bumpSession.identity.userId);
+    expect(afterCommit[0]?.membershipVersion).toBe(2);
+    expect(afterCommit[0]?.authorizationVersion).toBe("av:2");
+
+    const afterAuthorizationBump = await authPort.getSession({
+      sessionToken: bumpSession.sessionToken,
+    });
+    expect(afterAuthorizationBump).toMatchObject({ ok: true, value: null });
   });
 });
