@@ -64,6 +64,9 @@ export default async function AppLayout({ children }: { readonly children: React
         } as CSSProperties
       }
     >
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <AppSidebar model={navModel} />
       <CommandPalette items={shellState.commandItems} />
       <SidebarInset id="main-content" tabIndex={-1} className="admin-shell-inset">

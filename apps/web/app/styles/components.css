@@ -775,6 +775,32 @@ hr {
   border: 0;
 }
 
+/* Keyboard skip link: hidden until focused, then a visible pill above the shell. */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: var(--space-3);
+  z-index: 1000;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-2, 0 2px 8px rgb(0 0 0 / 0.2));
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  transition: top 120ms ease-out;
+}
+
+.skip-link:focus {
+  top: var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link {
+    transition: none;
+  }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
