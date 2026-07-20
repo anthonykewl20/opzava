@@ -49,7 +49,7 @@ function context(overrides: Partial<AppSessionContext> = {}): AppSessionContext 
   };
 }
 
-it("fails a manual refresh when the provisioning worker is unavailable", async () => {
+it("keeps an unconfigured worker distinct from an unavailable configured worker", async () => {
   const keys = [
     "PROVISIONING_WORKER_URL",
     "PROVISIONING_WORKER_TOKEN",
@@ -69,6 +69,16 @@ it("fails a manual refresh when the provisioning worker is unavailable", async (
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected unavailable refresh failure");
     expect(result.error).toMatchObject({ code: "web.connectionsProvisioningNotConfigured" });
+
+    const loaded = await loadConnectionsPageData(context(), {
+      provisioningPort: defaultConnectionsProvisioningPort(),
+    });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) throw loaded.error;
+    expect(loaded.value).toMatchObject({
+      provisioningAvailable: false,
+      snapshot: { gateway: { status: "unavailable" } },
+    });
   } finally {
     for (const key of keys) {
       const value = previous[key];
@@ -480,6 +490,31 @@ async function readRepoFile(path: string): Promise<string> {
 }
 
 describe("Connections page state", () => {
+  it("marks a configured worker snapshot with an unreachable Gateway as unavailable, not unconfigured", async () => {
+    const unavailable = snapshot({
+      gateway: {
+        status: "unavailable",
+        region: null,
+        authLabel: "Unavailable",
+        lastHeartbeatAt: null,
+        message: "Gateway could not be reached.",
+      },
+    });
+    const loaded = await loadConnectionsPageData(context(), {
+      provisioningPort: {
+        ...fakePort(),
+        getConnectionsSnapshot: async () => ok(unavailable),
+      },
+    });
+
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) throw loaded.error;
+    expect(loaded.value).toMatchObject({
+      provisioningAvailable: true,
+      snapshot: { gateway: { status: "unavailable" } },
+    });
+  });
+
   it("maps synchronous set-main validation and busy failures to conflict responses", () => {
     for (const code of [
       "provisioning.connections.providerConnectInFlight",

@@ -202,10 +202,8 @@ function unavailableSnapshot(input: {
 }
 
 class UnavailableConnectionsProvisioningPort implements ConnectionsProvisioningPort {
-  public constructor(private readonly now: () => Date) {}
-
   public async getConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
-    return ok(unavailableSnapshot({ repository: readGitHubIssuesRepository(), now: this.now() }));
+    return err(this.error());
   }
 
   public async refreshConnectionsSnapshot(): Promise<Result<ConnectionsSnapshot>> {
@@ -508,13 +506,11 @@ class InternalConnectionsProvisioningClient implements ConnectionsProvisioningPo
   }
 }
 
-export function defaultConnectionsProvisioningPort(
-  now: () => Date = () => new Date(),
-): ConnectionsProvisioningPort {
+export function defaultConnectionsProvisioningPort(): ConnectionsProvisioningPort {
   const config = readProvisioningConfig();
   return config.ok
     ? new InternalConnectionsProvisioningClient(config.value)
-    : new UnavailableConnectionsProvisioningPort(now);
+    : new UnavailableConnectionsProvisioningPort();
 }
 
 export function defaultConnectionsDependencies(): ConnectionsDependencies {
@@ -545,7 +541,7 @@ async function loadConnectionsPageDataForPrincipal(
         providerSummary,
         providers,
         githubSummary: githubConnectionSummary(fallback.github),
-        provisioningAvailable: false,
+        provisioningAvailable: code !== "web.connectionsProvisioningNotConfigured",
       });
     }
 
@@ -559,7 +555,7 @@ async function loadConnectionsPageDataForPrincipal(
     providerSummary,
     providers,
     githubSummary: githubConnectionSummary(snapshot.value.github),
-    provisioningAvailable: snapshot.value.gateway.status === "active",
+    provisioningAvailable: true,
   });
 }
 
@@ -621,7 +617,7 @@ export async function refreshConnectionsPageData(
     providerSummary: providerConnectionSummary(snapshot.value),
     providers,
     githubSummary: githubConnectionSummary(snapshot.value.github),
-    provisioningAvailable: snapshot.value.gateway.status === "active",
+    provisioningAvailable: true,
   });
 }
 

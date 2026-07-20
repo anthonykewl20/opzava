@@ -20,6 +20,7 @@ export const NAVIGABLE_ROUTES: ReadonlySet<string> = new Set([
   "/ask-opzava",
   "/dev-board",
   "/connections",
+  "/health",
 ]);
 
 const groupLabels: Readonly<Record<(typeof groupOrder)[number], string>> = {

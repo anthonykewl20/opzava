@@ -1,0 +1,262 @@
+"use client";
+
+import Link from "next/link";
+import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle2, RefreshCcw } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import type { HealthAttentionItemView, HealthPageViewModel } from "@/lib/health/health-view-model";
+
+import { AllComponents } from "./all-components";
+import { HealthRing } from "./health-ring";
+import styles from "./health.module.css";
+
+function statusTone(status: "healthy" | "attention" | "unknown"): string {
+  if (status === "healthy") return styles["healthy"]!;
+  if (status === "attention") return styles["attention"]!;
+  return styles["not_checked"]!;
+}
+
+function HealthLegend({ view }: { readonly view: HealthPageViewModel }) {
+  const counts = view.counts;
+  if (counts === null) return null;
+
+  return (
+    <div className={styles["legend"]!} aria-label="Health check counts">
+      {(
+        [
+          { tone: "healthy", label: "Healthy", count: counts.healthy },
+          { tone: "attention", label: "Attention", count: counts.attention },
+          { tone: "not_checked", label: "Not checked", count: counts.notChecked },
+        ] as const
+      ).map((item) => (
+        <span key={item.label}>
+          <span className={`${styles["legendDot"]!} ${styles[item.tone]!}`} aria-hidden="true" />
+          {item.label} <strong>{item.count}</strong>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function DisabledRecheck() {
+  const explanation = "Re-check runs through the gateway — coming soon";
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={styles["disabledAction"]!} tabIndex={0} aria-label={explanation}>
+            <Button disabled variant="outline">
+              <RefreshCcw aria-hidden="true" /> Re-check now
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{explanation}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function LastKnownGood({ view }: { readonly view: HealthPageViewModel }) {
+  const snapshot = view.lastKnownGood;
+  if (snapshot === null || (view.availability === "live" && view.counts?.notChecked === 0)) {
+    return null;
+  }
+
+  return (
+    <div className={styles["lastKnown"]!} data-last-known-good="stale">
+      <Badge variant="warning">Stale · last known good</Badge>
+      <span>
+        {snapshot.healthy} of {snapshot.total} healthy · checked {snapshot.checkedLabel}
+      </span>
+    </div>
+  );
+}
+
+function AttentionItem({ item }: { readonly item: HealthAttentionItemView }) {
+  return (
+    <li className={styles["attentionItem"]!}>
+      <div>
+        <strong>{item.title}</strong>
+        <p>{item.detail}</p>
+      </div>
+      <Link href={item.href}>
+        {item.actionLabel} <ArrowRight aria-hidden="true" />
+      </Link>
+    </li>
+  );
+}
+
+function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
+  const emptyAndVerified = view.availability === "live" && view.attentionItems.length === 0;
+  return (
+    <Card className={`${styles["tile"]!} ${styles["spanTwo"]!}`}>
+      <CardHeader className={styles["attentionHeader"]!}>
+        <span
+          className={emptyAndVerified ? styles["clearGlyph"]! : styles["attentionGlyph"]!}
+          aria-hidden="true"
+        >
+          {emptyAndVerified ? <CheckCircle2 /> : <AlertTriangle />}
+        </span>
+        <h2>Needs your attention</h2>
+        <span className={styles["attentionCount"]!}>
+          {view.availability === "live"
+            ? `${view.attentionItems.length} items`
+            : "Current state unverified"}
+        </span>
+      </CardHeader>
+      <CardContent className={styles["attentionContent"]!}>
+        {view.attentionItems.length > 0 ? (
+          <ul>
+            {view.attentionItems.map((item) => (
+              <AttentionItem item={item} key={item.id} />
+            ))}
+          </ul>
+        ) : emptyAndVerified ? (
+          <p className={styles["quietState"]!}>
+            Nothing needs your attention in the current health evidence.
+          </p>
+        ) : (
+          <p className={styles["quietState"]!}>
+            Current exceptions cannot be verified. No zero count is inferred from unavailable,
+            stale, or unknown evidence.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GatewayTile({ view }: { readonly view: HealthPageViewModel }) {
+  return (
+    <Card className={`${styles["tile"]!} ${styles["kpiTile"]!} ${styles["interactive"]!}`}>
+      <Link
+        className={styles["cardLink"]!}
+        href={view.gateway.href}
+        aria-label="Open Gateway owner surface"
+      >
+        <div className={styles["kpiTop"]!}>
+          <span>Gateway</span>
+          <ArrowUpRight aria-hidden="true" />
+        </div>
+        <div className={styles["statusWord"]!}>
+          <span
+            className={`${styles["statusDot"]!} ${statusTone(view.gateway.tone)} ${view.gateway.live ? styles["livePulse"]! : ""}`}
+            aria-hidden="true"
+          />
+          {view.gateway.statusLabel}
+        </div>
+        <p>{view.gateway.detail}</p>
+      </Link>
+    </Card>
+  );
+}
+
+function RuntimeTile({ view }: { readonly view: HealthPageViewModel }) {
+  return (
+    <Card className={`${styles["tile"]!} ${styles["kpiTile"]!} ${styles["interactive"]!}`}>
+      <Link
+        className={styles["cardLink"]!}
+        href={view.runtime.href}
+        aria-label="Open Runtime owner surface"
+      >
+        <div className={styles["kpiTop"]!}>
+          <span>Runtime</span>
+          {view.runtime.update === null ? null : <Badge variant="warning">Update ready</Badge>}
+        </div>
+        <div className={styles["kpiValue"]!}>{view.runtime.version ?? "Unknown"}</div>
+        <p>
+          {view.runtime.uptimeLabel === null
+            ? "Uptime unavailable"
+            : `Up ${view.runtime.uptimeLabel}`}
+          {view.runtime.update === null
+            ? ""
+            : ` · latest ${view.runtime.update.latestVersion} (${view.runtime.update.channel})`}
+        </p>
+      </Link>
+    </Card>
+  );
+}
+
+function SessionsTile({ view }: { readonly view: HealthPageViewModel }) {
+  return (
+    <Card
+      className={`${styles["tile"]!} ${styles["kpiTile"]!} ${styles["spanTwo"]!} ${styles["interactive"]!}`}
+    >
+      <Link
+        className={styles["cardLink"]!}
+        href={view.sessions.href}
+        aria-label="Open runtime session evidence"
+      >
+        <div className={styles["kpiTop"]!}>
+          <span>Runtime sessions</span>
+          <ArrowRight aria-hidden="true" />
+        </div>
+        <div className={styles["sessionsValue"]!}>
+          <span className={styles["kpiValue"]!}>{view.sessions.count ?? "—"}</span>
+          <p>
+            {view.sessions.count === null
+              ? "Session count unavailable"
+              : `${view.sessions.count} current · ${view.sessions.recentCount} recent session ${view.sessions.recentCount === 1 ? "record" : "records"}`}
+          </p>
+        </div>
+      </Link>
+    </Card>
+  );
+}
+
+export function HealthPage({ view }: { readonly view: HealthPageViewModel }) {
+  return (
+    <div className={`page ${styles["page"]!}`}>
+      <header className={styles["pageHeader"]!}>
+        <div>
+          <span className={styles["eyebrow"]!}>Operate</span>
+          <h1>Health</h1>
+          <p>
+            One glance tells you if the platform can keep working. We surface only what needs you —
+            everything healthy stays quiet.
+          </p>
+        </div>
+        <span
+          className={styles["freshness"]!}
+          data-availability={view.availability}
+          data-freshness-state={view.freshnessState}
+        >
+          <span
+            className={view.isFreshLive ? styles["freshPulse"]! : styles["freshDot"]!}
+            aria-hidden="true"
+          />
+          {view.freshnessLabel}
+        </span>
+      </header>
+
+      <div className={styles["bento"]!}>
+        <Card className={`${styles["tile"]!} ${styles["hero"]!}`} aria-labelledby="health-verdict">
+          <HealthRing counts={view.counts} />
+          <div>
+            <h2 id="health-verdict">{view.verdict}</h2>
+            <p className={styles["heroDescription"]!}>{view.description}</p>
+          </div>
+          <HealthLegend view={view} />
+          <LastKnownGood view={view} />
+          <DisabledRecheck />
+        </Card>
+
+        <AttentionTile view={view} />
+        <GatewayTile view={view} />
+        <RuntimeTile view={view} />
+        <SessionsTile view={view} />
+      </div>
+
+      <AllComponents groups={view.groups} />
+
+      <p className={styles["footerNote"]!}>
+        Reads and links only — this page never changes runtime state. Every value carries freshness;
+        unknown and not checked are never shown as healthy, and last-known-good evidence is marked
+        stale.
+      </p>
+    </div>
+  );
+}

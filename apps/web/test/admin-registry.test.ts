@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  NAVIGABLE_ROUTES,
   admitsAdminControlCenter,
   buildAdminNavModel,
   isRouteAdmitted,
@@ -45,6 +46,10 @@ const expectedGroups = [
 ] as const;
 
 describe("Admin destination registry", () => {
+  it("marks the Health destination as navigable", () => {
+    expect(NAVIGABLE_ROUTES.has("/health")).toBe(true);
+  });
+
   it.each([
     [["owner"], true],
     [["admin"], true],
