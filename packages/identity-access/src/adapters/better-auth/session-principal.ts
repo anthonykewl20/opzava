@@ -22,6 +22,8 @@ import { sql } from "drizzle-orm";
 
 import type { AuthMembership, AuthSession, SessionId, SessionToken } from "@opzava/ports";
 
+import { authorizationVersionFrom } from "../../application/authorization-version.js";
+
 type RootDatabase = typeof db;
 
 export const credentialProviderId = "email-password";
@@ -82,6 +84,7 @@ function toMembership(row: MembershipRow): AuthMembership {
     orgId,
     tenantId: toTenantId(row.organizationId),
     membershipVersion: row.membershipVersion,
+    authorizationVersion: authorizationVersionFrom(row.membershipVersion),
     roleKeys: row.roleKeys
   };
 }

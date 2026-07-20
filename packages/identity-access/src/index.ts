@@ -1,3 +1,5 @@
+export type { BumpAuthorizationVersionInput } from "./application/authorization-version.js";
+export { bumpAuthorizationVersion } from "./application/authorization-version.js";
 export type {
   FirstOwnerSetupFaultPoint,
   FirstOwnerSetupInput,
