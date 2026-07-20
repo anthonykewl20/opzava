@@ -65,11 +65,12 @@ describe("Registry-driven Admin sidebar", () => {
     expect(html).toContain('href="/"');
     expect(html).toContain('href="/ask-opzava"');
     expect(html).toContain('href="/dev-board"');
+    expect(html).toContain('href="/health"');
     expect(html).not.toContain('href="/runners"');
     expect(html).not.toContain('href="/settings"');
-    expect(html.match(/aria-disabled="true"/g)).toHaveLength(18);
-    expect(html.match(/aria-disabled="true" tabindex="0"/g)).toHaveLength(18);
-    expect(html.match(/>Soon</g)).toHaveLength(18);
+    expect(html.match(/aria-disabled="true"/g)).toHaveLength(17);
+    expect(html.match(/aria-disabled="true" tabindex="0"/g)).toHaveLength(17);
+    expect(html.match(/>Soon</g)).toHaveLength(17);
   });
 
   it("places pinned, grouped, and transitional destinations in one named navigation landmark", () => {

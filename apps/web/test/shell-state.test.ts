@@ -4,7 +4,7 @@ import { ok } from "@opzava/shared-kernel";
 import { describe, expect, it } from "vitest";
 
 import type { ConnectionsPageData } from "../lib/connections";
-import { buildAdminNavModel } from "../lib/admin-registry";
+import { buildAdminNavModel, NAVIGABLE_ROUTES } from "../lib/admin-registry";
 import { repairAdminGroupOpenState } from "../lib/admin-sidebar-state";
 import { providerConnectionSummary, projectProviderConnections } from "../lib/connections-state";
 import {
@@ -343,13 +343,14 @@ describe("Admin shell state", () => {
       { id: "nav.ask-admin-opzava", label: "Ask Admin Opzava", href: "/ask-opzava" },
       { id: "nav.overview", label: "Overview", href: "/" },
       { id: "nav.dev-board", label: "Dev Board", href: "/dev-board" },
+      { id: "nav.health", label: "Health", href: "/health" },
       { id: "nav.connections", label: "Connections", href: "/connections" },
     ]);
     const soonHrefs = buildAdminNavModel(context())
       .groups.flatMap((group) => group.destinations)
       .map((destination) => destination.href)
-      .filter((href) => href !== "/" && href !== "/dev-board");
-    expect(soonHrefs).toHaveLength(18);
+      .filter((href) => !NAVIGABLE_ROUTES.has(href));
+    expect(soonHrefs).toHaveLength(17);
     expect(destinations.some((destination) => soonHrefs.includes(destination.href))).toBe(false);
     expect(items).toContainEqual(
       expect.objectContaining({
