@@ -43,7 +43,7 @@ let freshRunSought = false;
 try {
   const turn = await context.request.post(`${BASE}/api/tasks/ask-admin/turn`, {
     data: {
-      conversationId: `audit-e2e-${randomUUID()}`,
+      conversationId: randomUUID(),
       prompt: "Reply with exactly: audit harness ready",
       idempotencyKey: `audit-e2e-${randomUUID()}`,
     },

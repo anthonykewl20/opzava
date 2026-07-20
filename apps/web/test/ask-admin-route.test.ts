@@ -42,10 +42,12 @@ const context: AppSessionContext = {
   roleKeys: ["admin"],
 };
 
+const conversationId = "11111111-1111-4111-8111-111111111111";
+
 function assistantTurn(overrides: Partial<AssistantTurn> = {}): AssistantTurn {
   return {
     id: "assistant-turn-1",
-    conversationId: "conversation-1",
+    conversationId,
     organizationId: "org-1" as AssistantTurn["organizationId"],
     workspaceId: "workspace-1" as AssistantTurn["workspaceId"],
     role: "assistant",
@@ -235,7 +237,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -256,7 +258,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
       state: "completed",
     });
     expect(capturedInput).toMatchObject({
-      conversationId: "conversation-1",
+      conversationId,
       turnId: "assistant-turn-1",
       actingPrincipal: {
         tenantId: "org-1",
@@ -264,6 +266,30 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
     });
     expect(finalizeCalls).toBe(1);
     expect(revalidateCalls).toBe(1);
+  });
+
+  it("rejects non-UUID conversationId with invalid_request", async () => {
+    const handler = createAskAdminTurnPostHandler({
+      getSessionContext: async () => context,
+      createGatewayPort: () => gatewayPort([]),
+      runtime: successfulRuntime(),
+      revalidateTasks: () => undefined,
+    });
+
+    const response = await handler(
+      new Request("http://web.test/api/tasks/ask-admin/turn", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: "conversation-1",
+          prompt: "Create a task",
+          idempotencyKey: "idempotency-1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_request" });
   });
 
   it("maps idempotency collisions to a duplicate send stream state", async () => {
@@ -295,7 +321,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a different task",
           idempotencyKey: "idempotency-1",
         }),
@@ -401,7 +427,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Add a task called Scripted fake-lane task",
           idempotencyKey: "idempotency-1",
         }),
@@ -451,7 +477,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -494,7 +520,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -529,7 +555,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -571,7 +597,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -618,7 +644,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -669,7 +695,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -708,7 +734,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),
@@ -767,7 +793,7 @@ describe("[fake-gateway] Ask Admin Tasks turn route", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: "conversation-1",
+          conversationId: conversationId,
           prompt: "Create a task",
           idempotencyKey: "idempotency-1",
         }),

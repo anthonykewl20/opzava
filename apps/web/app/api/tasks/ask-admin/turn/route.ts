@@ -34,7 +34,7 @@ import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 const requestSchema = z.object({
-  conversationId: z.string().trim().min(1).max(180),
+  conversationId: z.string().uuid(),
   prompt: z.string().trim().min(1).max(4000),
   idempotencyKey: z.string().trim().min(1).max(120),
 });
