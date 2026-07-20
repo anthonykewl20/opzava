@@ -231,6 +231,10 @@ export function isHelloOkPayload(value: unknown): value is HelloOkPayload {
     typeof value["protocol"] === "number" &&
     isRecord(value["server"]) &&
     isRecord(value["features"]) &&
+    Array.isArray(value["features"]["methods"]) &&
+    value["features"]["methods"].every((method) => typeof method === "string") &&
+    Array.isArray(value["features"]["events"]) &&
+    value["features"]["events"].every((event) => typeof event === "string") &&
     isRecord(auth) &&
     isRecord(policy) &&
     Array.isArray(auth["scopes"]) &&

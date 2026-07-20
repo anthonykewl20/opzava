@@ -1,5 +1,8 @@
 import type {
   ExpectedToolInventory,
+  OpenClawAuditActivityFilters,
+  OpenClawAuditActivityPage,
+  OpenClawAuditEvent,
   OpenClawGatewayHealthSnapshot,
   OpenClawGatewayRouteId,
   OpenClawRunRef,
@@ -21,7 +24,12 @@ import WebSocket from "ws";
 
 import { AsyncQueue } from "../../rpc/async-queue.js";
 import type { GatewayRouteConfig } from "../../routing/routes.js";
-import { gatewayBrokerError, isTransientGatewayError, sanitizeFailureMessage, sanitizeGatewayError } from "./errors.js";
+import {
+  gatewayBrokerError,
+  isTransientGatewayError,
+  sanitizeFailureMessage,
+  sanitizeGatewayError,
+} from "./errors.js";
 import type { BrokerLogger } from "./logger.js";
 import { silentBrokerLogger } from "./logger.js";
 import {
@@ -102,6 +110,401 @@ const defaultSocketFactory: WebSocketFactory = (url) =>
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const AUDIT_KINDS = new Set(["agent_run", "tool_action", "message"]);
+const AUDIT_STATUSES = new Set([
+  "started",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "timed_out",
+  "blocked",
+  "unknown",
+]);
+const CONVERSATION_KINDS = new Set(["direct", "group", "channel", "unknown"]);
+const PSEUDONYM = /^hmac-sha256:v1:[0-9a-f]{32}:[0-9a-f]{64}$/;
+const MESSAGE_IDENTITY_FIELDS = [
+  "accountRef",
+  "conversationRef",
+  "messageRef",
+  "targetRef",
+] as const;
+const AUDIT_COMMON_WIRE_KEYS = [
+  "eventType",
+  "schemaVersion",
+  "eventId",
+  "sequence",
+  "sourceSequence",
+  "occurredAt",
+  "kind",
+  "action",
+  "status",
+  "actor",
+  "redaction",
+] as const;
+const INBOUND_REASON_CODES = {
+  completed: new Set([
+    "fast_abort",
+    "plugin_bound_handled",
+    "plugin_bound_unavailable",
+    "plugin_bound_declined",
+    "before_dispatch_handled",
+    "acp_dispatch_completed",
+    "acp_dispatch_empty",
+  ]),
+  skipped: new Set([
+    "duplicate",
+    "reply_operation_active",
+    "reply_operation_aborted",
+    "acp_dispatch_aborted",
+  ]),
+  failed: new Set(["acp_dispatch_failed", "plugin_bound_error"]),
+};
+const OUTBOUND_SUPPRESSED_REASONS = new Set([
+  "cancelled_by_message_sending_hook",
+  "cancelled_by_reply_payload_sending_hook",
+  "empty_after_message_sending_hook",
+  "empty_after_reply_payload_sending_hook",
+  "no_visible_payload",
+]);
+
+function nonEmpty(value: unknown, max = 2048): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+
+function optionalString(record: Record<string, unknown>, key: string, max = 2048): boolean {
+  return record[key] === undefined || nonEmpty(record[key], max);
+}
+
+function optionalNonNegativeInteger(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  return value === undefined || (Number.isSafeInteger(value) && (value as number) >= 0);
+}
+
+function exactKeys(record: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(record).every((key) => allowed.includes(key));
+}
+
+function exactEventKeys(record: Record<string, unknown>, extra: readonly string[]): boolean {
+  return exactKeys(record, [...AUDIT_COMMON_WIRE_KEYS, ...extra]);
+}
+
+function validActor(value: unknown, inbound = false): boolean {
+  if (!isRecord(value) || !exactKeys(value, ["type", "id"]) || !nonEmpty(value["id"])) return false;
+  return inbound
+    ? value["type"] === "system" ||
+        (value["type"] === "channel_sender" && PSEUDONYM.test(value["id"] as string))
+    : value["type"] === "agent" || value["type"] === "system";
+}
+
+function validAuditFilters(filters: OpenClawAuditActivityFilters): boolean {
+  if (typeof filters !== "object" || filters === null || Array.isArray(filters)) return false;
+  const record = filters as unknown as Record<string, unknown>;
+  const allowed = new Set([
+    "agent",
+    "session",
+    "run",
+    "kind",
+    "status",
+    "direction",
+    "channel",
+    "after",
+    "before",
+    "limit",
+    "cursor",
+  ]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) return false;
+  if (!["agent", "session", "run"].every((key) => optionalString(record, key))) return false;
+  if (!optionalString(record, "channel", 128) || !optionalString(record, "cursor", 512))
+    return false;
+  if (filters.kind !== undefined && !AUDIT_KINDS.has(filters.kind)) return false;
+  if (filters.status !== undefined && !AUDIT_STATUSES.has(filters.status)) return false;
+  if (
+    filters.direction !== undefined &&
+    filters.direction !== "inbound" &&
+    filters.direction !== "outbound"
+  )
+    return false;
+  if (filters.after !== undefined && (!Number.isSafeInteger(filters.after) || filters.after < 0))
+    return false;
+  if (filters.before !== undefined && (!Number.isSafeInteger(filters.before) || filters.before < 0))
+    return false;
+  if (
+    filters.limit !== undefined &&
+    (!Number.isInteger(filters.limit) || filters.limit < 1 || filters.limit > 500)
+  )
+    return false;
+  if (filters.after !== undefined && filters.before !== undefined && filters.after > filters.before)
+    return false;
+  if (
+    (filters.direction !== undefined || filters.channel !== undefined) &&
+    filters.kind !== undefined &&
+    filters.kind !== "message"
+  )
+    return false;
+  if (filters.session !== undefined && filters.kind === "message") return false;
+  return true;
+}
+
+function auditCommon(record: Record<string, unknown>): boolean {
+  return (
+    record["schemaVersion"] === 1 &&
+    record["redaction"] === "metadata_only" &&
+    nonEmpty(record["eventId"]) &&
+    Number.isSafeInteger(record["sequence"]) &&
+    (record["sequence"] as number) >= 1 &&
+    Number.isSafeInteger(record["sourceSequence"]) &&
+    (record["sourceSequence"] as number) >= 1 &&
+    Number.isSafeInteger(record["occurredAt"]) &&
+    (record["occurredAt"] as number) >= 0 &&
+    nonEmpty(record["action"]) &&
+    typeof record["status"] === "string" &&
+    AUDIT_STATUSES.has(record["status"]) &&
+    MESSAGE_IDENTITY_FIELDS.every(
+      (key) =>
+        record[key] === undefined ||
+        (nonEmpty(record[key], 120) && PSEUDONYM.test(record[key] as string)),
+    )
+  );
+}
+
+function commonProjection(record: Record<string, unknown>) {
+  return {
+    eventId: record["eventId"] as string,
+    sequence: record["sequence"] as number,
+    sourceSequence: record["sourceSequence"] as number,
+    occurredAt: record["occurredAt"] as number,
+    action: record["action"] as string,
+    status: record["status"] as OpenClawAuditEvent["status"],
+  };
+}
+
+function projectAuditEvent(value: unknown): OpenClawAuditEvent | null {
+  if (!isRecord(value) || !auditCommon(value)) return null;
+  const eventType = value["eventType"];
+  const status = value["status"];
+  const action = value["action"];
+  const base = commonProjection(value);
+  if (eventType === "agent_run") {
+    if (
+      !exactEventKeys(value, ["agentId", "sessionKey", "sessionId", "runId", "errorCode"]) ||
+      !validActor(value["actor"]) ||
+      value["kind"] !== "agent_run" ||
+      !nonEmpty(value["agentId"]) ||
+      !nonEmpty(value["runId"]) ||
+      !optionalString(value, "sessionKey") ||
+      !optionalString(value, "sessionId") ||
+      !optionalString(value, "errorCode")
+    )
+      return null;
+    const errors: Record<string, string | undefined> = {
+      succeeded: undefined,
+      failed: "run_failed",
+      cancelled: "run_cancelled",
+      timed_out: "run_timed_out",
+      blocked: "run_blocked",
+    };
+    const valid =
+      action === "agent.run.started"
+        ? status === "started" && value["errorCode"] === undefined
+        : action === "agent.run.finished" &&
+          typeof status === "string" &&
+          status in errors &&
+          value["errorCode"] === errors[status];
+    if (!valid) return null;
+    return {
+      ...base,
+      eventType,
+      agentId: value["agentId"],
+      runId: value["runId"],
+      ...(value["errorCode"] === undefined ? {} : { errorCode: value["errorCode"] as string }),
+    };
+  }
+  if (eventType === "tool_action") {
+    if (
+      !exactEventKeys(value, [
+        "agentId",
+        "sessionKey",
+        "sessionId",
+        "runId",
+        "toolCallId",
+        "toolName",
+        "errorCode",
+      ]) ||
+      !validActor(value["actor"]) ||
+      value["kind"] !== "tool_action" ||
+      !nonEmpty(value["agentId"]) ||
+      !nonEmpty(value["runId"]) ||
+      !optionalString(value, "sessionKey") ||
+      !optionalString(value, "sessionId") ||
+      !optionalString(value, "toolCallId") ||
+      !optionalString(value, "toolName") ||
+      !optionalString(value, "errorCode")
+    )
+      return null;
+    const errors: Record<string, string | undefined> = {
+      succeeded: undefined,
+      failed: "tool_failed",
+      cancelled: "tool_cancelled",
+      timed_out: "tool_timed_out",
+      blocked: "tool_blocked",
+      unknown: "tool_outcome_unknown",
+    };
+    const valid =
+      action === "tool.action.started"
+        ? status === "started" && value["errorCode"] === undefined
+        : action === "tool.action.finished" &&
+          typeof status === "string" &&
+          status in errors &&
+          value["errorCode"] === errors[status];
+    if (!valid) return null;
+    return {
+      ...base,
+      eventType,
+      agentId: value["agentId"],
+      runId: value["runId"],
+      ...(value["toolName"] === undefined ? {} : { toolName: value["toolName"] as string }),
+      ...(value["errorCode"] === undefined ? {} : { errorCode: value["errorCode"] as string }),
+    };
+  }
+  if (eventType !== "inbound_message" && eventType !== "outbound_message") return null;
+  const messageExtras = [
+    "direction",
+    "channel",
+    "conversationKind",
+    "outcome",
+    "durationMs",
+    "resultCount",
+    "agentId",
+    "runId",
+    ...MESSAGE_IDENTITY_FIELDS,
+    "reasonCode",
+    "errorCode",
+    ...(eventType === "outbound_message" ? ["deliveryKind", "failureStage"] : []),
+  ];
+  if (
+    !exactEventKeys(value, messageExtras) ||
+    !validActor(value["actor"], eventType === "inbound_message") ||
+    value["kind"] !== "message" ||
+    value["direction"] !== (eventType === "inbound_message" ? "inbound" : "outbound") ||
+    !nonEmpty(value["channel"], 128) ||
+    typeof value["conversationKind"] !== "string" ||
+    !CONVERSATION_KINDS.has(value["conversationKind"]) ||
+    !nonEmpty(value["outcome"]) ||
+    !optionalString(value, "agentId") ||
+    !optionalString(value, "runId") ||
+    !optionalString(value, "reasonCode") ||
+    !optionalString(value, "errorCode") ||
+    !optionalNonNegativeInteger(value, "durationMs") ||
+    !optionalNonNegativeInteger(value, "resultCount")
+  )
+    return null;
+  const optional = {
+    ...(value["agentId"] === undefined ? {} : { agentId: value["agentId"] as string }),
+    ...(value["runId"] === undefined ? {} : { runId: value["runId"] as string }),
+    ...(value["durationMs"] === undefined ? {} : { durationMs: value["durationMs"] as number }),
+    ...(value["resultCount"] === undefined ? {} : { resultCount: value["resultCount"] as number }),
+    ...(value["reasonCode"] === undefined ? {} : { reasonCode: value["reasonCode"] as string }),
+    ...(value["errorCode"] === undefined ? {} : { errorCode: value["errorCode"] as string }),
+  };
+  if (eventType === "inbound_message") {
+    const reason = value["reasonCode"];
+    if (
+      action !== "message.inbound.processed" ||
+      !(
+        (status === "succeeded" &&
+          value["outcome"] === "completed" &&
+          value["errorCode"] === undefined &&
+          (reason === undefined || INBOUND_REASON_CODES.completed.has(reason as string))) ||
+        (status === "blocked" &&
+          value["outcome"] === "skipped" &&
+          value["errorCode"] === undefined &&
+          (reason === undefined || INBOUND_REASON_CODES.skipped.has(reason as string))) ||
+        (status === "failed" &&
+          value["outcome"] === "failed" &&
+          value["errorCode"] === "message_processing_failed" &&
+          (reason === undefined || INBOUND_REASON_CODES.failed.has(reason as string)))
+      )
+    )
+      return null;
+    return {
+      ...base,
+      eventType,
+      channel: value["channel"],
+      conversationKind: value["conversationKind"] as "direct" | "group" | "channel" | "unknown",
+      outcome: value["outcome"] as "completed" | "skipped" | "failed",
+      ...optional,
+    };
+  }
+  if (
+    action !== "message.outbound.finished" ||
+    !["sent", "suppressed", "failed", "unknown"].includes(value["outcome"] as string) ||
+    (value["deliveryKind"] !== undefined &&
+      !["text", "media", "other"].includes(value["deliveryKind"] as string)) ||
+    (value["failureStage"] !== undefined &&
+      !["platform_send", "queue", "unknown"].includes(value["failureStage"] as string))
+  )
+    return null;
+  const terminalValid =
+    (status === "succeeded" &&
+      value["outcome"] === "sent" &&
+      value["errorCode"] === undefined &&
+      value["reasonCode"] === undefined &&
+      value["failureStage"] === undefined) ||
+    (status === "blocked" &&
+      value["outcome"] === "suppressed" &&
+      typeof value["reasonCode"] === "string" &&
+      OUTBOUND_SUPPRESSED_REASONS.has(value["reasonCode"]) &&
+      value["errorCode"] === undefined &&
+      value["failureStage"] === undefined &&
+      value["deliveryKind"] === undefined) ||
+    (status === "failed" &&
+      value["outcome"] === "failed" &&
+      ["message_delivery_failed", "message_delivery_partial_failure"].includes(
+        value["errorCode"] as string,
+      ) &&
+      value["failureStage"] !== undefined &&
+      value["reasonCode"] === undefined) ||
+    (status === "unknown" &&
+      value["outcome"] === "unknown" &&
+      value["failureStage"] !== undefined &&
+      value["errorCode"] === undefined &&
+      value["reasonCode"] === undefined &&
+      value["deliveryKind"] === undefined);
+  if (!terminalValid) return null;
+  return {
+    ...base,
+    eventType,
+    channel: value["channel"],
+    conversationKind: value["conversationKind"] as "direct" | "group" | "channel" | "unknown",
+    outcome: value["outcome"] as "sent" | "suppressed" | "failed" | "unknown",
+    ...optional,
+    ...(value["deliveryKind"] === undefined
+      ? {}
+      : { deliveryKind: value["deliveryKind"] as "text" | "media" | "other" }),
+    ...(value["failureStage"] === undefined
+      ? {}
+      : { failureStage: value["failureStage"] as "platform_send" | "queue" | "unknown" }),
+  };
+}
+
+function projectAuditPage(value: unknown, limit: number): OpenClawAuditActivityPage | null {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, ["events", "nextCursor"]) ||
+    !Array.isArray(value["events"]) ||
+    value["events"].length > limit ||
+    value["events"].length > 500 ||
+    (value["nextCursor"] !== undefined && !nonEmpty(value["nextCursor"], 512))
+  )
+    return null;
+  const events = value["events"].map(projectAuditEvent);
+  if (events.some((event) => event === null)) return null;
+  return {
+    events: events as OpenClawAuditEvent[],
+    ...(value["nextCursor"] === undefined ? {} : { nextCursor: value["nextCursor"] as string }),
+  };
 }
 
 function errorFromGatewayPayload(error: OpenClawErrorPayload | undefined): DomainError {
@@ -242,6 +645,7 @@ export class OpenClawOperatorClient {
   private requestSequence = 0;
   private socket: WebSocket | undefined;
   private policy: HelloPolicy = defaultPolicy;
+  private advertisedMethods = new Set<string>();
   private connected = false;
   private circuitOpenReason: string | undefined;
   private shutdown = false;
@@ -555,6 +959,50 @@ export class OpenClawOperatorClient {
     });
   }
 
+  public async auditActivityList(
+    filters: OpenClawAuditActivityFilters,
+  ): Promise<Result<OpenClawAuditActivityPage>> {
+    if (!validAuditFilters(filters)) {
+      return err(
+        gatewayBrokerError("gatewayBroker.invalidAuditPayload", "Invalid audit activity filters."),
+      );
+    }
+    const connected = await this.ensureConnected();
+    if (!connected.ok) return err(connected.error);
+    if (!this.advertisedMethods.has("audit.activity.list")) {
+      return err(
+        gatewayBrokerError(
+          "gatewayBroker.auditUnsupported",
+          "OpenClaw Gateway does not advertise audit activity.",
+        ),
+      );
+    }
+    const params = {
+      ...(filters.agent === undefined ? {} : { agentId: filters.agent }),
+      ...(filters.session === undefined ? {} : { sessionKey: filters.session }),
+      ...(filters.run === undefined ? {} : { runId: filters.run }),
+      ...(filters.kind === undefined ? {} : { kind: filters.kind }),
+      ...(filters.status === undefined ? {} : { status: filters.status }),
+      ...(filters.direction === undefined ? {} : { direction: filters.direction }),
+      ...(filters.channel === undefined ? {} : { channel: filters.channel }),
+      ...(filters.after === undefined ? {} : { after: filters.after }),
+      ...(filters.before === undefined ? {} : { before: filters.before }),
+      limit: filters.limit ?? 100,
+      ...(filters.cursor === undefined ? {} : { cursor: filters.cursor }),
+    };
+    const response = await this.request("audit.activity.list", params, { sideEffect: false });
+    if (!response.ok) return err(response.error);
+    const page = projectAuditPage(response.value, filters.limit ?? 100);
+    return page === null
+      ? err(
+          gatewayBrokerError(
+            "gatewayBroker.invalidAuditPayload",
+            "OpenClaw Gateway returned an invalid audit activity page.",
+          ),
+        )
+      : ok(page);
+  }
+
   private async ensureSessionCreated(
     sessionKey: string,
     agentId: string,
@@ -778,6 +1226,7 @@ export class OpenClawOperatorClient {
       maxBufferedBytes: payload.policy.maxBufferedBytes,
       tickIntervalMs: payload.policy.tickIntervalMs,
     };
+    this.advertisedMethods = new Set(payload.features.methods);
     // Re-acquire the connection snapshot on every (re)connect — the re-snapshot
     // artifact for "reconnect = re-snapshot".
     this.lastSnapshot = payload.snapshot;

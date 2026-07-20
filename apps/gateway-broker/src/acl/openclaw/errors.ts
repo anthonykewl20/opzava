@@ -11,6 +11,8 @@ export type GatewayBrokerErrorCode =
   | "gatewayBroker.deviceSignatureFailed"
   | "gatewayBroker.duplicateResponse"
   | "gatewayBroker.gatewayUnavailable"
+  | "gatewayBroker.auditUnsupported"
+  | "gatewayBroker.invalidAuditPayload"
   | "gatewayBroker.invalidFrame"
   | "gatewayBroker.missingIdempotencyKey"
   | "gatewayBroker.protocolMismatch"
@@ -27,13 +29,13 @@ export function gatewayBrokerError(
   code: GatewayBrokerErrorCode,
   message: string,
   details?: Readonly<Record<string, unknown>>,
-  cause?: unknown
+  cause?: unknown,
 ): DomainError {
   return new DomainError({
     code,
     message,
     ...(details === undefined ? {} : { details }),
-    ...(cause === undefined ? {} : { cause })
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -43,14 +45,31 @@ export function sanitizeGatewayError(error: unknown): Readonly<Record<string, un
   }
 
   const record = error as Record<string, unknown>;
-  const details = typeof record["details"] === "object" && record["details"] !== null
-    ? (record["details"] as Record<string, unknown>)
-    : {};
+  const details =
+    typeof record["details"] === "object" && record["details"] !== null
+      ? (record["details"] as Record<string, unknown>)
+      : {};
+  const rawMessage = typeof record["message"] === "string" ? record["message"] : "";
+  const lowerMessage = rawMessage.toLowerCase();
+  const semanticMessage = lowerMessage.includes("session not found")
+    ? "session not found"
+    : lowerMessage.includes("already exists")
+      ? "already exists"
+      : sanitizeFailureMessage(rawMessage, "OpenClaw Gateway request failed.");
+  const safeMessage =
+    /session(key|id)|pseudonym|hmac-sha256|\bagent:[^\s]+|\b(actor|toolCallId|accountRef|conversationRef|messageRef|targetRef)\b/i.test(
+      semanticMessage,
+    )
+    ? "OpenClaw Gateway request failed."
+    : semanticMessage;
 
   return {
     code: typeof record["code"] === "string" ? record["code"] : undefined,
-    message: typeof record["message"] === "string" ? record["message"] : undefined,
-    reason: typeof details["reason"] === "string" ? details["reason"] : undefined
+    message: rawMessage === "" ? undefined : safeMessage,
+    // Only the one closed reason the reconnect policy consumes may cross into
+    // DomainError details. Arbitrary upstream reasons can contain session
+    // correlations, topology, request ids, or other sensitive metadata.
+    reason: details["reason"] === "startup-sidecars" ? "startup-sidecars" : undefined,
   };
 }
 
@@ -256,4 +275,3 @@ export function sanitizeFailure(
 
   return { code: fallbackCode, sanitizedMessage: fallbackMessage };
 }
-

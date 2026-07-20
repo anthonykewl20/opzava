@@ -278,6 +278,48 @@ describe("GatewayConnectionManager route isolation", () => {
     expect(b.gateway.toolsEffectiveSessionKeys).toEqual([]);
   });
 
+  it("queries audit activity only on the tenant-bound route", async () => {
+    const routeA = "tenant-a-openclaw" as OpenClawGatewayRouteId;
+    const routeB = "tenant-b-openclaw" as OpenClawGatewayRouteId;
+    const a = await createGateway();
+    const b = await createGateway();
+    const broker = createBroker([
+      {
+        routeId: routeA,
+        tenantId: makeTenantId("tenant-a"),
+        url: a.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: a.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+      {
+        routeId: routeB,
+        tenantId: makeTenantId("tenant-b"),
+        url: b.gateway.url,
+        authMode: "paired-device",
+        pairedDeviceToken,
+        deviceKeypair: b.deviceKeypair,
+        clientVersion: "0.0.0",
+      },
+    ]);
+    const denied = await broker.forPrincipal({
+      routeId: routeA,
+      actingPrincipal: { tenantId: makeTenantId("tenant-b") },
+    });
+    expect(denied).toMatchObject({ ok: false, error: { code: "gatewayBroker.tenantMismatch" } });
+    expect(a.gateway.connectionCount).toBe(0);
+    const access = await broker.forPrincipal({
+      routeId: routeA,
+      actingPrincipal: { tenantId: makeTenantId("tenant-a") },
+    });
+    if (!access.ok) throw access.error;
+    const result = await access.value.auditActivityList({ limit: 1 });
+    expect(result.ok).toBe(true);
+    expect(a.gateway.lastAuditActivityParams).toEqual({ limit: 1 });
+    expect(b.gateway.lastAuditActivityParams).toBeUndefined();
+  });
+
   it("keeps one connection per route when a tenant has two routes", async () => {
     const primary = "tenant-a-primary" as OpenClawGatewayRouteId;
     const secondary = "tenant-a-secondary" as OpenClawGatewayRouteId;

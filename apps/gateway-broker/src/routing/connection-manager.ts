@@ -1,5 +1,7 @@
 import type {
   ExpectedToolInventory,
+  OpenClawAuditActivityFilters,
+  OpenClawAuditActivityPage,
   OpenClawActingPrincipal,
   OpenClawGatewayHealthSnapshot,
   OpenClawGatewayPort,
@@ -112,6 +114,7 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
         }),
       getEffectiveTools: (toolInput) =>
         this.getEffectiveToolsForRoute({ ...toolInput, routeId: input.routeId }),
+      auditActivityList: (filters) => this.auditActivityListForRoute(input.routeId, filters),
     });
   }
 
@@ -182,6 +185,19 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
     return result;
   }
 
+  private async auditActivityListForRoute(
+    routeId: OpenClawGatewayRouteId,
+    filters: OpenClawAuditActivityFilters,
+  ): Promise<Result<OpenClawAuditActivityPage>> {
+    const client = this.getOrCreateClient(routeId);
+    if (!client.ok) return err(client.error);
+    this.clearIdleTimer(client.value);
+    const result = await client.value.client.auditActivityList(filters);
+    this.recordResult(client.value, result);
+    if (client.value.client.activeStreamCount === 0) this.scheduleIdleDisconnect(client.value);
+    return result;
+  }
+
   private getOrCreateClient(routeId: OpenClawGatewayRouteId): Result<ManagedClient> {
     const route = this.routingTable.getRoute(routeId);
     if (route === undefined) {
@@ -234,7 +250,10 @@ export class GatewayConnectionManager implements OpenClawGatewayPort {
       return;
     }
 
-    if (result.error.code === "gatewayBroker.sessionBusy") {
+    if (
+      result.error.code === "gatewayBroker.sessionBusy" ||
+      result.error.code === "gatewayBroker.auditUnsupported"
+    ) {
       return;
     }
 

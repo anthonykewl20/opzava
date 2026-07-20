@@ -25,6 +25,13 @@ import {
 export type FakeGatewayMode =
   | "normal"
   | "auth-scope-mismatch"
+  | "audit-error-leak"
+  | "audit-empty"
+  | "audit-invalid-terminal"
+  | "audit-malformed"
+  | "audit-oversized"
+  | "audit-transient"
+  | "audit-unadvertised"
   | "chat-aborted"
   | "chat-error"
   | "chat-error-leak"
@@ -81,6 +88,7 @@ export class FakeOpenClawGateway {
   private issuedDeviceTokenSequence = 0;
   private lastSessionSendParamsValue: Record<string, unknown> | undefined;
   private readonly toolsEffectiveSessionKeysValue: string[] = [];
+  private lastAuditActivityParamsValue: Record<string, unknown> | undefined;
 
   public constructor(options: FakeGatewayOptions) {
     this.deviceKeypair = options.deviceKeypair;
@@ -128,6 +136,10 @@ export class FakeOpenClawGateway {
 
   public get toolsEffectiveSessionKeys(): readonly string[] {
     return this.toolsEffectiveSessionKeysValue;
+  }
+
+  public get lastAuditActivityParams(): Readonly<Record<string, unknown>> | undefined {
+    return this.lastAuditActivityParamsValue;
   }
 
   public finishDeferredStreams(): void {
@@ -218,6 +230,77 @@ export class FakeOpenClawGateway {
             { name: "opzava_tasks_create", source: "core" },
             { name: "opzava_tasks_update", source: "core" },
           ],
+        },
+      });
+      return;
+    }
+
+    if (frame.method === "audit.activity.list") {
+      this.lastAuditActivityParamsValue = { ...frame.params };
+      if (this.mode === "audit-transient") {
+        this.sendResponse(socket, {
+          type: "res",
+          id: frame.id,
+          ok: false,
+          error: {
+            code: "UNAVAILABLE",
+            message: "temporary failure",
+            details: { reason: "startup-sidecars", retryAfterMs: 1 },
+          },
+        });
+        return;
+      }
+      if (this.mode === "audit-error-leak") {
+        this.sendResponse(socket, {
+          type: "res",
+          id: frame.id,
+          ok: false,
+          error: {
+            code: "BAD_REQUEST",
+            message:
+              "sessionKey=agent:private:peer actor=private-user toolCallId=private-call accountRef=private-account conversationRef=private-conversation messageRef=private-message targetRef=private-target https://private.example",
+            details: { reason: "request id: secret" },
+          },
+        });
+        return;
+      }
+      if (this.mode === "audit-malformed") {
+        this.sendResponse(socket, {
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: { events: [this.auditEvents()[0], { nope: true }] },
+        });
+        return;
+      }
+      if (this.mode === "audit-invalid-terminal") {
+        this.sendResponse(socket, {
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: {
+            events: [{ ...this.auditEvents()[0], status: "failed", errorCode: "run_cancelled" }],
+          },
+        });
+        return;
+      }
+      if (this.mode === "audit-oversized") {
+        this.sendResponse(socket, {
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: { events: Array.from({ length: 501 }, () => null) },
+        });
+        return;
+      }
+      const limit = typeof frame.params["limit"] === "number" ? frame.params["limit"] : 100;
+      this.sendResponse(socket, {
+        type: "res",
+        id: frame.id,
+        ok: true,
+        payload: {
+          events: this.mode === "audit-empty" ? [] : this.auditEvents().slice(0, limit),
+          ...(this.mode !== "audit-empty" && limit < 4 ? { nextCursor: "cursor:next" } : {}),
         },
       });
       return;
@@ -339,6 +422,7 @@ export class FakeOpenClawGateway {
             "sessions.send",
             "sessions.messages.subscribe",
             "tools.effective",
+            ...(this.mode === "audit-unadvertised" ? [] : ["audit.activity.list"]),
           ],
           events: ["chat", "session.message", "exec.approval.requested"],
         },
@@ -361,6 +445,80 @@ export class FakeOpenClawGateway {
         },
       },
     });
+  }
+
+  private auditEvents(): readonly Record<string, unknown>[] {
+    const actor = { type: "system", id: "gateway" };
+    const common = {
+      schemaVersion: 1,
+      sourceSequence: 1,
+      occurredAt: 1784505600000,
+      actor,
+      redaction: "metadata_only",
+    };
+    return [
+      {
+        ...common,
+        eventType: "agent_run",
+        eventId: "evt-run",
+        sequence: 4,
+        kind: "agent_run",
+        action: "agent.run.finished",
+        status: "succeeded",
+        agentId: "main",
+        runId: "run-1",
+        sessionKey: "agent:private:peer",
+        sessionId: "private-session",
+      },
+      {
+        ...common,
+        eventType: "tool_action",
+        eventId: "evt-tool",
+        sequence: 3,
+        kind: "tool_action",
+        action: "tool.action.finished",
+        status: "succeeded",
+        agentId: "main",
+        runId: "run-1",
+        toolName: "opzava_tasks_list",
+        toolCallId: "secret-tool-call",
+      },
+      {
+        ...common,
+        eventType: "inbound_message",
+        eventId: "evt-in",
+        sequence: 2,
+        kind: "message",
+        action: "message.inbound.processed",
+        status: "succeeded",
+        direction: "inbound",
+        channel: "telegram",
+        conversationKind: "direct",
+        outcome: "completed",
+        durationMs: 5,
+        resultCount: 1,
+        accountRef:
+          "hmac-sha256:v1:0123456789abcdef0123456789abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+      {
+        ...common,
+        eventType: "outbound_message",
+        eventId: "evt-out",
+        sequence: 1,
+        kind: "message",
+        action: "message.outbound.finished",
+        status: "succeeded",
+        direction: "outbound",
+        channel: "telegram",
+        conversationKind: "direct",
+        outcome: "sent",
+        deliveryKind: "text",
+        durationMs: 8,
+        resultCount: 1,
+        targetRef:
+          "hmac-sha256:v1:0123456789abcdef0123456789abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+    ];
   }
 
   private handleSessionSend(socket: WebSocket, frame: OpenClawRequestFrame): void {
@@ -699,7 +857,9 @@ export class FakeOpenClawGateway {
     return params.device.signature === expected;
   }
 
-  private resolveAuth(params: OpenClawConnectParams):
+  private resolveAuth(
+    params: OpenClawConnectParams,
+  ):
     | { readonly ok: true; readonly kind: "device-token" | "gateway-token"; readonly token: string }
     | { readonly ok: false; readonly error: OpenClawErrorPayload } {
     const gatewayToken = params.auth.token;

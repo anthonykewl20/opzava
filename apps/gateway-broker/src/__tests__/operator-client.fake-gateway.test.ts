@@ -1,5 +1,6 @@
 import type {
   ExpectedToolInventory,
+  OpenClawAuditActivityFilters,
   OpenClawGatewayRouteId,
   OpenClawStreamEvent,
   StartAssistantStreamInput,
@@ -195,6 +196,15 @@ async function getEffectiveTools(
   return route.value.getEffectiveTools(routeInput);
 }
 
+async function getAuditActivity(
+  broker: GatewayConnectionManager,
+  filters: OpenClawAuditActivityFilters = {},
+) {
+  const route = await broker.forPrincipal({ routeId, actingPrincipal: { tenantId } });
+  if (!route.ok) return route;
+  return route.value.auditActivityList(filters);
+}
+
 async function collectUntilTerminal(
   events: AsyncIterable<OpenClawStreamEvent>,
 ): Promise<readonly OpenClawStreamEvent[]> {
@@ -373,6 +383,94 @@ afterEach(async () => {
   for (const gateway of gateways.splice(0)) {
     await gateway.close();
   }
+});
+
+describe("[fake-gateway] audit.activity.list ACL", () => {
+  it("maps exact read params and projects all four safe variants", async () => {
+    const { broker, gateway } = await createBrokerFixture();
+    const result = await getAuditActivity(broker, {
+      agent: "main",
+      session: "agent:main:main",
+      run: "run-1",
+      kind: "agent_run",
+      status: "succeeded",
+      after: 1,
+      before: 2,
+      limit: 4,
+      cursor: "cursor-1",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw result.error;
+    expect(gateway.lastAuditActivityParams).toEqual({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      runId: "run-1",
+      kind: "agent_run",
+      status: "succeeded",
+      after: 1,
+      before: 2,
+      limit: 4,
+      cursor: "cursor-1",
+    });
+    expect(result.value.events.map((event) => event.eventType)).toEqual([
+      "agent_run",
+      "tool_action",
+      "inbound_message",
+      "outbound_message",
+    ]);
+    expect(JSON.stringify(result.value)).not.toMatch(
+      /sessionKey|sessionId|toolCallId|actor|Ref|redaction|schemaVersion|direction|"kind"/,
+    );
+  });
+
+  it("fails typed without attempting the legacy RPC when the method is unadvertised", async () => {
+    const { broker, gateway } = await createBrokerFixture({ mode: "audit-unadvertised" });
+    const result = await getAuditActivity(broker);
+    expect(result).toMatchObject({ ok: false, error: { code: "gatewayBroker.auditUnsupported" } });
+    expect(gateway.lastAuditActivityParams).toBeUndefined();
+    const repeated = await getAuditActivity(broker);
+    expect(repeated).toMatchObject({
+      ok: false,
+      error: { code: "gatewayBroker.auditUnsupported" },
+    });
+  });
+
+  it("returns lawful empty and cursor-paginated pages without synthesis", async () => {
+    const empty = await createBrokerFixture({ mode: "audit-empty" });
+    await expect(getAuditActivity(empty.broker)).resolves.toEqual({
+      ok: true,
+      value: { events: [] },
+    });
+    const paginated = await createBrokerFixture();
+    const page = await getAuditActivity(paginated.broker, { limit: 1 });
+    expect(page).toMatchObject({
+      ok: true,
+      value: { events: [{ eventId: "evt-run" }], nextCursor: "cursor:next" },
+    });
+  });
+
+  it("sanitizes an upstream error before returning it", async () => {
+    const { broker } = await createBrokerFixture({ mode: "audit-error-leak" });
+    const result = await getAuditActivity(broker);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "gatewayBroker.requestFailed", message: "OpenClaw Gateway request failed." },
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /private|sessionKey|actor|toolCallId|accountRef|conversationRef|messageRef|targetRef|https:\/\//,
+    );
+  });
+
+  it("rejects a whole malformed or oversized page", async () => {
+    for (const mode of ["audit-malformed", "audit-invalid-terminal", "audit-oversized"] as const) {
+      const { broker } = await createBrokerFixture({ mode });
+      const result = await getAuditActivity(broker, { limit: 500 });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "gatewayBroker.invalidAuditPayload" },
+      });
+    }
+  });
 });
 
 describe("[fake-gateway] broker operator client", () => {
@@ -831,7 +929,7 @@ describe("[fake-gateway] broker operator client", () => {
       ok: false,
       error: {
         code: "gatewayBroker.requestFailed",
-        details: { message: "session not found: agent:ask-admin-opzava:conversation-1" },
+        details: { message: "session not found" },
       },
     });
     expect(gateway.sessionCreateCount).toBe(2);

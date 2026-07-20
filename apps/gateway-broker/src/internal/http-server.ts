@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import type {
+  OpenClawAuditActivityFilters,
   OpenClawGatewayPort,
   OpenClawGatewayRouteId,
   OpenClawSessionRef,
@@ -34,6 +35,12 @@ interface InternalAssistantStreamRequest {
   readonly idempotencyKey: string;
   readonly principal: AssertedPrincipalBlock;
   readonly sessionRef?: OpenClawSessionRef;
+}
+
+interface InternalAuditActivityRequest {
+  readonly routeId: OpenClawGatewayRouteId;
+  readonly principal: AssertedPrincipalBlock;
+  readonly filters: OpenClawAuditActivityFilters;
 }
 
 export interface BrokerInternalHttpServerOptions {
@@ -117,6 +124,109 @@ function parseAssertedPrincipal(value: unknown): AssertedPrincipalBlock | null {
   };
 }
 
+function hasExactKeys(record: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const keys = Object.keys(record);
+  return keys.every((key) => allowed.includes(key));
+}
+
+function boundedOptionalString(value: unknown, max: number): value is string | undefined {
+  return (
+    value === undefined || (typeof value === "string" && value.length > 0 && value.length <= max)
+  );
+}
+
+function parseAuditFilters(value: unknown): OpenClawAuditActivityFilters | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "agent",
+      "session",
+      "run",
+      "kind",
+      "status",
+      "direction",
+      "channel",
+      "after",
+      "before",
+      "limit",
+      "cursor",
+    ])
+  )
+    return null;
+  if (
+    !boundedOptionalString(value["agent"], 2048) ||
+    !boundedOptionalString(value["session"], 2048) ||
+    !boundedOptionalString(value["run"], 2048) ||
+    !boundedOptionalString(value["channel"], 128) ||
+    !boundedOptionalString(value["cursor"], 512)
+  )
+    return null;
+  if (
+    value["kind"] !== undefined &&
+    !["agent_run", "tool_action", "message"].includes(value["kind"] as string)
+  )
+    return null;
+  if (
+    value["status"] !== undefined &&
+    !["started", "succeeded", "failed", "cancelled", "timed_out", "blocked", "unknown"].includes(
+      value["status"] as string,
+    )
+  )
+    return null;
+  if (
+    value["direction"] !== undefined &&
+    value["direction"] !== "inbound" &&
+    value["direction"] !== "outbound"
+  )
+    return null;
+  if (
+    value["after"] !== undefined &&
+    (!Number.isSafeInteger(value["after"]) || (value["after"] as number) < 0)
+  )
+    return null;
+  if (
+    value["before"] !== undefined &&
+    (!Number.isSafeInteger(value["before"]) || (value["before"] as number) < 0)
+  )
+    return null;
+  if (
+    value["limit"] !== undefined &&
+    (!Number.isInteger(value["limit"]) ||
+      (value["limit"] as number) < 1 ||
+      (value["limit"] as number) > 500)
+  )
+    return null;
+  if (
+    typeof value["after"] === "number" &&
+    typeof value["before"] === "number" &&
+    value["after"] > value["before"]
+  )
+    return null;
+  if (
+    (value["direction"] !== undefined || value["channel"] !== undefined) &&
+    value["kind"] !== undefined &&
+    value["kind"] !== "message"
+  )
+    return null;
+  if (value["session"] !== undefined && value["kind"] === "message") return null;
+  return {
+    ...(value as OpenClawAuditActivityFilters),
+    limit: (value["limit"] as number | undefined) ?? 100,
+  };
+}
+
+function parseInternalAuditRequest(value: unknown): InternalAuditActivityRequest | null {
+  if (!isRecord(value) || !hasExactKeys(value, ["routeId", "principal", "filters"])) return null;
+  const routeId = stringValue(value["routeId"]);
+  const principalValue = value["principal"];
+  if (!isRecord(principalValue) || !hasExactKeys(principalValue, ["tenantId"])) return null;
+  const principal = parseAssertedPrincipal(principalValue);
+  const filters = parseAuditFilters(value["filters"]);
+  return routeId === null || principal === null || filters === null
+    ? null
+    : { routeId: routeId as OpenClawGatewayRouteId, principal, filters };
+}
+
 function parseOpaqueRef(value: unknown): OpenClawSessionRef | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -195,7 +305,11 @@ function toGatewayInput(
 function failedStreamEvent(turnId: string, error: unknown): OpenClawStreamEvent {
   // #252: every failure crossing the broker→BFF boundary is shaped through the
   // ACL sanitizer so the SSE `failed` event never carries raw upstream text.
-  const failure = sanitizeFailure(error, "gatewayBroker.requestFailed", "Gateway broker request failed.");
+  const failure = sanitizeFailure(
+    error,
+    "gatewayBroker.requestFailed",
+    "Gateway broker request failed.",
+  );
   return {
     type: "failed",
     turnId,
@@ -205,8 +319,66 @@ function failedStreamEvent(turnId: string, error: unknown): OpenClawStreamEvent 
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+  response.writeHead(statusCode, {
+    "cache-control": "private, no-store, max-age=0",
+    "content-type": "application/json; charset=utf-8",
+  });
   response.end(JSON.stringify(body));
+}
+
+function auditFailureStatus(code: string): number {
+  if (code === "gatewayBroker.tenantMismatch") return 403;
+  if (code === "gatewayBroker.auditUnsupported") return 501;
+  if (
+    [
+      "gatewayBroker.connectionClosed",
+      "gatewayBroker.connectChallengeTimeout",
+      "gatewayBroker.gatewayUnavailable",
+      "gatewayBroker.circuitOpen",
+      "gatewayBroker.requestTimeout",
+    ].includes(code)
+  )
+    return 503;
+  return 502;
+}
+
+async function handleAuditActivity(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: BrokerInternalHttpServerOptions,
+): Promise<void> {
+  if (!authenticated(request, options.internalToken)) {
+    writeJson(response, 401, { error: "unauthorized" });
+    return;
+  }
+  let body: unknown;
+  try {
+    body = await readJsonBody(request, options.maxBodyBytes ?? defaultMaxBodyBytes);
+  } catch {
+    writeJson(response, 400, { error: "invalid_request" });
+    return;
+  }
+  const parsed = parseInternalAuditRequest(body);
+  if (parsed === null) {
+    writeJson(response, 400, { error: "invalid_request" });
+    return;
+  }
+  const route = await options.gatewayPort.forPrincipal({
+    routeId: parsed.routeId,
+    actingPrincipal: { tenantId: parsed.principal.tenantId },
+  });
+  if (!route.ok) {
+    const failure = sanitizedError(route.error);
+    writeJson(response, auditFailureStatus(failure.code), failure);
+    return;
+  }
+  const page = await route.value.auditActivityList(parsed.filters);
+  if (!page.ok) {
+    const failure = sanitizedError(page.error);
+    writeJson(response, auditFailureStatus(failure.code), failure);
+    return;
+  }
+  writeJson(response, 200, page.value);
 }
 
 function writeSse(response: ServerResponse, event: OpenClawStreamEvent): void {
@@ -215,7 +387,11 @@ function writeSse(response: ServerResponse, event: OpenClawStreamEvent): void {
 }
 
 function sanitizedError(error: unknown): { readonly code: string; readonly message: string } {
-  const failure = sanitizeFailure(error, "gatewayBroker.requestFailed", "Gateway broker request failed.");
+  const failure = sanitizeFailure(
+    error,
+    "gatewayBroker.requestFailed",
+    "Gateway broker request failed.",
+  );
   return { code: failure.code, message: failure.sanitizedMessage };
 }
 
@@ -343,6 +519,13 @@ export function createBrokerInternalHttpServer(
         }
 
         response.end();
+      });
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/internal/audit/activity") {
+      void handleAuditActivity(request, response, options).catch((error) => {
+        writeJson(response, 502, sanitizedError(error));
       });
       return;
     }

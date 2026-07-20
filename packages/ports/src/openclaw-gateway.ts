@@ -108,6 +108,79 @@ export interface OpenClawGatewayHealthSnapshot {
   readonly degradedReason?: string;
 }
 
+export type OpenClawAuditKind = "agent_run" | "tool_action" | "message";
+export type OpenClawAuditStatus =
+  "started" | "succeeded" | "failed" | "cancelled" | "timed_out" | "blocked" | "unknown";
+
+export interface OpenClawAuditActivityFilters {
+  readonly agent?: string;
+  readonly session?: string;
+  readonly run?: string;
+  readonly kind?: OpenClawAuditKind;
+  readonly status?: OpenClawAuditStatus;
+  readonly direction?: "inbound" | "outbound";
+  readonly channel?: string;
+  readonly after?: number;
+  readonly before?: number;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+interface OpenClawAuditEventCommon {
+  readonly eventId: string;
+  readonly sequence: number;
+  readonly sourceSequence: number;
+  readonly occurredAt: number;
+  readonly action: string;
+  readonly status: OpenClawAuditStatus;
+}
+
+export type OpenClawAuditEvent =
+  | (OpenClawAuditEventCommon & {
+      readonly eventType: "agent_run";
+      readonly agentId: string;
+      readonly runId: string;
+      readonly errorCode?: string;
+    })
+  | (OpenClawAuditEventCommon & {
+      readonly eventType: "tool_action";
+      readonly agentId: string;
+      readonly runId: string;
+      readonly toolName?: string;
+      readonly errorCode?: string;
+    })
+  | (OpenClawAuditEventCommon & {
+      readonly eventType: "inbound_message";
+      readonly channel: string;
+      readonly conversationKind: "direct" | "group" | "channel" | "unknown";
+      readonly outcome: "completed" | "skipped" | "failed";
+      readonly agentId?: string;
+      readonly runId?: string;
+      readonly durationMs?: number;
+      readonly resultCount?: number;
+      readonly reasonCode?: string;
+      readonly errorCode?: string;
+    })
+  | (OpenClawAuditEventCommon & {
+      readonly eventType: "outbound_message";
+      readonly channel: string;
+      readonly conversationKind: "direct" | "group" | "channel" | "unknown";
+      readonly outcome: "sent" | "suppressed" | "failed" | "unknown";
+      readonly agentId?: string;
+      readonly runId?: string;
+      readonly durationMs?: number;
+      readonly resultCount?: number;
+      readonly reasonCode?: string;
+      readonly deliveryKind?: "text" | "media" | "other";
+      readonly failureStage?: "platform_send" | "queue" | "unknown";
+      readonly errorCode?: string;
+    });
+
+export interface OpenClawAuditActivityPage {
+  readonly events: readonly OpenClawAuditEvent[];
+  readonly nextCursor?: string;
+}
+
 export interface OpenClawGatewayRoute {
   startAssistantStream(
     input: Omit<StartAssistantStreamInput, "routeId" | "actingPrincipal">,
@@ -115,6 +188,9 @@ export interface OpenClawGatewayRoute {
   getEffectiveTools(
     input: Omit<ExpectedToolInventory, "routeId">,
   ): Promise<Result<ToolInventorySnapshot>>;
+  auditActivityList(
+    filters: OpenClawAuditActivityFilters,
+  ): Promise<Result<OpenClawAuditActivityPage>>;
 }
 
 export interface OpenClawGatewayPort {

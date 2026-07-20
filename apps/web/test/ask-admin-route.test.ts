@@ -113,6 +113,9 @@ function gatewayPort(
         async getEffectiveTools() {
           throw new Error("not used");
         },
+        async auditActivityList() {
+          throw new Error("not used");
+        },
       });
     },
     async getHealthForOps() {

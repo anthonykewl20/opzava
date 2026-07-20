@@ -128,6 +128,90 @@ afterEach(async () => {
   }
 });
 
+describe("[fake-gateway] broker internal audit activity HTTP endpoint", () => {
+  async function requestAudit(
+    mode?: FakeGatewayMode,
+    body: unknown = { routeId, principal: { tenantId }, filters: { limit: 1 } },
+    token: string = randomUUID(),
+  ) {
+    const { broker, gateway } = await createFixture(mode);
+    const server = createBrokerInternalHttpServer({ gatewayPort: broker, internalToken: token });
+    const baseUrl = await listen(server);
+    const run = async (authorization = token) =>
+      fetch(`${baseUrl}/internal/audit/activity`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${authorization}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    return { gateway, server, run };
+  }
+
+  it("returns a paginated no-store safe page", async () => {
+    const fixture = await requestAudit();
+    try {
+      const response = await fixture.run();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      await expect(response.json()).resolves.toMatchObject({
+        events: [{ eventType: "agent_run" }],
+        nextCursor: "cursor:next",
+      });
+    } finally {
+      await closeServer(fixture.server);
+    }
+  });
+
+  it("returns a lawful empty page and rejects an oversized request", async () => {
+    const empty = await requestAudit("audit-empty");
+    try {
+      const response = await empty.run();
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ events: [] });
+    } finally {
+      await closeServer(empty.server);
+    }
+
+    const oversized = await requestAudit(undefined, {
+      routeId,
+      principal: { tenantId },
+      filters: { agent: "x".repeat(70_000) },
+    });
+    try {
+      expect((await oversized.run()).status).toBe(400);
+    } finally {
+      await closeServer(oversized.server);
+    }
+  });
+
+  it("distinguishes auth, invalid input, tenant denial, unsupported, and malformed upstream", async () => {
+    const cases: readonly [FakeGatewayMode | undefined, unknown, string | null, number][] = [
+      [undefined, { routeId, principal: { tenantId }, filters: {} }, "wrong", 401],
+      [undefined, { routeId, tenantId, principal: { tenantId }, filters: {} }, null, 400],
+      [
+        undefined,
+        { routeId, principal: { tenantId: makeTenantId("other") }, filters: {} },
+        null,
+        403,
+      ],
+      ["audit-unadvertised", { routeId, principal: { tenantId }, filters: {} }, null, 501],
+      ["audit-malformed", { routeId, principal: { tenantId }, filters: {} }, null, 502],
+      ["audit-error-leak", { routeId, principal: { tenantId }, filters: {} }, null, 502],
+      ["audit-transient", { routeId, principal: { tenantId }, filters: {} }, null, 503],
+    ];
+    for (const [mode, body, auth, status] of cases) {
+      const fixture = await requestAudit(mode, body);
+      try {
+        const response = await fixture.run(auth ?? undefined);
+        expect(response.status).toBe(status);
+        expect(await response.text()).not.toMatch(/private|sessionKey|https:\/\//);
+        if (status === 403) expect(fixture.gateway.connectionCount).toBe(0);
+      } finally {
+        await closeServer(fixture.server);
+      }
+    }
+  });
+});
+
 describe("[fake-gateway] broker internal assistant stream HTTP endpoint", () => {
   it("serves a lightweight unauthenticated process health endpoint", async () => {
     const { broker } = await createFixture();
