@@ -12,7 +12,7 @@ describe("Admin topbar health and attention controls", () => {
           status: "healthy",
           text: "Healthy",
           dotClassName: "dot dot-success",
-          ariaLabel: "Health: Healthy",
+          ariaLabel: "Health: Healthy; OpenClaw system health; checked 2026-07-20T00:00:00.000Z",
           checkedAt: "2026-07-20T00:00:00.000Z",
           freshnessState: "within-budget",
           gatewayReachable: true,
@@ -31,7 +31,9 @@ describe("Admin topbar health and attention controls", () => {
     );
 
     expect(health).toContain('href="/connections"');
-    expect(health).toContain('aria-label="Health: Healthy"');
+    expect(health).toContain(
+      'aria-label="Health: Healthy; OpenClaw system health; checked 2026-07-20T00:00:00.000Z"',
+    );
     expect(health).not.toContain("actionable items");
     expect(attention).toContain('href="/#overview-attention-heading"');
     expect(attention).toContain('aria-label="Attention: 2 actionable items"');

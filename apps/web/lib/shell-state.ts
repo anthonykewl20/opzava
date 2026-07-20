@@ -81,8 +81,40 @@ function safeGitHubIssuesRepository(): string | null {
 
 type ShellHealthEvidence = Pick<
   EvidenceEnvelope<HealthReadiness>,
-  "state" | "freshnessState" | "sourceTimestamp" | "value"
+  "state" | "freshnessState" | "sourceTimestamp" | "value" | "provenance"
 >;
+
+function healthFreshnessLabel(envelope: ShellHealthEvidence | null): string {
+  if (envelope === null || envelope.freshnessState === "unknown") return "freshness unknown";
+  if (envelope.freshnessState === "stale") {
+    return envelope.sourceTimestamp === null
+      ? "evidence stale"
+      : `evidence stale; last checked ${envelope.sourceTimestamp}`;
+  }
+  return envelope.sourceTimestamp === null
+    ? "freshness within budget"
+    : `checked ${envelope.sourceTimestamp}`;
+}
+
+function healthCapabilityLabel(
+  envelope: ShellHealthEvidence | null,
+  status: ShellHealthStatus,
+): string | null {
+  if (envelope?.value === null || envelope === null || status === "unknown") return null;
+  const source = envelope.provenance.label;
+  if (status === "healthy") return source;
+
+  const reasons = [
+    envelope.value.attention > 0
+      ? `${envelope.value.attention} ${envelope.value.attention === 1 ? "component needs" : "components need"} attention`
+      : null,
+    envelope.value.notChecked > 0
+      ? `${envelope.value.notChecked} ${envelope.value.notChecked === 1 ? "component is" : "components are"} not checked`
+      : null,
+  ].filter((reason): reason is string => reason !== null);
+
+  return reasons.length === 0 ? `${source} is ${status}` : `${source}: ${reasons.join("; ")}`;
+}
 
 export function shellHealthView(envelope: ShellHealthEvidence | null): ShellHealthState {
   const status = envelope?.state === "live" ? (envelope.value?.overall ?? "unknown") : "unknown";
@@ -93,12 +125,14 @@ export function shellHealthView(envelope: ShellHealthEvidence | null): ShellHeal
     unknown: { text: "Unknown", dotClassName: "dot" },
   } as const;
   const view = presentation[status];
+  const capability = healthCapabilityLabel(envelope, status);
+  const freshness = healthFreshnessLabel(envelope);
 
   return {
     status,
     text: view.text,
     dotClassName: view.dotClassName,
-    ariaLabel: `Health: ${view.text}`,
+    ariaLabel: `Health: ${view.text}${capability === null ? "" : `; ${capability}`}; ${freshness}`,
     checkedAt: envelope?.sourceTimestamp ?? null,
     freshnessState: envelope?.freshnessState ?? "unknown",
     gatewayReachable: envelope?.value?.gatewayActive ?? null,
