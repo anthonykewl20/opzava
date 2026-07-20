@@ -109,6 +109,12 @@ No rigid workflow is imposed right now — use good default judgment. The essent
 - Scope to that one issue; keep local style and architecture; honor the Non-Negotiables.
 - Validate current docs (`docs/plan/official-docs.md`, `docs/openclaw`, vendor docs) before coding
   APIs.
+- **Diagnose by differential probe, not assumption:** when the live system rejects or breaks on
+  something, first find a nearby path that *works* (another model/provider/CLI/version) as a
+  **control**, then change **one variable** and re-run to localize the delta. Runtime probe > doc
+  inference > guess. Never run an expensive fix (image rebuild, credential swap, fork bump) before
+  the cheapest disproof of your hypothesis. Use the `diagnosing-bugs` skill for hard bugs; point
+  `ocask`/DeepSeek at the actual runtime call path, not just your diff.
 - **Verify before done:** drive the affected flow on the real local stack
   (`http://web.opzava.localhost:18088`, real login, real seeded data) and observe it working — the
   `/verify` skill plus the real `tests/e2e/` drives. Keep it lean and high-signal: prove the exact
