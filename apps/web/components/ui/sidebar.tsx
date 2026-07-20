@@ -34,6 +34,7 @@ type SidebarContextProps = {
   openMobile: boolean;
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
+  mobileTriggerRef: React.RefObject<HTMLButtonElement | null>;
   toggleSidebar: () => void;
 };
 
@@ -63,6 +64,7 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
+  const mobileTriggerRef = React.useRef<HTMLButtonElement>(null);
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -111,6 +113,7 @@ function SidebarProvider({
       open,
       setOpen,
       isMobile,
+      mobileTriggerRef,
       openMobile,
       setOpenMobile,
       toggleSidebar,
@@ -155,7 +158,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, mobileTriggerRef, state, openMobile, setOpenMobile } = useSidebar();
 
   if (collapsible === "none") {
     return (
@@ -186,10 +189,14 @@ function Sidebar({
             } as React.CSSProperties
           }
           side={side}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            mobileTriggerRef.current?.focus();
+          }}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>Admin navigation</SheetTitle>
+            <SheetDescription>Navigate the Admin Control Center.</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -245,8 +252,13 @@ function Sidebar({
   );
 }
 
-function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar();
+function SidebarTrigger({
+  className,
+  onClick,
+  ref,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  const { mobileTriggerRef, toggleSidebar } = useSidebar();
 
   return (
     <Button
@@ -255,6 +267,14 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       variant="ghost"
       size="icon"
       className={cn("size-7", className)}
+      ref={(node) => {
+        mobileTriggerRef.current = node;
+        if (typeof ref === "function") {
+          ref(node);
+        } else if (ref) {
+          ref.current = node;
+        }
+      }}
       onClick={(event) => {
         onClick?.(event);
         toggleSidebar();

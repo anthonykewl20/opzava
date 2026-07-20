@@ -182,7 +182,7 @@ function DestinationItem({
           tooltip={`${destination.label} — Soon`}
           className="cursor-not-allowed aria-disabled:pointer-events-auto"
         >
-          <span aria-label={`${destination.label}, coming soon`} aria-disabled="true">
+          <span aria-label={`${destination.label}, coming soon`} aria-disabled="true" tabIndex={0}>
             <DestinationIcon destination={destination} />
             <span>{destination.label}</span>
           </span>
@@ -231,17 +231,21 @@ export function AppSidebar({ model }: { readonly model: AdminNavModel }) {
     });
   };
 
-  const handleNavigate = (destination: AdminDestination) => {
+  const handleRouteNavigate = (href: string) => {
     if (!isMobile) {
       return;
     }
 
     setOpenMobile(false);
-    if (isActiveRoute(pathname, destination.href)) {
+    if (isActiveRoute(pathname, href)) {
       window.requestAnimationFrame(focusRouteTarget);
     } else {
       routeFocusRequested.current = true;
     }
+  };
+
+  const handleNavigate = (destination: AdminDestination) => {
+    handleRouteNavigate(destination.href);
   };
 
   return (
@@ -250,23 +254,23 @@ export function AppSidebar({ model }: { readonly model: AdminNavModel }) {
         <Brand />
       </SidebarHeader>
 
-      <SidebarContent className="gap-0 px-1 py-2">
-        <SidebarGroup className="pb-1 pt-0">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {model.pinned.map((destination) => (
-                <DestinationItem
-                  key={destination.id}
-                  destination={destination}
-                  pathname={pathname}
-                  onNavigate={handleNavigate}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <nav aria-label="Admin navigation" className="flex min-h-0 flex-1 flex-col">
+        <SidebarContent className="gap-0 px-1 py-2">
+          <SidebarGroup className="pb-1 pt-0">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {model.pinned.map((destination) => (
+                  <DestinationItem
+                    key={destination.id}
+                    destination={destination}
+                    pathname={pathname}
+                    onNavigate={handleNavigate}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-        <nav aria-label="Admin sections">
           {model.groups.map((group) => {
             const groupOpen =
               state === "collapsed" && !isMobile ? true : (openGroups[group.group] ?? true);
@@ -309,46 +313,37 @@ export function AppSidebar({ model }: { readonly model: AdminNavModel }) {
               </Collapsible>
             );
           })}
-        </nav>
-      </SidebarContent>
+        </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border">
-        <div className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[var(--tracking-caps)] text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden">
-          Migrating
-        </div>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            {/* Temporary rollout bridge until Configure destinations replace legacy live ops. */}
-            <SidebarMenuButton
-              asChild
-              isActive={pathname.startsWith("/connections")}
-              tooltip="Connections (legacy)"
-            >
-              <Link
-                href="/connections"
-                aria-label="Connections (legacy)"
-                aria-current={pathname.startsWith("/connections") ? "page" : undefined}
-                onClick={() => {
-                  if (isMobile) {
-                    setOpenMobile(false);
-                    if (pathname.startsWith("/connections")) {
-                      window.requestAnimationFrame(focusRouteTarget);
-                    } else {
-                      routeFocusRequested.current = true;
-                    }
-                  }
-                }}
+        <SidebarFooter className="border-t border-sidebar-border">
+          <div className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[var(--tracking-caps)] text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden">
+            Migrating
+          </div>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              {/* Temporary rollout bridge until Configure destinations replace legacy live ops. */}
+              <SidebarMenuButton
+                asChild
+                isActive={pathname.startsWith("/connections")}
+                tooltip="Connections (legacy)"
               >
-                <Waypoints aria-hidden="true" />
-                <span>Connections</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuBadge className="bg-sidebar-accent text-[0.6875rem] text-sidebar-foreground/75">
-              Legacy
-            </SidebarMenuBadge>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
+                <Link
+                  href="/connections"
+                  aria-label="Connections (legacy)"
+                  aria-current={pathname.startsWith("/connections") ? "page" : undefined}
+                  onClick={() => handleRouteNavigate("/connections")}
+                >
+                  <Waypoints aria-hidden="true" />
+                  <span>Connections</span>
+                </Link>
+              </SidebarMenuButton>
+              <SidebarMenuBadge className="bg-sidebar-accent text-[0.6875rem] text-sidebar-foreground/75">
+                Legacy
+              </SidebarMenuBadge>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </nav>
       <SidebarRail />
     </Sidebar>
   );

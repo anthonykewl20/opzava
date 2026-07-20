@@ -305,6 +305,40 @@
     margin-inline: auto;
   }
 
+  [data-sidebar="menu-button"][data-active="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  [data-slot="sheet-overlay"] {
+    opacity: 0;
+    transition: opacity var(--dur-base) var(--ease-standard);
+  }
+
+  [data-slot="sheet-overlay"][data-state="open"] {
+    opacity: 1;
+  }
+
+  [data-slot="sheet-content"] {
+    transition: transform var(--dur-base) var(--ease-standard);
+  }
+
+  [data-slot="sheet-content"][data-side="left"][data-state="closed"] {
+    transform: translateX(-100%);
+  }
+
+  [data-slot="sheet-content"][data-side="right"][data-state="closed"] {
+    transform: translateX(100%);
+  }
+
+  [data-slot="sheet-content"][data-side="top"][data-state="closed"] {
+    transform: translateY(-100%);
+  }
+
+  [data-slot="sheet-content"][data-side="bottom"][data-state="closed"] {
+    transform: translateY(100%);
+  }
+
   @media (max-width: 767px) {
     .admin-shell-topbar {
       height: auto;
@@ -331,6 +365,19 @@
     .admin-shell-topbar #theme-switch,
     .admin-shell-topbar .header-avatar {
       flex: 0 0 auto;
+    }
+
+    .admin-shell-topbar .health-pill,
+    .admin-shell-topbar .notif-btn-wrap > button,
+    .admin-shell-topbar .header-avatar,
+    .admin-shell-topbar #theme-switch button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .admin-shell-topbar #theme-switch button {
+      width: 44px !important;
+      height: 44px !important;
     }
 
     .admin-shell-content .page,
