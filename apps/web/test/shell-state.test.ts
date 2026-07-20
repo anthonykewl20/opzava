@@ -254,6 +254,7 @@ describe("Admin shell state", () => {
 
   it("builds command palette entries from nav routes, task titles, and issue titles", () => {
     const items = buildCommandPaletteItems({
+      principal: context(),
       tasks: [task()],
       issues: [issue()],
       workspaceName: "Admin",
@@ -278,6 +279,17 @@ describe("Admin shell state", () => {
         external: true,
       }),
     );
+  });
+
+  it("returns no palette destinations or records for a root-denied principal", () => {
+    expect(
+      buildCommandPaletteItems({
+        principal: { roleKeys: ["member"] },
+        tasks: [task()],
+        issues: [issue()],
+        workspaceName: "Admin",
+      }),
+    ).toEqual([]);
   });
 
   it("loads healthy shell health from an active gateway snapshot even when the broker is idle", async () => {
@@ -311,7 +323,7 @@ describe("Admin shell state", () => {
 
     const state = await loadAdminShellState(context(), dependencies);
 
-    expect(state.nav).toEqual({
+    expect(state.nav).toMatchObject({
       openTasksCount: 1,
       openIssuesCount: 1,
       askOpzavaActive: true,
@@ -322,6 +334,11 @@ describe("Admin shell state", () => {
         githubConnected: false,
       },
     });
+    expect(state.nav.model.operate.map((item) => item.label)).toEqual([
+      "Overview",
+      "Tasks",
+      "Issues",
+    ]);
     expect(state.health.status).toBe("healthy");
     expect(state.health.text).toBe("All systems healthy");
     expect(state.commandItems.map((item) => item.id)).toEqual(

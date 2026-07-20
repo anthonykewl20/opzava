@@ -8,6 +8,11 @@ import {
 
 import { askAdminAssistantKey } from "@/lib/ask-admin-history";
 import {
+  buildLegacyAdminNavModel,
+  type LegacyAdminNavModel,
+  type AdminPrincipal,
+} from "@/lib/admin-registry";
+import {
   hasConnectedProviderOrGitHub,
   openclawHealthSummary,
   type OpenClawHealthSummary,
@@ -30,6 +35,7 @@ export interface ShellHealthState {
 }
 
 export interface AdminNavState {
+  readonly model: LegacyAdminNavModel;
   readonly openTasksCount: number | null;
   readonly openIssuesCount: number | null;
   readonly askOpzavaActive: boolean;
@@ -66,26 +72,6 @@ export interface AdminShellStateDependencies {
 }
 
 type QueryRow = Record<string, unknown>;
-
-const destinationItems: readonly CommandPaletteItem[] = [
-  {
-    id: "nav.ask-opzava",
-    label: "Ask Opzava",
-    href: "/ask-opzava",
-    kind: "destination",
-    meta: "Assistant",
-  },
-  { id: "nav.overview", label: "Overview", href: "/", kind: "destination", meta: "Workspace" },
-  { id: "nav.tasks", label: "Tasks", href: "/tasks", kind: "destination", meta: "Operate" },
-  { id: "nav.issues", label: "Issues", href: "/issues", kind: "destination", meta: "Operate" },
-  {
-    id: "nav.connections",
-    label: "Connections",
-    href: "/connections",
-    kind: "destination",
-    meta: "Automate",
-  },
-] as const;
 
 function rowsFromExecuteResult(result: unknown): readonly QueryRow[] {
   if (Array.isArray(result)) {
@@ -260,12 +246,30 @@ function issueCommandItems(issues: readonly IssueProjectionDto[]): readonly Comm
 }
 
 export function buildCommandPaletteItems(input: {
+  readonly principal: AdminPrincipal;
   readonly tasks: readonly TaskDto[];
   readonly issues: readonly IssueProjectionDto[];
   readonly workspaceName: string;
 }): readonly CommandPaletteItem[] {
+  const navModel = buildLegacyAdminNavModel(input.principal);
+  const destinations = [...navModel.pinned, ...navModel.operate, ...navModel.automate];
+  if (destinations.length === 0) {
+    return [];
+  }
+
   return [
-    ...destinationItems,
+    ...destinations.map((destination) => ({
+      id: `nav.${destination.id}`,
+      label: destination.id === "ask-opzava" ? "Ask Opzava" : destination.label,
+      href: destination.href,
+      kind: "destination" as const,
+      meta:
+        destination.group === "pinned"
+          ? "Assistant"
+          : destination.group === "operate"
+            ? "Operate"
+            : "Automate",
+    })),
     ...taskCommandItems(input.tasks, input.workspaceName),
     ...issueCommandItems(input.issues),
   ];
@@ -316,6 +320,7 @@ export async function loadAdminShellState(
 
   return {
     nav: {
+      model: buildLegacyAdminNavModel(context),
       openTasksCount: tasksResult.ok ? openTaskCount(tasks) : null,
       openIssuesCount: issuesResult?.ok === true ? openIssueCount(issues) : null,
       askOpzavaActive: activeTurnsResult > 0,
@@ -330,6 +335,7 @@ export async function loadAdminShellState(
       gatewayReachable,
     }),
     commandItems: buildCommandPaletteItems({
+      principal: context,
       tasks,
       issues,
       workspaceName: context.workspaceName,

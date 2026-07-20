@@ -11,6 +11,7 @@ import {
   visibleAskOpzavaTurns,
 } from "../lib/ask-opzava-page-state";
 import type { AskAdminTurnView } from "../lib/ask-admin-history";
+import { buildLegacyAdminNavModel } from "../lib/admin-registry";
 
 function turn(overrides: Partial<AskAdminTurnView> = {}): AskAdminTurnView {
   return {
@@ -92,10 +93,13 @@ describe("Ask Opzava page state", () => {
     expect(layout).toContain("TopbarRouteSearchOrBreadcrumb");
     expect(layout).toContain("AskOpzavaAgentStatus");
     expect(topbar).toContain("usePathname");
-    expect(topbar).toContain('pathname.startsWith("/ask-opzava")');
+    expect(topbar).toContain("pathname.startsWith(askAdmin.href)");
+    expect(topbar).toContain('destination.sourceDestinationId === "ask-admin-opzava"');
     expect(topbar).toContain("gatewayReachable === true");
     expect(topbar).toContain("Ask Admin Opzava");
-    expect(nav).toContain('href: "/ask-opzava"');
+    expect(buildLegacyAdminNavModel({ roleKeys: ["admin"] }).pinned).toContainEqual(
+      expect.objectContaining({ label: "Ask Admin Opzava", href: "/ask-opzava" }),
+    );
     expect(nav).toContain("pathname.startsWith(href)");
   });
 

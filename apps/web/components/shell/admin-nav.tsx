@@ -4,8 +4,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { RailCommandSearch } from "@/components/shell/command-palette";
+import type { LegacyAdminNavItem, LegacyAdminNavModel } from "@/lib/admin-registry";
 
 interface AdminNavState {
+  readonly model: LegacyAdminNavModel;
   readonly openTasksCount: number | null;
   readonly openIssuesCount: number | null;
   readonly askOpzavaActive: boolean;
@@ -20,7 +22,7 @@ interface AdminNavState {
 interface NavItem {
   readonly label: string;
   readonly href: string;
-  readonly icon: IconName;
+  readonly icon: string;
   readonly count?: string;
   readonly status?: "warning" | "success";
   readonly itemStyle?: CSSProperties;
@@ -29,32 +31,16 @@ interface NavItem {
   readonly action?: boolean;
 }
 
-type IconName =
-  | "ask"
-  | "overview"
-  | "tasks"
-  | "issues"
-  | "connections"
-  | "providers"
-  | "github"
-  | "add";
-
-const operateItems: readonly NavItem[] = [
-  { label: "Overview", href: "/", icon: "overview" },
-  { label: "Tasks", href: "/tasks", icon: "tasks" },
-  { label: "Issues", href: "/issues", icon: "issues" },
-] as const;
+function isActive(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 function countBadge(count: number | null): string | undefined {
   return count !== null && count > 0 ? String(count) : undefined;
 }
 
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
-}
-
-function NavIcon({ icon }: { readonly icon: IconName }) {
-  if (icon === "ask") {
+function NavIcon({ icon }: { readonly icon: string }) {
+  if (icon === "Sparkles") {
     return (
       <span
         className="ico"
@@ -72,7 +58,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "overview") {
+  if (icon === "LayoutDashboard") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <rect x="2" y="2" width="6" height="6" rx="1.5" fill="currentColor" opacity=".9" />
@@ -83,7 +69,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "tasks") {
+  if (icon === "Kanban") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <path
@@ -97,7 +83,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "issues") {
+  if (icon === "CircleDot") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.5" />
@@ -106,7 +92,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "providers") {
+  if (icon === "Cpu") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
@@ -120,7 +106,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "github") {
+  if (icon === "Workflow" || icon === "GitBranch") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <circle cx="5" cy="4.5" r="2" stroke="currentColor" strokeWidth="1.5" />
@@ -136,7 +122,7 @@ function NavIcon({ icon }: { readonly icon: IconName }) {
     );
   }
 
-  if (icon === "add") {
+  if (icon === "Plus") {
     return (
       <svg className="ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <path
@@ -197,11 +183,21 @@ function RailItem({ item, pathname }: { readonly item: NavItem; readonly pathnam
   );
 }
 
+function navItem(destination: LegacyAdminNavItem): NavItem {
+  return {
+    label: destination.label,
+    href: destination.href,
+    icon: destination.icon,
+  };
+}
+
 function ConnectionsRailGroup({
+  item,
   connectionsConnected,
   connections,
   pathname,
 }: {
+  readonly item: LegacyAdminNavItem | undefined;
   readonly connectionsConnected: boolean;
   readonly connections: AdminNavState["connections"];
   readonly pathname: string;
@@ -215,14 +211,17 @@ function ConnectionsRailGroup({
     }
   }, [inConnections]);
 
-  const activeHref = connectionRailActiveHref(pathname);
+  if (item === undefined) {
+    return null;
+  }
 
+  const activeHref = connectionRailActiveHref(pathname);
   const subItems: readonly NavItem[] = [
-    { label: "Overview", href: "/connections", icon: "overview" },
+    { label: "Overview", href: "/connections", icon: "LayoutDashboard" },
     {
       label: "Model Providers",
       href: "/connections/providers",
-      icon: "providers",
+      icon: "Cpu",
       count: `${connections.providersConnected}/${connections.providersTotal}`,
     },
     ...(connections.githubConnected
@@ -230,13 +229,13 @@ function ConnectionsRailGroup({
           {
             label: "GitHub",
             href: "/connections/github",
-            icon: "github" as const,
+            icon: "GitBranch",
             status: "success" as const,
             statusLabel: "GitHub connected",
           },
         ]
       : []),
-    { label: "Add integration", href: "/connections/add", icon: "add", action: true },
+    { label: "Add integration", href: "/connections/add", icon: "Plus", action: true },
   ];
 
   return (
@@ -248,9 +247,8 @@ function ConnectionsRailGroup({
         aria-controls="connections-rail-subtree"
         onClick={() => setExpanded((current) => !current)}
       >
-        <NavIcon icon="connections" />
-        <span className="rail-label">Connections</span>
-        {/* Collapsed, the header carries the group's status; expanded, each sub-item carries its own. */}
+        <NavIcon icon={item.icon} />
+        <span className="rail-label">{item.label}</span>
         {connectionsConnected && !expanded ? (
           <span
             className="dot dot-success dot-beat"
@@ -261,22 +259,24 @@ function ConnectionsRailGroup({
       </button>
       {expanded ? (
         <div id="connections-rail-subtree" className="rail-subitems">
-          {subItems.map((item) => {
-            const active = activeHref === item.href;
+          {subItems.map((subItem) => {
+            const active = activeHref === subItem.href;
             return (
               <a
-                key={item.href}
-                href={item.href}
-                className={`rail-item rail-subitem${item.action === true ? " rail-action" : ""}`}
+                key={subItem.href}
+                href={subItem.href}
+                className={`rail-item rail-subitem${subItem.action === true ? " rail-action" : ""}`}
                 aria-current={active ? "page" : undefined}
               >
-                <NavIcon icon={item.icon} />
-                <span className="rail-label">{item.label}</span>
-                {item.count !== undefined ? <span className="count">{item.count}</span> : null}
-                {item.status !== undefined ? (
+                <NavIcon icon={subItem.icon} />
+                <span className="rail-label">{subItem.label}</span>
+                {subItem.count !== undefined ? (
+                  <span className="count">{subItem.count}</span>
+                ) : null}
+                {subItem.status !== undefined ? (
                   <span
-                    className={`dot dot-${item.status} dot-beat`}
-                    aria-label={item.statusLabel}
+                    className={`dot dot-${subItem.status} dot-beat`}
+                    aria-label={subItem.statusLabel}
                   />
                 ) : null}
               </a>
@@ -290,31 +290,30 @@ function ConnectionsRailGroup({
 
 export function AdminNav({ state }: { readonly state: AdminNavState }) {
   const pathname = usePathname();
-  const liveOperateItems = operateItems.map((item) => {
-    if (item.href === "/tasks") {
-      const count = countBadge(state.openTasksCount);
-      return count === undefined ? item : { ...item, count };
-    }
-
-    if (item.href === "/issues") {
-      const count = countBadge(state.openIssuesCount);
-      return count === undefined ? item : { ...item, count };
-    }
-
-    return item;
-  });
-  const askOpzavaItem: NavItem = {
-    label: "Ask Admin Opzava",
-    href: "/ask-opzava",
-    icon: "ask",
-    ...(state.askOpzavaActive
+  const pinnedItems = state.model.pinned.map((destination) => ({
+    ...navItem(destination),
+    ...(state.askOpzavaActive && destination.sourceDestinationId === "ask-admin-opzava"
       ? {
           status: "warning" as const,
           statusLabel: "Assistant turn in progress",
         }
       : {}),
     itemStyle: { marginBottom: 4 },
-  };
+  }));
+  const operateItems = state.model.operate.map((item) => {
+    const base = navItem(item);
+    if (item.id === "tasks") {
+      const count = countBadge(state.openTasksCount);
+      return count === undefined ? base : { ...base, count };
+    }
+
+    if (item.id === "issues") {
+      const count = countBadge(state.openIssuesCount);
+      return count === undefined ? base : { ...base, count };
+    }
+
+    return base;
+  });
 
   return (
     <aside className="rail" aria-label="Main navigation">
@@ -345,15 +344,17 @@ export function AdminNav({ state }: { readonly state: AdminNavState }) {
       </div>
 
       <nav className="rail-nav" aria-label="Application sections">
-        <RailItem item={askOpzavaItem} pathname={pathname} />
-
+        {pinnedItems.map((item) => (
+          <RailItem key={item.href} item={item} pathname={pathname} />
+        ))}
         <div className="section-label">Operate</div>
-        {liveOperateItems.map((item) => (
+        {operateItems.map((item) => (
           <RailItem key={item.href} item={item} pathname={pathname} />
         ))}
 
         <div className="section-label nav-section-gap">Automate</div>
         <ConnectionsRailGroup
+          item={state.model.automate[0]}
           connectionsConnected={state.connectionsConnected}
           connections={state.connections}
           pathname={pathname}
