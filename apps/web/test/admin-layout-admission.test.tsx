@@ -20,7 +20,7 @@ const shell = vi.hoisted(() => ({
       status: "unknown" as const,
       text: "Health unknown",
       dotClassName: "dot",
-      ariaLabel: "Health: Unknown",
+      ariaLabel: "Health: Unknown; freshness unknown",
       checkedAt: null,
       freshnessState: "unknown" as const,
       gatewayReachable: null,

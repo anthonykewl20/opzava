@@ -173,6 +173,11 @@ describe("Admin shell state", () => {
       state: "live" as const,
       freshnessState: "within-budget" as const,
       sourceTimestamp: "2026-07-03T00:00:00.000Z",
+      provenance: {
+        label: "OpenClaw system health",
+        href: "/connections/system",
+        diagnosticRef: "openclaw-health",
+      },
       value: {
         overall: "healthy" as const,
         componentsTotal: 1,
@@ -189,8 +194,17 @@ describe("Admin shell state", () => {
       dotClassName: "dot dot-success",
     });
     expect(
-      shellHealthView({ ...envelope, value: { ...envelope.value, overall: "degraded" } }),
-    ).toMatchObject({ status: "degraded", text: "Degraded", dotClassName: "dot dot-warning" });
+      shellHealthView({
+        ...envelope,
+        value: { ...envelope.value, overall: "degraded", notChecked: 1 },
+      }),
+    ).toMatchObject({
+      status: "degraded",
+      text: "Degraded",
+      dotClassName: "dot dot-warning",
+      ariaLabel:
+        "Health: Degraded; OpenClaw system health: 1 component is not checked; checked 2026-07-03T00:00:00.000Z",
+    });
     expect(
       shellHealthView({ ...envelope, value: { ...envelope.value, overall: "unhealthy" } }),
     ).toMatchObject({ status: "unhealthy", text: "Unhealthy", dotClassName: "dot dot-danger" });
@@ -206,10 +220,16 @@ describe("Admin shell state", () => {
       state: "unavailable",
       freshnessState: "unknown",
       sourceTimestamp: null,
+      provenance: {
+        label: "OpenClaw system health",
+        href: "/connections/system",
+        diagnosticRef: "openclaw-health",
+      },
       value: null,
     });
 
     expect(unavailable).toMatchObject({ status: "unknown", text: "Unknown" });
+    expect(unavailable.ariaLabel).toContain("freshness unknown");
     expect(unavailable.dotClassName).not.toContain("dot-success");
   });
 
