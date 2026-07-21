@@ -21,6 +21,7 @@ export const NAVIGABLE_ROUTES: ReadonlySet<string> = new Set([
   "/dev-board",
   "/connections",
   "/gateway",
+  "/models",
   "/health",
 ]);
 
