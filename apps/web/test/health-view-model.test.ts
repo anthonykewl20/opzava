@@ -234,6 +234,46 @@ describe("Health page view model", () => {
     });
   });
 
+  it("lists main as unmanaged while excluding it from every count and attention item", () => {
+    const current = snapshot({
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: [
+          {
+            id: "gateway",
+            kind: "gateway",
+            label: "Gateway",
+            status: "healthy",
+            detail: "Live.",
+            lastCheckedAt: checkedAt,
+          },
+          {
+            id: "agent:main",
+            kind: "agent",
+            label: "Main",
+            status: "attention",
+            managed: false,
+            detail: "Unmanaged (not an Opzava agent).",
+            lastCheckedAt: null,
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const view = buildHealthPageViewModel(pageData(current), liveContext);
+    const main = view.groups
+      .flatMap((group) => group.components)
+      .find((component) => component.id === "agent:main");
+
+    expect(view.counts).toEqual({ total: 1, healthy: 1, attention: 0, notChecked: 0 });
+    expect(view.attentionItems).toEqual([]);
+    expect(main).toMatchObject({
+      statusLabel: "Unmanaged",
+      detail: "Unmanaged (not an Opzava agent).",
+    });
+  });
+
   it("distinguishes not-configured, unavailable with stale last-known-good, stale, and live", () => {
     const notConfigured = buildHealthPageViewModel(pageData(snapshot(), false), liveContext);
     const unavailableSnapshot = snapshot({

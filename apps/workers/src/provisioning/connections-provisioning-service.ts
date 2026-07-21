@@ -1532,6 +1532,32 @@ function connectedProviderIdForModel(input: {
     : null;
 }
 
+function preferredConnectedOrchestratorSelection(input: {
+  readonly config: Record<string, unknown>;
+  readonly providerConnections: readonly ProviderConnectionState[];
+}): { readonly model: string; readonly providerId: string } | null {
+  const askAdmin = agentsList(input.config).find(
+    (agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID,
+  );
+  const selectedModel = modelSelectorPrimary(askAdmin?.["model"]);
+  const selectedProviderId = connectedProviderIdForModel({
+    model: selectedModel,
+    providerConnections: input.providerConnections,
+  });
+  if (selectedModel !== null && selectedProviderId !== null) {
+    return { model: selectedModel, providerId: selectedProviderId };
+  }
+
+  const primaryModel = gatewayPrimaryModel(input.config);
+  const primaryProviderId = connectedProviderIdForModel({
+    model: primaryModel,
+    providerConnections: input.providerConnections,
+  });
+  return primaryModel !== null && primaryProviderId !== null
+    ? { model: primaryModel, providerId: primaryProviderId }
+    : null;
+}
+
 function currentOrchestratorState(input: {
   readonly config: Record<string, unknown>;
   readonly catalog: readonly ModelProviderCatalogEntry[];
@@ -1539,7 +1565,6 @@ function currentOrchestratorState(input: {
   readonly reconcile: OrchestratorReconcileState;
   readonly now: Date;
 }): OrchestratorDelegationState {
-  const primaryModel = gatewayPrimaryModel(input.config);
   const askAdmin = agentsList(input.config).find(
     (agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID,
   );
@@ -1565,22 +1590,15 @@ function currentOrchestratorState(input: {
     .filter((entry): entry is OrchestratorSubagentRole => entry !== null);
   const subagentConfig = recordValue(askAdmin?.["subagents"]);
   const allowAgents = stringArrayValue(subagentConfig?.["allowAgents"]);
-  const selectedModel = modelSelectorPrimary(askAdmin?.["model"]);
-  const selectedProviderId = connectedProviderIdForModel({
-    model: selectedModel,
+  const selection = preferredConnectedOrchestratorSelection({
+    config: input.config,
     providerConnections: input.providerConnections,
   });
-  const primaryProviderId = connectedProviderIdForModel({
-    model: primaryModel,
-    providerConnections: input.providerConnections,
-  });
-  const orchestratorModel =
-    selectedProviderId !== null ? selectedModel : primaryProviderId !== null ? primaryModel : null;
 
   return {
     orchestratorAgentId: ASK_ADMIN_AGENT_ID,
-    orchestratorModel,
-    orchestratorProviderId: selectedProviderId ?? primaryProviderId,
+    orchestratorModel: selection?.model ?? null,
+    orchestratorProviderId: selection?.providerId ?? null,
     delegationMode: "prefer",
     allowAgents,
     subagents,
@@ -1669,8 +1687,27 @@ function orchestratorConfigIsCurrent(input: {
 
   return canonical.value.agents.list.every((wanted) => {
     const live = liveOwned.find((agent) => stringValue(agent["id"]) === wanted.id);
-    return live !== undefined && ownedConfigValueEquals(live, wanted);
+    return live !== undefined && ownedAgentConfigEquals(live, wanted);
   });
+}
+
+function ownedAgentConfigEquals(
+  live: Record<string, unknown>,
+  wanted: Record<string, unknown>,
+): boolean {
+  return (
+    ownedAgentRowEquals(live, wanted) &&
+    ownedConfigValueEquals(recordValue(live["tools"]), recordValue(wanted["tools"]))
+  );
+}
+
+function ownedAgentRowEquals(
+  live: Record<string, unknown>,
+  wanted: Record<string, unknown>,
+): boolean {
+  const liveRow = Object.fromEntries(Object.entries(live).filter(([key]) => key !== "tools"));
+  const wantedRow = Object.fromEntries(Object.entries(wanted).filter(([key]) => key !== "tools"));
+  return ownedConfigValueEquals(liveRow, wantedRow);
 }
 
 function ownedConfigValueEquals(left: unknown, right: unknown): boolean {
@@ -3001,6 +3038,8 @@ const coreHealthComponents = [
   { id: "event-loop", kind: "event-loop", label: "Event loop" },
   { id: "plugins", kind: "plugins", label: "Plugins" },
   { id: "context-engines", kind: "context-engines", label: "Context engines" },
+  { id: "delivery-queues", kind: "delivery-queues", label: "Delivery queues" },
+  { id: "config-reload", kind: "config-reload", label: "Config reload" },
 ] as const;
 
 function healthComponent(input: {
@@ -3008,10 +3047,11 @@ function healthComponent(input: {
   readonly kind: OpenClawHealthComponent["kind"];
   readonly label: string;
   readonly status: OpenClawHealthComponent["status"];
+  readonly managed?: boolean;
   readonly detail: string | null;
   readonly lastCheckedAt: string | null;
 }): OpenClawHealthComponent {
-  return input;
+  return { ...input, managed: input.managed ?? true };
 }
 
 function unknownCoreHealthComponents(): readonly OpenClawHealthComponent[] {
@@ -3100,15 +3140,211 @@ function channelAccountComponent(input: {
   });
 }
 
-function projectOpenClawComponents(healthResult: Result<unknown>): {
+function validUnavailablePluginEntry(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const diagnostic = recordValue(value["diagnostic"]);
+  return (
+    stringValue(value["id"]) !== null &&
+    value["state"] === "configured-unavailable" &&
+    diagnostic?.["kind"] === "plugin-verification" &&
+    stringValue(diagnostic["reason"]) !== null &&
+    stringValue(diagnostic["detail"]) !== null
+  );
+}
+
+function modelCatalogPayloadIsUsable(result: Result<unknown>): boolean {
+  if (!result.ok) return false;
+  const root = recordValue(result.value);
+  const models = root?.["models"];
+  return (
+    Array.isArray(models) &&
+    models.every((model) => {
+      if (!isRecord(model)) return false;
+      const providerId = modelRecordProviderId(model);
+      return providerId !== null && modelRecordId(model, providerId) !== null;
+    })
+  );
+}
+
+const agentReadinessReasonOrder = [
+  "model_assignment_missing",
+  "model_catalog_unavailable",
+  "model_route_unresolved",
+  "provider_auth_unknown",
+  "provider_not_authenticated",
+  "config_row_missing",
+  "canonical_config_unavailable",
+  "config_drift",
+  "tool_policy_unavailable",
+  "tool_policy_drift",
+] as const;
+
+type AgentReadinessReasonCode = (typeof agentReadinessReasonOrder)[number];
+
+function isOpzavaOwnedAgentId(agentId: string): boolean {
+  return agentId === ASK_ADMIN_AGENT_ID || agentId.startsWith("subagent-");
+}
+
+function canonicalOwnedAgentRows(input: {
+  readonly config: Record<string, unknown>;
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly providerConnections: readonly ProviderConnectionState[];
+}): readonly Record<string, unknown>[] | null {
+  const askAdmin = agentsList(input.config).find(
+    (agent) => stringValue(agent["id"]) === ASK_ADMIN_AGENT_ID,
+  );
+  const selectedModel = modelSelectorPrimary(askAdmin?.["model"]);
+  const selectedProviderId =
+    selectedModel === null
+      ? null
+      : (input.providerConnections.find((connection) =>
+          providerIdentitiesMatch(connection.providerId, modelProviderId(selectedModel) ?? ""),
+        )?.providerId ?? null);
+  const selection =
+    selectedModel !== null && selectedProviderId !== null
+      ? { model: selectedModel, providerId: selectedProviderId }
+      : preferredConnectedOrchestratorSelection(input);
+  if (selection === null) return null;
+
+  const connectedProviderIds = new Set(
+    input.providerConnections
+      .filter((connection) => connection.status === "connected")
+      .map((connection) => connection.providerId),
+  );
+  const canonical = buildOrchestratorAgentConfig({
+    orchestratorModel: selection.model,
+    subagents: connectedProviderSubagents({
+      catalog: input.catalog,
+      providerConnections: input.providerConnections,
+      connectedProviderIds,
+      orchestratorProviderId: selection.providerId,
+    }),
+  });
+  return canonical.ok ? canonical.value.agents.list : null;
+}
+
+function agentReadinessComponent(input: {
+  readonly agentId: string;
+  readonly label: string;
+  readonly checkedAt: string;
+  readonly config: Record<string, unknown>;
+  readonly canonicalRows: readonly Record<string, unknown>[] | null;
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly providerConnections: readonly ProviderConnectionState[];
+  readonly modelCatalogAvailable: boolean;
+  readonly authStatusAvailable: boolean;
+}): OpenClawHealthComponent {
+  if (!isOpzavaOwnedAgentId(input.agentId)) {
+    return healthComponent({
+      id: `agent:${input.agentId}`,
+      kind: "agent",
+      label: input.label,
+      status: "not_checked",
+      managed: false,
+      detail: "Unmanaged (not an Opzava agent).",
+      lastCheckedAt: null,
+    });
+  }
+
+  const reasons = new Map<AgentReadinessReasonCode, string>();
+  const live = agentsList(input.config).find((agent) => stringValue(agent["id"]) === input.agentId);
+  const model = modelSelectorPrimary(live?.["model"]);
+  let providerId: string | null = null;
+  if (model === null) {
+    reasons.set("model_assignment_missing", "model_assignment_missing");
+  } else if (!input.modelCatalogAvailable) {
+    reasons.set("model_catalog_unavailable", "model_catalog_unavailable");
+  } else {
+    providerId = modelProviderId(model);
+    const modelId = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+    const provider = input.catalog.find((entry) =>
+      providerIdentitiesMatch(entry.id, providerId ?? ""),
+    );
+    const resolves =
+      provider !== undefined &&
+      Array.isArray(provider.catalogModels) &&
+      provider.catalogModels.some((entry) => entry.id.toLowerCase() === modelId.toLowerCase());
+    if (!resolves) reasons.set("model_route_unresolved", `model_route_unresolved:${model}`);
+  }
+
+  if (providerId !== null) {
+    const connection = input.providerConnections.find((entry) =>
+      providerIdentitiesMatch(entry.providerId, providerId),
+    );
+    if (connection === undefined || !input.authStatusAvailable || connection.authHealth == null) {
+      reasons.set("provider_auth_unknown", `provider_auth_unknown:${providerId}`);
+    } else if (
+      connection.status !== "connected" ||
+      connection.authHealth === "expired" ||
+      connection.authHealth === "missing"
+    ) {
+      reasons.set("provider_not_authenticated", `provider_not_authenticated:${providerId}`);
+    }
+  }
+
+  const wanted = input.canonicalRows?.find((agent) => stringValue(agent["id"]) === input.agentId);
+  if (live === undefined) {
+    reasons.set("config_row_missing", "config_row_missing");
+  }
+  if (input.canonicalRows === null) {
+    reasons.set("canonical_config_unavailable", "canonical_config_unavailable");
+  } else if (wanted !== undefined && live !== undefined) {
+    if (!ownedAgentRowEquals(live, wanted)) reasons.set("config_drift", "config_drift");
+    const liveTools = recordValue(live["tools"]);
+    const wantedTools = recordValue(wanted["tools"]);
+    if (liveTools === null || wantedTools === null) {
+      reasons.set("tool_policy_unavailable", "tool_policy_unavailable");
+    } else if (!ownedConfigValueEquals(liveTools, wantedTools)) {
+      reasons.set("tool_policy_drift", "tool_policy_drift");
+    }
+  } else if (live !== undefined) {
+    reasons.set("config_drift", "config_drift");
+    reasons.set("tool_policy_drift", "tool_policy_drift");
+  }
+
+  const orderedReasons = agentReadinessReasonOrder.flatMap((code) => {
+    const reason = reasons.get(code);
+    return reason === undefined ? [] : [reason];
+  });
+  const unknown = orderedReasons.some(
+    (reason) =>
+      reason === "model_assignment_missing" ||
+      reason === "model_catalog_unavailable" ||
+      reason.startsWith("provider_auth_unknown:") ||
+      reason === "config_row_missing" ||
+      reason === "canonical_config_unavailable" ||
+      reason === "tool_policy_unavailable",
+  );
+  const status = unknown ? "not_checked" : orderedReasons.length > 0 ? "attention" : "healthy";
+  return healthComponent({
+    id: `agent:${input.agentId}`,
+    kind: "agent",
+    label: input.label,
+    status,
+    detail:
+      orderedReasons.length === 0
+        ? "Agent readiness checks passed."
+        : `Agent readiness: ${orderedReasons.join(", ")}.`,
+    lastCheckedAt: status === "not_checked" ? null : input.checkedAt,
+  });
+}
+
+function projectOpenClawComponents(input: {
+  readonly healthResult: Result<unknown>;
+  readonly config: Record<string, unknown>;
+  readonly catalog: readonly ModelProviderCatalogEntry[];
+  readonly providerConnections: readonly ProviderConnectionState[];
+  readonly modelCatalogAvailable: boolean;
+  readonly authStatusAvailable: boolean;
+}): {
   readonly components: readonly OpenClawHealthComponent[];
   readonly warnings: OpenClawHealth["warnings"];
   readonly checkedAt: string | null;
 } {
-  if (!healthResult.ok) {
+  if (!input.healthResult.ok) {
     return { components: unknownCoreHealthComponents(), warnings: [], checkedAt: null };
   }
-  const health = recordValue(healthResult.value);
+  const health = recordValue(input.healthResult.value);
   const checkedAt = isoTimestamp(health?.["ts"]);
   if (health === null || health["ok"] !== true || checkedAt === null) {
     return { components: unknownCoreHealthComponents(), warnings: [], checkedAt: null };
@@ -3146,30 +3382,34 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
   const pluginRecord = recordValue(plugins);
   const pluginLoaded = pluginRecord?.["loaded"];
   const pluginErrors = pluginRecord?.["errors"];
+  const pluginUnavailable = pluginRecord?.["unavailable"];
   const validPluginFacts =
-    plugins === undefined ||
-    (pluginRecord !== null &&
-      Array.isArray(pluginLoaded) &&
-      pluginLoaded.every((entry) => typeof entry === "string") &&
-      Array.isArray(pluginErrors) &&
-      pluginErrors.every(
-        (entry) =>
-          isRecord(entry) &&
-          stringValue(entry["id"]) !== null &&
-          stringValue(entry["origin"]) !== null &&
-          typeof entry["activated"] === "boolean" &&
-          stringValue(entry["error"]) !== null,
-      ));
+    pluginRecord !== null &&
+    Array.isArray(pluginLoaded) &&
+    pluginLoaded.every((entry) => typeof entry === "string") &&
+    Array.isArray(pluginErrors) &&
+    pluginErrors.every(
+      (entry) =>
+        isRecord(entry) &&
+        stringValue(entry["id"]) !== null &&
+        stringValue(entry["origin"]) !== null &&
+        typeof entry["activated"] === "boolean" &&
+        stringValue(entry["error"]) !== null,
+    ) &&
+    Array.isArray(pluginUnavailable) &&
+    pluginUnavailable.every(validUnavailablePluginEntry);
   const pluginErrorCount = Array.isArray(pluginErrors) ? pluginErrors.length : 0;
+  const pluginUnavailableCount = Array.isArray(pluginUnavailable) ? pluginUnavailable.length : 0;
+  const pluginIssueCount = pluginErrorCount + pluginUnavailableCount;
   components.push(
     healthComponent({
       ...coreHealthComponents[2],
-      status: !validPluginFacts ? "not_checked" : pluginErrorCount > 0 ? "attention" : "healthy",
+      status: !validPluginFacts ? "not_checked" : pluginIssueCount > 0 ? "attention" : "healthy",
       detail: !validPluginFacts
-        ? "Plugin health could not be read."
-        : pluginErrorCount > 0
-          ? `${pluginErrorCount} plugin error${pluginErrorCount === 1 ? "" : "s"} reported.`
-          : "No plugin errors were reported.",
+        ? "Plugin availability was not checked."
+        : pluginIssueCount > 0
+          ? `${pluginErrorCount} plugin error${pluginErrorCount === 1 ? "" : "s"} and ${pluginUnavailableCount} unavailable plugin${pluginUnavailableCount === 1 ? "" : "s"} reported.`
+          : "No plugin errors or unavailable plugins were reported.",
       lastCheckedAt: validPluginFacts ? checkedAt : null,
     }),
   );
@@ -3200,6 +3440,62 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
           ? `${quarantineCount} context engine${quarantineCount === 1 ? " is" : "s are"} quarantined.`
           : "No context engines are quarantined.",
       lastCheckedAt: validContextFacts ? checkedAt : null,
+    }),
+  );
+
+  const deliveryQueues = recordValue(health["deliveryQueues"]);
+  const failedDeliveries = deliveryQueues?.["failed"];
+  const validDeliveryQueueFacts =
+    deliveryQueues !== null &&
+    Array.isArray(failedDeliveries) &&
+    failedDeliveries.every(
+      (entry) =>
+        isRecord(entry) &&
+        stringValue(entry["queueName"]) !== null &&
+        Number.isSafeInteger(entry["count"]) &&
+        numberValue(entry["count"]) !== null &&
+        (numberValue(entry["count"]) ?? -1) >= 0,
+    );
+  const deadLetterCount = Array.isArray(failedDeliveries)
+    ? failedDeliveries.reduce(
+        (total, entry) => total + (isRecord(entry) ? (numberValue(entry["count"]) ?? 0) : 0),
+        0,
+      )
+    : 0;
+  components.push(
+    healthComponent({
+      ...coreHealthComponents[4],
+      status: !validDeliveryQueueFacts
+        ? "not_checked"
+        : deadLetterCount > 0
+          ? "attention"
+          : "healthy",
+      detail: !validDeliveryQueueFacts
+        ? "Delivery queue failures were not checked."
+        : deadLetterCount > 0
+          ? `${deadLetterCount} dead-lettered deliver${deadLetterCount === 1 ? "y" : "ies"} reported.`
+          : "No dead-lettered deliveries were reported.",
+      lastCheckedAt: validDeliveryQueueFacts ? checkedAt : null,
+    }),
+  );
+
+  const configReload = recordValue(health["configReload"]);
+  const hotReloadStatus = stringValue(configReload?.["hotReloadStatus"]);
+  const validConfigReloadFact = hotReloadStatus === "active" || hotReloadStatus === "disabled";
+  components.push(
+    healthComponent({
+      ...coreHealthComponents[5],
+      status: !validConfigReloadFact
+        ? "not_checked"
+        : hotReloadStatus === "active"
+          ? "healthy"
+          : "attention",
+      detail: !validConfigReloadFact
+        ? "Config reload status was not checked."
+        : hotReloadStatus === "active"
+          ? "Config hot reload is active."
+          : "Config hot reload is disabled.",
+      lastCheckedAt: validConfigReloadFact ? checkedAt : null,
     }),
   );
 
@@ -3234,6 +3530,7 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
     }
   }
 
+  const canonicalRows = canonicalOwnedAgentRows(input);
   if (Array.isArray(health["agents"])) {
     const agents = health["agents"]
       .filter((agent): agent is Record<string, unknown> => isRecord(agent))
@@ -3245,21 +3542,47 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
       .sort((left, right) => left.agentId.localeCompare(right.agentId));
     for (const { agent, agentId } of agents) {
       components.push(
-        healthComponent({
-          id: `agent:${agentId}`,
-          kind: "agent",
+        agentReadinessComponent({
+          agentId,
           label: stringValue(agent["name"]) ?? agentId,
-          status: "not_checked",
-          detail: "Agent schedule configuration is available, but liveness was not checked.",
-          lastCheckedAt: null,
+          checkedAt,
+          config: input.config,
+          canonicalRows,
+          catalog: input.catalog,
+          providerConnections: input.providerConnections,
+          modelCatalogAvailable: input.modelCatalogAvailable,
+          authStatusAvailable: input.authStatusAvailable,
         }),
       );
     }
   }
 
   const pricing = recordValue(health["modelPricing"]);
-  const warnings =
-    pricing?.["state"] === "degraded"
+  const canonicalIds = new Set(
+    (canonicalRows ?? [])
+      .map((agent) => stringValue(agent["id"]))
+      .filter((id): id is string => id !== null),
+  );
+  const liveOwnedIds = new Set(
+    agentsList(input.config)
+      .map((agent) => stringValue(agent["id"]))
+      .filter((id): id is string => id !== null && isOpzavaOwnedAgentId(id)),
+  );
+  const ownershipDrift =
+    canonicalIds.size > 0 &&
+    (liveOwnedIds.size !== canonicalIds.size ||
+      [...liveOwnedIds].some((id) => !canonicalIds.has(id)));
+  const warnings: OpenClawHealth["warnings"] = [
+    ...(ownershipDrift
+      ? [
+          {
+            id: "agent-ownership-drift",
+            label: "Agent ownership",
+            detail: "The Opzava-owned agent set differs from canonical configuration.",
+          },
+        ]
+      : []),
+    ...(pricing?.["state"] === "degraded"
       ? [
           {
             id: "model-pricing",
@@ -3267,7 +3590,8 @@ function projectOpenClawComponents(healthResult: Result<unknown>): {
             detail: "Model pricing refresh is degraded; runtime health is unaffected.",
           },
         ]
-      : [];
+      : []),
+  ];
   return { components, warnings, checkedAt };
 }
 
@@ -3774,15 +4098,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       if (entry.expiresAt <= nowMs) this.lastFullyHealthy.delete(candidateKey);
     }
 
+    const scoredComponents = input.components.filter((component) => component.managed !== false);
     if (
       input.checkedAt !== null &&
-      input.components.length > 0 &&
-      input.components.every((component) => component.status === "healthy")
+      scoredComponents.length > 0 &&
+      scoredComponents.every((component) => component.status === "healthy")
     ) {
       const value = {
         checkedAt: input.checkedAt,
-        healthy: input.components.length,
-        total: input.components.length,
+        healthy: scoredComponents.length,
+        total: scoredComponents.length,
       } satisfies OpenClawLastKnownHealthy;
       this.lastFullyHealthy.delete(key);
       this.lastFullyHealthy.set(key, { value, expiresAt: nowMs + 24 * 60 * 60 * 1_000 });
@@ -3861,15 +4186,6 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         { requiredScope: "operator.admin" },
       ),
     ]);
-    const projectedHealth = projectOpenClawComponents(healthResult);
-    if (probeHealth && projectedHealth.checkedAt === null) {
-      return err(
-        provisioningError(
-          "provisioning.connections.healthProbeUnavailable",
-          "OpenClaw did not return a checked result for the live health probe.",
-        ),
-      );
-    }
     if (!pluginDiscoveryResult.ok) {
       console.warn("connections.pluginModelDiscovery.unavailable", {
         code: pluginDiscoveryResult.error.code,
@@ -3897,6 +4213,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         now,
       }),
     );
+    const projectedHealth = projectOpenClawComponents({
+      healthResult,
+      config,
+      catalog,
+      providerConnections,
+      modelCatalogAvailable: modelCatalogPayloadIsUsable(modelsResult),
+      authStatusAvailable: authStatus !== null,
+    });
+    if (probeHealth && projectedHealth.checkedAt === null) {
+      return err(
+        provisioningError(
+          "provisioning.connections.healthProbeUnavailable",
+          "OpenClaw did not return a checked result for the live health probe.",
+        ),
+      );
+    }
     // Connections stay catalog-aligned by construction: a provider the model catalog does not
     // advertise is not routable as a model, so we do not synthesize a phantom connection row for it
     // (review: authStatus is a subset of models.list in practice). The projection is catalog-driven.

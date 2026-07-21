@@ -9,7 +9,6 @@ import {
 } from "@/lib/admin-overview/readiness-projections";
 import type { ConnectionsPageData } from "@/lib/connections";
 import { overviewHealthGroupId } from "@/lib/connections-overview";
-import { openclawHealthSummary } from "@/lib/connections-state";
 
 export interface HealthCountsView {
   readonly total: number;
@@ -127,7 +126,8 @@ function relativeTime(value: string | null, evaluatedAt: string): string {
   return `${Math.floor(ageMs / 86_400_000)}d ago`;
 }
 
-function statusLabel(status: OpenClawHealthStatus): string {
+function statusLabel(status: OpenClawHealthStatus, managed: boolean): string {
+  if (!managed) return "Unmanaged";
   if (status === "healthy") return "Healthy";
   if (status === "attention") return "Needs attention";
   return "Unknown · not checked";
@@ -147,7 +147,7 @@ function componentView(
         ? "No probe result is available; this is unknown, not healthy."
         : "No additional detail was reported."),
     status: component.status,
-    statusLabel: statusLabel(component.status),
+    statusLabel: statusLabel(component.status, component.managed !== false),
     checkedLabel:
       component.lastCheckedAt === null
         ? "Not checked"
@@ -177,7 +177,7 @@ function attentionItems(
   if (!includeCurrentSnapshot) return [];
 
   const componentItems = data.snapshot.openclawHealth.components
-    .filter((component) => component.status === "attention")
+    .filter((component) => component.managed !== false && component.status === "attention")
     .map((component) => {
       const groupId = overviewHealthGroupId(component.kind);
       return {
@@ -330,7 +330,13 @@ export function buildHealthPageViewModel(
   const healthEnvelope = projectHealthReadiness(data, context);
   const gatewayEnvelope = projectGatewayReadiness(data, context);
   const health = data.snapshot.openclawHealth;
-  const summary = openclawHealthSummary(health);
+  const scoredComponents = health.components.filter((component) => component.managed !== false);
+  const summary = {
+    total: scoredComponents.length,
+    healthy: scoredComponents.filter((component) => component.status === "healthy").length,
+    attention: scoredComponents.filter((component) => component.status === "attention").length,
+    notChecked: scoredComponents.filter((component) => component.status === "not_checked").length,
+  };
   const includeCurrentSnapshot =
     healthEnvelope.value !== null &&
     data.snapshot.gateway.status === "active" &&
@@ -338,13 +344,19 @@ export function buildHealthPageViewModel(
   const counts =
     includeCurrentSnapshot && (healthEnvelope.value?.componentsTotal ?? 0) > 0
       ? {
-          total: healthEnvelope.value?.componentsTotal ?? summary.total,
-          healthy: healthEnvelope.value?.healthy ?? summary.healthy,
-          attention: healthEnvelope.value?.attention ?? summary.attention,
-          notChecked: healthEnvelope.value?.notChecked ?? summary.notChecked,
+          total: summary.total,
+          healthy: summary.healthy,
+          attention: summary.attention,
+          notChecked: summary.notChecked,
         }
       : null;
-  const overall = includeCurrentSnapshot ? (healthEnvelope.value?.overall ?? "unknown") : "unknown";
+  const overall = includeCurrentSnapshot
+    ? summary.attention > 0 && summary.healthy === 0
+      ? "unhealthy"
+      : summary.attention > 0 || summary.notChecked > 0 || summary.healthy === 0
+        ? "degraded"
+        : "healthy"
+    : "unknown";
   const verdict = verdictCopy({ availability: healthEnvelope.state, counts, overall });
   const lastKnownGood = health.lastKnownHealthy;
 
