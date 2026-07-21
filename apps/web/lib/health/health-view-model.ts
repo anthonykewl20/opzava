@@ -330,13 +330,9 @@ export function buildHealthPageViewModel(
   const healthEnvelope = projectHealthReadiness(data, context);
   const gatewayEnvelope = projectGatewayReadiness(data, context);
   const health = data.snapshot.openclawHealth;
-  const scoredComponents = health.components.filter((component) => component.managed !== false);
-  const summary = {
-    total: scoredComponents.length,
-    healthy: scoredComponents.filter((component) => component.status === "healthy").length,
-    attention: scoredComponents.filter((component) => component.status === "attention").length,
-    notChecked: scoredComponents.filter((component) => component.status === "not_checked").length,
-  };
+  // Counts and rollup come from the shared readiness projection so this page cannot disagree with
+  // the topbar pill or the Overview section about the same fact. Unmanaged rows are excluded once,
+  // inside `openclawHealthSummary`, not re-derived here.
   const includeCurrentSnapshot =
     healthEnvelope.value !== null &&
     data.snapshot.gateway.status === "active" &&
@@ -344,19 +340,13 @@ export function buildHealthPageViewModel(
   const counts =
     includeCurrentSnapshot && (healthEnvelope.value?.componentsTotal ?? 0) > 0
       ? {
-          total: summary.total,
-          healthy: summary.healthy,
-          attention: summary.attention,
-          notChecked: summary.notChecked,
+          total: healthEnvelope.value?.componentsTotal ?? 0,
+          healthy: healthEnvelope.value?.healthy ?? 0,
+          attention: healthEnvelope.value?.attention ?? 0,
+          notChecked: healthEnvelope.value?.notChecked ?? 0,
         }
       : null;
-  const overall = includeCurrentSnapshot
-    ? summary.attention > 0 && summary.healthy === 0
-      ? "unhealthy"
-      : summary.attention > 0 || summary.notChecked > 0 || summary.healthy === 0
-        ? "degraded"
-        : "healthy"
-    : "unknown";
+  const overall = includeCurrentSnapshot ? (healthEnvelope.value?.overall ?? "unknown") : "unknown";
   const verdict = verdictCopy({ availability: healthEnvelope.state, counts, overall });
   const lastKnownGood = health.lastKnownHealthy;
 
