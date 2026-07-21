@@ -67,6 +67,8 @@ Two focused sprints own current work. Everything else is shared foundation or fr
 - `docs/openclaw/`: vendored OpenClaw docs; design to these.
 - `docs/ux-law/`, `ux-redesign/mockups/`: UX reference library and canonical mockups/tokens.
 - `mainframe/`: Opzava-owned OpenClaw fork; customize only via `mainframe/PATCHES.md` rung 0-3.
+- `docs/agents/delivery-workflow.md`: **the required order for every change** — where the next task
+  comes from, and the gates you may not skip. Read it before touching anything.
 - `docs/agents/`: issue-tracker, triage-label, and domain-doc conventions for the engineering
   skills.
 
@@ -103,7 +105,14 @@ Two focused sprints own current work. Everything else is shared foundation or fr
 
 ## Working here
 
-No rigid workflow is imposed right now — use good default judgment. The essentials:
+**Follow `docs/agents/delivery-workflow.md` — it is the required order for every change.** There is no
+long-tenured engineer here: every task starts with someone new, so the process lives in the repo, not
+in anyone's head. That doc tells you **where the next task comes from** (Gate 0: `status:in-progress`
+→ `status:ready` → the delivery graphs → ask) and the gates you may not skip — no code without an
+approved issue, no screen without an approved mockup, worktree always, verify the writer's work
+yourself, DeepSeek review, real-stack proof, then PR/CI/merge and a clean audit.
+
+The essentials it expands on:
 
 - Orient from this file, the current approved GitHub issue or PRD, and any skills it names.
 - Scope to that one issue; keep local style and architecture; honor the Non-Negotiables.
