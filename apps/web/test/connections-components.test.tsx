@@ -256,6 +256,27 @@ describe("Connections components", () => {
     ]);
   });
 
+  it("keeps unmanaged rows out of the grouped health counts (#275)", () => {
+    // OpenClaw's stock `main` agent is never Opzava's to configure, so counting it left the Agents
+    // group permanently "unknown · 1 not checked" no matter how healthy the owned agents were —
+    // the same ceiling on this panel that #275 removes from the Health page and topbar.
+    const groups = overviewHealthGroups([
+      healthComponent("agent:ask-admin-opzava", "agent", "healthy"),
+      healthComponent("agent:subagent-zai", "agent", "healthy"),
+      healthComponent("agent:main", "agent", "not_checked", false),
+    ]);
+
+    expect(groups).toContainEqual(
+      expect.objectContaining({
+        label: "Agents",
+        healthy: 2,
+        notChecked: 0,
+        total: 2,
+        status: "healthy",
+      }),
+    );
+  });
+
   it("orders useful provider rows by attention, connected, then available suggestion", () => {
     const rows = overviewProviders([
       provider({ id: "zai", label: "z.ai", status: "not_connected" }),
@@ -1027,8 +1048,17 @@ function healthComponent(
   id: string,
   kind: ConnectionsPageData["snapshot"]["openclawHealth"]["components"][number]["kind"],
   status: ConnectionsPageData["snapshot"]["openclawHealth"]["components"][number]["status"],
+  managed?: boolean,
 ): ConnectionsPageData["snapshot"]["openclawHealth"]["components"][number] {
-  return { id, kind, label: id, status, detail: null, lastCheckedAt: "2026-07-14T00:00:00.000Z" };
+  return {
+    id,
+    kind,
+    label: id,
+    status,
+    ...(managed === undefined ? {} : { managed }),
+    detail: null,
+    lastCheckedAt: "2026-07-14T00:00:00.000Z",
+  };
 }
 
 function overviewData(

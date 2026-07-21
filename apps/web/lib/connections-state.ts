@@ -13,6 +13,7 @@ import {
   type ModelProviderAuthChoice,
   type ModelProviderCatalogEntry,
   type OpenClawHealth,
+  type OpenClawHealthComponent,
   type OrchestratorDelegationState,
   type ProviderAuthHealth,
   type ProviderCategory,
@@ -144,12 +145,23 @@ export function preferredAuthChoice(
   );
 }
 
+/**
+ * The components Opzava is answerable for.
+ *
+ * Unmanaged rows (OpenClaw's stock `main` agent) are visible evidence, not ours to score: no owner
+ * action could ever clear them, so counting one permanently capped every rollup that reads it — the
+ * topbar pill, Overview readiness, and the legacy Connections panels alike (#275). Every surface
+ * derives its totals and attention items from this one definition so they cannot disagree about the
+ * same fact.
+ */
+export function scoredHealthComponents(
+  components: readonly OpenClawHealthComponent[],
+): readonly OpenClawHealthComponent[] {
+  return components.filter((component) => component.managed !== false);
+}
+
 export function openclawHealthSummary(health: OpenClawHealth): OpenClawHealthSummary {
-  // Unmanaged rows (OpenClaw's stock `main` agent) are visible evidence, not Opzava's to score.
-  // Counting them permanently capped every rollup that reads this summary — the topbar pill, the
-  // Overview readiness section, and the legacy Connections panels — at a ceiling no owner can act
-  // on (#275). Filter here so every consumer agrees rather than each re-deriving its own totals.
-  const scored = health.components.filter((component) => component.managed !== false);
+  const scored = scoredHealthComponents(health.components);
   const healthy = scored.filter((component) => component.status === "healthy").length;
   const attention = scored.filter((component) => component.status === "attention").length;
   const notChecked = scored.filter((component) => component.status === "not_checked").length;

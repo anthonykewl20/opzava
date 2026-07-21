@@ -31,7 +31,7 @@ import {
 import { askAdminRouteId } from "@/lib/ask-admin-history";
 import { readBrokerInternalEnv } from "@/lib/broker-internal-env";
 import { loadConnectionsPageDataForRequest, type ConnectionsPageData } from "@/lib/connections";
-import { openclawHealthSummary } from "@/lib/connections-state";
+import { openclawHealthSummary, scoredHealthComponents } from "@/lib/connections-state";
 import { createBrokerOpenClawGatewayPort } from "@/lib/openclaw-gateway-broker";
 import type { AppSessionContext } from "@/lib/session";
 
@@ -365,7 +365,7 @@ function healthAttentionRows(pageData: ConnectionsPageData): readonly AttentionR
   const summary = openclawHealthSummary(health);
   if (summary.attention === 0) return [];
 
-  return health.components
+  return scoredHealthComponents(health.components)
     .filter((component) => component.status === "attention")
     .map((component) => ({
       id: `health:${component.id}`,

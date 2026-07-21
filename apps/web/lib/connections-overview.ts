@@ -1,6 +1,6 @@
 import type { GitHubConnectionState, OpenClawHealthComponent } from "@opzava/ports";
 
-import type { ProviderConnectionView } from "@/lib/connections-state";
+import { scoredHealthComponents, type ProviderConnectionView } from "@/lib/connections-state";
 
 export type OverviewHealthStatus = "healthy" | "attention" | "unknown";
 
@@ -71,8 +71,9 @@ function rollupStatus(attention: number, notChecked: number, total: number): Ove
 export function overviewHealthGroups(
   components: readonly OpenClawHealthComponent[],
 ): readonly OverviewHealthGroup[] {
+  const scored = scoredHealthComponents(components);
   return groupDefinitions.map((definition) => {
-    const grouped = components.filter(
+    const grouped = scored.filter(
       (component) => overviewHealthGroupId(component.kind) === definition.id,
     );
     const healthy = grouped.filter((component) => component.status === "healthy").length;
