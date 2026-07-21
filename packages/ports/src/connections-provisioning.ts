@@ -103,7 +103,14 @@ export interface GatewayConnectionState {
 }
 
 export type OpenClawHealthComponentKind =
-  "gateway" | "event-loop" | "plugins" | "context-engines" | "channel" | "agent";
+  | "gateway"
+  | "event-loop"
+  | "plugins"
+  | "context-engines"
+  | "delivery-queues"
+  | "config-reload"
+  | "channel"
+  | "agent";
 
 export type OpenClawHealthStatus = "healthy" | "attention" | "not_checked";
 
@@ -112,6 +119,8 @@ export interface OpenClawHealthComponent {
   readonly kind: OpenClawHealthComponentKind;
   readonly label: string;
   readonly status: OpenClawHealthStatus;
+  /** False means the row is visible evidence but is excluded from Opzava health scoring. */
+  readonly managed?: boolean;
   readonly detail: string | null;
   readonly lastCheckedAt: string | null;
 }

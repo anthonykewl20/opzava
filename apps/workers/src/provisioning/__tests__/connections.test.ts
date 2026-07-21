@@ -10978,6 +10978,404 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     });
   }
 
+  const canonicalTools = {
+    profile: "minimal",
+    allow: [
+      "opzava_tasks_list",
+      "opzava_tasks_create",
+      "opzava_tasks_update",
+      "sessions_spawn",
+      "subagents",
+      "group:sessions",
+    ],
+    deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+  };
+
+  function canonicalAskAdminConfig(agentOverrides: Record<string, unknown> = {}) {
+    return {
+      auth: {
+        profiles: { "zai-key": { providerId: "zai", authChoiceId: "zai-api-key" } },
+        order: { zai: ["zai-key"] },
+      },
+      agents: {
+        defaults: { model: { primary: "zai/glm-5.2" }, models: { "zai/glm-5.2": {} } },
+        list: [
+          {
+            id: "ask-admin-opzava",
+            name: "Ask Admin Opzava",
+            model: "zai/glm-5.2",
+            workspace: "/home/node/.openclaw/workspace/ask-admin-opzava",
+            agentDir: "/home/node/.openclaw/agents/ask-admin-opzava/agent",
+            skills: [],
+            contextInjection: "always",
+            bootstrapMaxChars: 20000,
+            default: true,
+            subagents: { delegationMode: "prefer", allowAgents: [] },
+            tools: canonicalTools,
+            ...agentOverrides,
+          },
+        ],
+      },
+    };
+  }
+
+  function twoProviderConfig(orchestrator: "zai" | "openai") {
+    const orchestratorModel = orchestrator === "zai" ? "zai/glm-5.2" : "openai/gpt-5.5";
+    const subagentProvider = orchestrator === "zai" ? "openai" : "zai";
+    const subagentModel = subagentProvider === "zai" ? "zai/glm-5.2" : "openai/gpt-5.5";
+    const base = canonicalAskAdminConfig({
+      model: orchestratorModel,
+      subagents: { delegationMode: "prefer", allowAgents: [`subagent-${subagentProvider}`] },
+    });
+    return {
+      auth: {
+        profiles: {
+          ...base.auth.profiles,
+          "openai-device": {
+            providerId: "openai",
+            authChoiceId: "openai-device-code",
+          },
+        },
+        order: { ...base.auth.order, openai: ["openai-device"] },
+      },
+      agents: {
+        defaults: {
+          ...base.agents.defaults,
+          models: { ...base.agents.defaults.models, "openai/gpt-5.5": {} },
+        },
+        list: [
+          base.agents.list[0]!,
+          {
+            id: `subagent-${subagentProvider}`,
+            model: subagentModel,
+            tools: {
+              profile: "minimal",
+              allow: [],
+              deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  function readinessAdmin(
+    input: {
+      config?: Record<string, unknown>;
+      models?: Result<unknown>;
+      authStatus?: Result<unknown>;
+      healthAgents?: readonly Record<string, unknown>[];
+      healthFields?: Record<string, unknown>;
+    } = {},
+  ) {
+    return new RecordingAdminClient({
+      "config.get": ok({
+        hash: "health-readiness",
+        config: input.config ?? canonicalAskAdminConfig(),
+      }),
+      health: ok({
+        ok: true,
+        ts: Date.parse("2026-07-14T11:59:30.000Z"),
+        eventLoop: { degraded: false },
+        contextEngines: { quarantined: [] },
+        channels: {},
+        channelOrder: [],
+        channelLabels: {},
+        agents: input.healthAgents ?? [{ agentId: "ask-admin-opzava", name: "Ask Admin Opzava" }],
+        ...(input.healthFields ?? {
+          plugins: { loaded: [], errors: [], unavailable: [] },
+          deliveryQueues: { failed: [] },
+          configReload: { hotReloadStatus: "active" },
+        }),
+      }),
+      status: ok({ runtimeVersion: null, sessions: { count: 0, recent: [] } }),
+      "models.list":
+        input.models ??
+        ok({
+          providers: [{ id: "zai", label: "Z.AI" }],
+          models: [{ id: "zai/glm-5.2", providerId: "zai" }],
+        }),
+      "models.authStatus":
+        input.authStatus ??
+        ok({
+          providers: [
+            {
+              provider: "zai",
+              status: "static",
+              profiles: [{ status: "static", type: "api_key" }],
+            },
+          ],
+        }),
+    });
+  }
+
+  async function agentComponent(admin: RecordingAdminClient, agentId = "ask-admin-opzava") {
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+    if (!result.ok) throw result.error;
+    const component = result.value.openclawHealth.components.find(
+      (entry) => entry.id === `agent:${agentId}`,
+    );
+    if (component === undefined) throw new Error(`missing ${agentId} health component`);
+    return { component, snapshot: result.value };
+  }
+
+  it("marks an owned agent healthy only when all four readiness checks pass", async () => {
+    const { component } = await agentComponent(readinessAdmin());
+
+    expect(component).toMatchObject({ status: "healthy", managed: true });
+    expect(component.detail).toBe("Agent readiness checks passed.");
+  });
+
+  it.each([
+    {
+      name: "model route is absent from the live catalog",
+      admin: () =>
+        readinessAdmin({
+          models: ok({ providers: [{ id: "zai" }], models: [] }),
+        }),
+      status: "attention",
+      reason: "model_route_unresolved:zai/glm-5.2",
+    },
+    {
+      name: "provider authentication is rejected",
+      admin: () =>
+        readinessAdmin({
+          authStatus: ok({
+            providers: [
+              {
+                provider: "zai",
+                status: "expired",
+                profiles: [{ status: "expired", type: "api_key" }],
+              },
+            ],
+          }),
+        }),
+      status: "attention",
+      reason: "provider_not_authenticated:zai",
+    },
+    {
+      name: "owned config row drifts",
+      admin: () => readinessAdmin({ config: canonicalAskAdminConfig({ workspace: "/wrong" }) }),
+      status: "attention",
+      reason: "config_drift",
+    },
+    {
+      name: "effective tool policy drifts",
+      admin: () =>
+        readinessAdmin({
+          config: canonicalAskAdminConfig({ tools: { ...canonicalTools, deny: [] } }),
+        }),
+      status: "attention",
+      reason: "tool_policy_drift",
+    },
+  ])("reports $name in isolation", async ({ admin, status, reason }) => {
+    const { component } = await agentComponent(admin());
+
+    expect(component.status).toBe(status);
+    expect(component.detail).toContain(reason);
+  });
+
+  it("gives missing evidence precedence over verified mismatches in fixed reason order", async () => {
+    const { component } = await agentComponent(
+      readinessAdmin({
+        models: err(new DomainError({ code: "models.failed", message: "unavailable" })),
+        config: canonicalAskAdminConfig({
+          workspace: "/wrong",
+          tools: { ...canonicalTools, deny: [] },
+        }),
+      }),
+    );
+
+    expect(component.status).toBe("not_checked");
+    expect(component.detail).toBe(
+      "Agent readiness: model_catalog_unavailable, config_drift, tool_policy_drift.",
+    );
+  });
+
+  it.each([
+    {
+      name: "assigned model is malformed",
+      admin: () => readinessAdmin({ config: canonicalAskAdminConfig({ model: {} }) }),
+      reason: "model_assignment_missing",
+    },
+    {
+      name: "provider authentication evidence is unavailable",
+      admin: () =>
+        readinessAdmin({
+          authStatus: err(new DomainError({ code: "auth.failed", message: "unavailable" })),
+        }),
+      reason: "provider_auth_unknown:zai",
+    },
+    {
+      name: "model catalog payload is malformed",
+      admin: () => readinessAdmin({ models: ok({ providers: [], models: "invalid" }) }),
+      reason: "model_catalog_unavailable",
+    },
+    {
+      name: "canonical config cannot be derived",
+      admin: () => {
+        const config = canonicalAskAdminConfig({ model: {} });
+        return readinessAdmin({
+          config: {
+            ...config,
+            agents: { ...config.agents, defaults: { models: { "zai/glm-5.2": {} } } },
+          },
+        });
+      },
+      reason: "canonical_config_unavailable",
+    },
+    {
+      name: "tool policy evidence is malformed",
+      admin: () => readinessAdmin({ config: canonicalAskAdminConfig({ tools: null }) }),
+      reason: "tool_policy_unavailable",
+    },
+  ])("keeps $name not checked", async ({ admin, reason }) => {
+    const { component } = await agentComponent(admin());
+
+    expect(component.status).toBe("not_checked");
+    expect(component.detail).toContain(reason);
+  });
+
+  it("keeps a config-less health agent unknown with a real reason", async () => {
+    const config = canonicalAskAdminConfig();
+    config.agents.list = [];
+    const { component } = await agentComponent(readinessAdmin({ config }));
+
+    expect(component.status).toBe("not_checked");
+    expect(component.detail).toContain("config_row_missing");
+  });
+
+  it("isolates one owned agent's drift from its healthy sibling", async () => {
+    const config = twoProviderConfig("zai");
+    config.agents.list[1]!.tools.deny = [];
+    const admin = readinessAdmin({
+      config,
+      models: ok({
+        providers: [{ id: "zai" }, { id: "openai" }],
+        models: [
+          { id: "zai/glm-5.2", providerId: "zai" },
+          { id: "openai/gpt-5.5", providerId: "openai" },
+        ],
+      }),
+      authStatus: ok({
+        providers: [
+          { provider: "zai", status: "static", profiles: [{ status: "static", type: "api_key" }] },
+          { provider: "openai", status: "ok", profiles: [{ status: "ok", type: "oauth" }] },
+        ],
+      }),
+      healthAgents: [{ agentId: "ask-admin-opzava" }, { agentId: "subagent-openai" }],
+    });
+    const { snapshot } = await agentComponent(admin);
+    const agents = snapshot.openclawHealth.components.filter((entry) => entry.kind === "agent");
+
+    expect(agents.find((entry) => entry.id === "agent:ask-admin-opzava")?.status).toBe("healthy");
+    expect(agents.find((entry) => entry.id === "agent:subagent-openai")).toMatchObject({
+      status: "attention",
+      detail: expect.stringContaining("tool_policy_drift"),
+    });
+  });
+
+  it("uses a connected operator-selected model when deriving canonical agent rows", async () => {
+    const admin = readinessAdmin({
+      config: twoProviderConfig("openai"),
+      models: ok({
+        providers: [{ id: "zai" }, { id: "openai" }],
+        models: [
+          { id: "zai/glm-5.2", providerId: "zai" },
+          { id: "openai/gpt-5.5", providerId: "openai" },
+        ],
+      }),
+      authStatus: ok({
+        providers: [
+          { provider: "zai", status: "static", profiles: [{ status: "static", type: "api_key" }] },
+          { provider: "openai", status: "ok", profiles: [{ status: "ok", type: "oauth" }] },
+        ],
+      }),
+      healthAgents: [{ agentId: "ask-admin-opzava" }, { agentId: "subagent-zai" }],
+    });
+    const { snapshot } = await agentComponent(admin);
+    const agents = snapshot.openclawHealth.components.filter((entry) => entry.kind === "agent");
+
+    expect(agents).toEqual([
+      expect.objectContaining({ id: "agent:ask-admin-opzava", status: "healthy" }),
+      expect.objectContaining({ id: "agent:subagent-zai", status: "healthy" }),
+    ]);
+  });
+
+  it("keeps verified subagent authentication failure as attention, not unknown", async () => {
+    const admin = readinessAdmin({
+      config: twoProviderConfig("zai"),
+      models: ok({
+        providers: [{ id: "zai" }, { id: "openai" }],
+        models: [
+          { id: "zai/glm-5.2", providerId: "zai" },
+          { id: "openai/gpt-5.5", providerId: "openai" },
+        ],
+      }),
+      authStatus: ok({
+        providers: [
+          { provider: "zai", status: "static", profiles: [{ status: "static", type: "api_key" }] },
+          {
+            provider: "openai",
+            status: "expired",
+            profiles: [{ status: "expired", type: "oauth" }],
+          },
+        ],
+      }),
+      healthAgents: [{ agentId: "subagent-openai" }],
+    });
+    const { component } = await agentComponent(admin, "subagent-openai");
+
+    expect(component).toMatchObject({
+      status: "attention",
+      detail: expect.stringContaining("provider_not_authenticated:openai"),
+    });
+  });
+
+  it("marks only an extra owned agent row as drift while reporting set drift separately", async () => {
+    const config = twoProviderConfig("zai");
+    config.agents.list.push({
+      id: "subagent-alias",
+      model: "openai/gpt-5.5",
+      tools: {
+        profile: "minimal",
+        allow: [],
+        deny: ["group:runtime", "write", "edit", "apply_patch", "group:fs"],
+      },
+    });
+    const admin = readinessAdmin({
+      config,
+      models: ok({
+        providers: [{ id: "zai" }, { id: "openai" }],
+        models: [
+          { id: "zai/glm-5.2", providerId: "zai" },
+          { id: "openai/gpt-5.5", providerId: "openai" },
+        ],
+      }),
+      authStatus: ok({
+        providers: [
+          { provider: "zai", status: "static", profiles: [{ status: "static", type: "api_key" }] },
+          { provider: "openai", status: "ok", profiles: [{ status: "ok", type: "oauth" }] },
+        ],
+      }),
+      healthAgents: [{ agentId: "ask-admin-opzava" }, { agentId: "subagent-alias" }],
+    });
+    const { snapshot } = await agentComponent(admin);
+
+    expect(
+      snapshot.openclawHealth.components.find((entry) => entry.id === "agent:ask-admin-opzava"),
+    ).toMatchObject({ status: "healthy" });
+    expect(
+      snapshot.openclawHealth.components.find((entry) => entry.id === "agent:subagent-alias"),
+    ).toMatchObject({
+      status: "attention",
+      detail: "Agent readiness: config_drift, tool_policy_drift.",
+    });
+    expect(snapshot.openclawHealth.warnings).toContainEqual(
+      expect.objectContaining({ id: "agent-ownership-drift" }),
+    );
+  });
+
   it("projects observable core and channel health while keeping agent schedule config unknown", async () => {
     const admin = new RecordingAdminClient(
       {
@@ -10986,8 +11384,10 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
           ok: true,
           ts: Date.parse("2026-07-14T11:59:30.000Z"),
           eventLoop: { degraded: false, reasons: [], delayP99Ms: 2 },
-          plugins: { loaded: ["telegram"], errors: [] },
+          plugins: { loaded: ["telegram"], errors: [], unavailable: [] },
           contextEngines: { quarantined: [] },
+          deliveryQueues: { failed: [] },
+          configReload: { hotReloadStatus: "active" },
           channels: {
             telegram: {
               accounts: {
@@ -11056,6 +11456,8 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         kind: "context-engines",
         status: "healthy",
       }),
+      expect.objectContaining({ id: "delivery-queues", status: "healthy" }),
+      expect.objectContaining({ id: "config-reload", status: "healthy" }),
       expect.objectContaining({
         id: "channel:telegram:primary",
         kind: "channel",
@@ -11066,6 +11468,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         id: "agent:main",
         kind: "agent",
         status: "not_checked",
+        managed: false,
         lastCheckedAt: null,
       }),
     ]);
@@ -11150,7 +11553,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
-        plugins: { loaded: [], errors: [] },
+        plugins: { loaded: [], errors: [], unavailable: [] },
         contextEngines: { quarantined: [] },
         modelPricing: { state: "degraded", detail: "credential=must-not-cross" },
         channels: {
@@ -11191,16 +11594,26 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
   });
 
   it.each([
-    { name: "absent", fields: {}, expectedStatus: "healthy" },
+    {
+      name: "absent",
+      fields: {},
+      expectedPluginStatus: "not_checked",
+      expectedContextStatus: "healthy",
+    },
     {
       name: "valid empty",
-      fields: { plugins: { loaded: [], errors: [] }, contextEngines: { quarantined: [] } },
-      expectedStatus: "healthy",
+      fields: {
+        plugins: { loaded: [], errors: [], unavailable: [] },
+        contextEngines: { quarantined: [] },
+      },
+      expectedPluginStatus: "healthy",
+      expectedContextStatus: "healthy",
     },
     {
       name: "malformed",
       fields: { plugins: { loaded: [] }, contextEngines: [] },
-      expectedStatus: "not_checked",
+      expectedPluginStatus: "not_checked",
+      expectedContextStatus: "not_checked",
     },
     {
       name: "malformed entries",
@@ -11208,7 +11621,8 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         plugins: { loaded: [42], errors: [] },
         contextEngines: { quarantined: [{ arbitrary: true }] },
       },
-      expectedStatus: "not_checked",
+      expectedPluginStatus: "not_checked",
+      expectedContextStatus: "not_checked",
     },
     {
       name: "valid issues",
@@ -11216,6 +11630,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         plugins: {
           loaded: [],
           errors: [{ id: "broken", origin: "extension", activated: true, error: "failed" }],
+          unavailable: [],
         },
         contextEngines: {
           quarantined: [
@@ -11228,11 +11643,12 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
           ],
         },
       },
-      expectedStatus: "attention",
+      expectedPluginStatus: "attention",
+      expectedContextStatus: "attention",
     },
   ])(
-    "projects $name plugin and context-engine facts as $expectedStatus",
-    async ({ fields, expectedStatus }) => {
+    "projects $name plugin and context-engine facts honestly",
+    async ({ fields, expectedPluginStatus, expectedContextStatus }) => {
       const admin = new RecordingAdminClient({
         "config.get": ok({ hash: "health-config", config: {} }),
         health: ok({
@@ -11255,12 +11671,68 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
       if (!result.ok) throw result.error;
       expect(result.value.openclawHealth.components).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ id: "plugins", status: expectedStatus }),
-          expect.objectContaining({ id: "context-engines", status: expectedStatus }),
+          expect.objectContaining({ id: "plugins", status: expectedPluginStatus }),
+          expect.objectContaining({ id: "context-engines", status: expectedContextStatus }),
         ]),
       );
     },
   );
+
+  it.each([
+    {
+      name: "signals present and clear",
+      fields: {
+        plugins: { loaded: [], errors: [], unavailable: [] },
+        deliveryQueues: { failed: [] },
+        configReload: { hotReloadStatus: "active" },
+      },
+      statuses: { plugins: "healthy", "delivery-queues": "healthy", "config-reload": "healthy" },
+    },
+    {
+      name: "signals present with failures",
+      fields: {
+        plugins: {
+          loaded: [],
+          errors: [],
+          unavailable: [
+            {
+              id: "broken",
+              state: "configured-unavailable",
+              diagnostic: { kind: "plugin-verification", reason: "failed", detail: "private" },
+            },
+          ],
+        },
+        deliveryQueues: { failed: [{ queueName: "messages", count: 2 }] },
+        configReload: { hotReloadStatus: "disabled" },
+      },
+      statuses: {
+        plugins: "attention",
+        "delivery-queues": "attention",
+        "config-reload": "attention",
+      },
+    },
+    {
+      name: "signals absent",
+      fields: {},
+      statuses: {
+        plugins: "not_checked",
+        "delivery-queues": "not_checked",
+        "config-reload": "not_checked",
+      },
+    },
+  ])("projects $name without fabricating zero", async ({ fields, statuses }) => {
+    const admin = readinessAdmin({ healthAgents: [], healthFields: fields });
+    const result = await healthPort(admin).getConnectionsSnapshot(principal());
+    if (!result.ok) throw result.error;
+
+    for (const [id, status] of Object.entries(statuses)) {
+      expect(result.value.openclawHealth.components.find((entry) => entry.id === id)).toMatchObject(
+        {
+          status,
+        },
+      );
+    }
+  });
 
   it("classifies only allowlisted channel status states and leaves unknown states unchecked", async () => {
     const admin = new RecordingAdminClient({
@@ -11317,7 +11789,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
-        plugins: { loaded: [], errors: [] },
+        plugins: { loaded: [], errors: [], unavailable: [] },
         contextEngines: { quarantined: [] },
         channels: {},
         channelOrder: [],
@@ -11365,7 +11837,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(result.value.openclawHealth.runtime.version).toBe(expectedVersion);
     expect(result.value.openclawHealth.sessions.count).toBe(expectedCount);
     if (!health.ok) {
-      expect(result.value.openclawHealth.components).toHaveLength(4);
+      expect(result.value.openclawHealth.components).toHaveLength(6);
       expect(
         result.value.openclawHealth.components.every((entry) => entry.status === "not_checked"),
       ).toBe(true);
@@ -11387,7 +11859,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
-        plugins: { loaded: [], errors: [] },
+        plugins: { loaded: [], errors: [], unavailable: [] },
         contextEngines: { quarantined: [] },
         channels: {},
         channelOrder: [],
@@ -11407,7 +11879,7 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     expect(healthy.value.openclawHealth.lastKnownHealthy).toBeNull();
     expect(
       healthy.value.openclawHealth.components.find((component) => component.id === "agent:main"),
-    ).toMatchObject({ status: "not_checked" });
+    ).toMatchObject({ status: "not_checked", managed: false });
     expect(unavailable.value.openclawHealth.lastKnownHealthy).toBeNull();
     expect(unavailable.value.openclawHealth.sessions).toEqual({ count: null, recent: [] });
   });
@@ -11425,8 +11897,10 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
         ok: true,
         ts: Date.parse("2026-07-14T11:59:30.000Z"),
         eventLoop: { degraded: false },
-        plugins: { loaded: [], errors: [] },
+        plugins: { loaded: [], errors: [], unavailable: [] },
         contextEngines: { quarantined: [] },
+        deliveryQueues: { failed: [] },
+        configReload: { hotReloadStatus: "active" },
         channels: {},
         channelOrder: [],
         channelLabels: {},
@@ -11444,8 +11918,8 @@ describe("OpenClaw connections health snapshot (issue #177)", () => {
     if (!healthy.ok || !unavailable.ok) throw new Error("expected snapshots");
     expect(healthy.value.openclawHealth.lastKnownHealthy).toEqual({
       checkedAt: "2026-07-14T11:59:30.000Z",
-      healthy: 4,
-      total: 4,
+      healthy: 6,
+      total: 6,
     });
     expect(unavailable.value.openclawHealth.lastKnownHealthy).toEqual(
       healthy.value.openclawHealth.lastKnownHealthy,
