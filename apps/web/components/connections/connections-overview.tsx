@@ -25,7 +25,7 @@ import {
   type OverviewHealthGroup,
   type OverviewHealthStatus,
 } from "@/lib/connections-overview";
-import { openclawHealthSummary } from "@/lib/connections-state";
+import { openclawHealthSummary, scoredHealthComponents } from "@/lib/connections-state";
 import type { ConnectionsPageData } from "@/lib/connections";
 
 import { HealthStatusBreakdown } from "./health-status-breakdown";
@@ -131,7 +131,9 @@ function SystemHealthPanel({ data, refreshAction }: ConnectionsOverviewProps) {
   const health = data.snapshot.openclawHealth;
   const summary = openclawHealthSummary(health);
   const groups = overviewHealthGroups(health.components);
-  const affected = health.components.filter((component) => component.status === "attention");
+  const affected = scoredHealthComponents(health.components).filter(
+    (component) => component.status === "attention",
+  );
   const firstAffected = affected[0] ?? null;
   const remainingAffected = Math.max(0, affected.length - 1);
   const gatewayUnavailable = data.snapshot.gateway.status === "unavailable";

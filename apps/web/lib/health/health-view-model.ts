@@ -9,6 +9,7 @@ import {
 } from "@/lib/admin-overview/readiness-projections";
 import type { ConnectionsPageData } from "@/lib/connections";
 import { overviewHealthGroupId } from "@/lib/connections-overview";
+import { scoredHealthComponents } from "@/lib/connections-state";
 
 export interface HealthCountsView {
   readonly total: number;
@@ -176,8 +177,8 @@ function attentionItems(
 ): readonly HealthAttentionItemView[] {
   if (!includeCurrentSnapshot) return [];
 
-  const componentItems = data.snapshot.openclawHealth.components
-    .filter((component) => component.managed !== false && component.status === "attention")
+  const componentItems = scoredHealthComponents(data.snapshot.openclawHealth.components)
+    .filter((component) => component.status === "attention")
     .map((component) => {
       const groupId = overviewHealthGroupId(component.kind);
       return {
