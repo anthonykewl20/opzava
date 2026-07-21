@@ -174,7 +174,9 @@ describe("Models page view model", () => {
       routableModels: 3,
       leadModel: "openai/gpt-main",
       leadProvider: "OpenAI",
+      leadKnown: true,
     });
+    expect(view.providerCount).toBe(3);
     expect(view.providers.map((provider) => provider.id)).toEqual(["openai", "zai", "anthropic"]);
     expect(view.providers[0]).toMatchObject({
       roleLabel: "Lead orchestrator",
@@ -271,38 +273,76 @@ describe("Models page view model", () => {
     expect(notConfigured).toMatchObject({
       availability: "not-configured",
       stateTitle: "Models data isn't set up",
+      providerCount: null,
+      glance: {
+        connected: null,
+        providersTotal: null,
+        needsAttention: null,
+        routableModels: null,
+        leadKnown: false,
+      },
       providers: [],
     });
     expect(unavailable).toMatchObject({
       availability: "unavailable",
       stateTitle: "Current models data is unavailable",
       lastKnownGood: true,
+      providerCount: 3,
     });
     expect(unavailable.providers[0]).toMatchObject({
       statusLabel: "Last known connected",
       stale: true,
     });
-    expect(unavailable.glance.connected).toBeNull();
-    expect(stale).toMatchObject({ availability: "stale", lastKnownGood: true });
-    expect(stale.providers[0]).toMatchObject({
-      statusLabel: "Last known connected",
+    expect(unavailable.glance).toMatchObject({
+      connected: 2,
+      providersTotal: 3,
+      leadKnown: true,
       stale: true,
     });
+    expect(stale).toMatchObject({ availability: "stale", lastKnownGood: false });
+    expect(stale.providers[0]).toMatchObject({
+      statusLabel: "Observed connected · stale",
+      stale: true,
+      lastKnownGood: false,
+    });
+  });
+
+  it("does not turn missing current evidence into zero providers, zero risks, or no election", () => {
+    const emptyUnavailableSnapshot = snapshot({
+      gateway: { ...snapshot().gateway, status: "unavailable" },
+      providerCatalog: [],
+      providerConnections: [],
+      orchestrator: {
+        ...snapshot().orchestrator,
+        orchestratorModel: null,
+        orchestratorProviderId: null,
+      },
+    });
+    const unavailable = buildModelsPageViewModel(pageData(emptyUnavailableSnapshot), liveContext);
+    const unknownSnapshot = snapshot({ refreshedAt: "2026-07-22T00:00:00.000Z" });
+    const unknown = buildModelsPageViewModel(pageData(unknownSnapshot), liveContext);
+
+    for (const view of [unavailable, unknown]) {
+      expect(view.providerCount).toBeNull();
+      expect(view.glance).toMatchObject({
+        connected: null,
+        providersTotal: null,
+        needsAttention: null,
+        routableModels: null,
+        leadKnown: false,
+      });
+    }
   });
 
   it("keeps empty and absent catalogs honest and excludes raw secret-bearing source fields", () => {
     const current = snapshot();
-    const projected = projectProviderConnections(current);
-    const subject: ConnectionsPageData = {
-      ...pageData(current),
-      providers: projected.map((provider) => {
-        if (provider.id !== "zai") return provider;
-        const withoutCatalog = { ...provider };
-        delete withoutCatalog.catalogModels;
-        delete withoutCatalog.catalogModelCount;
-        return withoutCatalog;
-      }),
-    };
+    const providerCatalog = current.providerCatalog.map((provider) => {
+      if (provider.id !== "zai") return provider;
+      const withoutCatalog = { ...provider };
+      delete withoutCatalog.catalogModels;
+      return withoutCatalog;
+    });
+    const subject = pageData(snapshot({ providerCatalog }));
 
     const view = buildModelsPageViewModel(subject, liveContext);
     const serialized = JSON.stringify(view);

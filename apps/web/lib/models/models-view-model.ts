@@ -40,6 +40,7 @@ export interface ModelsProviderCardView {
   readonly strength: string;
   readonly whenToUse: string;
   readonly stale: boolean;
+  readonly lastKnownGood: boolean;
   readonly primaryActionLabel: string;
   readonly canSetAsMain: boolean;
   readonly managementHref: "/connections/providers";
@@ -57,10 +58,11 @@ export interface ModelsAttentionItemView {
 export interface ModelsGlanceView {
   readonly connected: number | null;
   readonly providersTotal: number | null;
-  readonly needsAttention: number;
+  readonly needsAttention: number | null;
   readonly routableModels: number | null;
   readonly leadModel: string | null;
   readonly leadProvider: string | null;
+  readonly leadKnown: boolean;
   readonly stale: boolean;
 }
 
@@ -75,6 +77,7 @@ export interface ModelsPageViewModel {
   readonly glance: ModelsGlanceView;
   readonly attentionItems: readonly ModelsAttentionItemView[];
   readonly providers: readonly ModelsProviderCardView[];
+  readonly providerCount: number | null;
   readonly managementHref: "/connections/providers";
 }
 
@@ -214,8 +217,14 @@ function providerTone(provider: ProviderConnectionView, stale: boolean): ModelsT
   return "muted";
 }
 
-function providerStatusLabel(provider: ProviderConnectionView, stale: boolean): string {
-  return stale ? `Last known ${provider.statusLabel.toLowerCase()}` : provider.statusLabel;
+function providerStatusLabel(
+  provider: ProviderConnectionView,
+  stale: boolean,
+  lastKnownGood: boolean,
+): string {
+  if (lastKnownGood) return `Last known ${provider.statusLabel.toLowerCase()}`;
+  if (stale) return `Observed ${provider.statusLabel.toLowerCase()} · stale`;
+  return provider.statusLabel;
 }
 
 function providerSort(left: ProviderConnectionView, right: ProviderConnectionView): number {
@@ -235,7 +244,11 @@ function providerSort(left: ProviderConnectionView, right: ProviderConnectionVie
   );
 }
 
-function cardView(provider: ProviderConnectionView, stale: boolean): ModelsProviderCardView {
+function cardView(
+  provider: ProviderConnectionView,
+  stale: boolean,
+  lastKnownGood: boolean,
+): ModelsProviderCardView {
   const auth = authHealthView(provider);
   const primaryActionLabel =
     provider.status === "not_connected"
@@ -249,7 +262,7 @@ function cardView(provider: ProviderConnectionView, stale: boolean): ModelsProvi
     label: provider.label,
     vendor: provider.vendor,
     status: provider.status,
-    statusLabel: providerStatusLabel(provider, stale),
+    statusLabel: providerStatusLabel(provider, stale, lastKnownGood),
     tone: providerTone(provider, stale),
     roleLabel: provider.roleLabel,
     model: provider.model,
@@ -259,6 +272,7 @@ function cardView(provider: ProviderConnectionView, stale: boolean): ModelsProvi
     strength: provider.strength,
     whenToUse: provider.whenToUse,
     stale,
+    lastKnownGood,
     primaryActionLabel,
     canSetAsMain: !stale && provider.status === "connected" && provider.roleLabel === "Subagent",
     managementHref,
@@ -286,13 +300,29 @@ function expiryPhrase(expiryLabel: string | null): string {
   return /^in\b/i.test(expiryLabel) ? expiryLabel : `in ${expiryLabel}`;
 }
 
-function attentionItem(provider: ProviderConnectionView, stale: boolean): ModelsAttentionItemView {
+function staleAttentionDetail(
+  lastKnownGood: boolean,
+  lastKnownCopy: string,
+  staleCopy: string,
+): string {
+  return lastKnownGood ? lastKnownCopy : staleCopy;
+}
+
+function attentionItem(
+  provider: ProviderConnectionView,
+  stale: boolean,
+  lastKnownGood: boolean,
+): ModelsAttentionItemView {
   if (provider.authHealth === "expired") {
     return {
       providerId: provider.id,
       title: `${provider.label} authorization has expired`,
       detail: stale
-        ? "This was true in the last-known provider snapshot; current auth health is unavailable."
+        ? staleAttentionDetail(
+            lastKnownGood,
+            "This was true in the last-known provider snapshot; current auth health is unavailable.",
+            "This was true in the observed snapshot, but that evidence is now stale.",
+          )
         : "Re-authorize before routing more work through this provider.",
       actionLabel: "Re-authorize",
       href: managementHref,
@@ -304,7 +334,11 @@ function attentionItem(provider: ProviderConnectionView, stale: boolean): Models
       providerId: provider.id,
       title: `${provider.label} authorization expires ${expiryPhrase(provider.expiryLabel)}`,
       detail: stale
-        ? "This countdown came from the last-known provider snapshot; current auth health is unavailable."
+        ? staleAttentionDetail(
+            lastKnownGood,
+            "This countdown came from the last-known provider snapshot; current auth health is unavailable.",
+            "This countdown came from stale evidence and may no longer be current.",
+          )
         : "Re-authorize before it lapses so routed model calls keep working.",
       actionLabel: "Re-authorize",
       href: managementHref,
@@ -316,7 +350,11 @@ function attentionItem(provider: ProviderConnectionView, stale: boolean): Models
       providerId: provider.id,
       title: `${provider.label} connection is pending`,
       detail: stale
-        ? "The last-known snapshot retained a pending connection; current state is unavailable."
+        ? staleAttentionDetail(
+            lastKnownGood,
+            "The last-known snapshot retained a pending connection; current state is unavailable.",
+            "The observed pending state is stale and may no longer be current.",
+          )
         : "Finish or inspect the existing provider connection flow.",
       actionLabel: "Manage",
       href: managementHref,
@@ -327,7 +365,11 @@ function attentionItem(provider: ProviderConnectionView, stale: boolean): Models
     providerId: provider.id,
     title: `${provider.label} needs attention`,
     detail: stale
-      ? "The last-known snapshot retained an authorization problem; current state is unavailable."
+      ? staleAttentionDetail(
+          lastKnownGood,
+          "The last-known snapshot retained an authorization problem; current state is unavailable.",
+          "The observed authorization problem is stale and may no longer be current.",
+        )
       : "Inspect the provider connection and restore healthy authorization.",
     actionLabel: "Manage",
     href: managementHref,
@@ -376,41 +418,46 @@ export function buildModelsPageViewModel(
   const readiness = projectModelsReadiness(data, context);
   const showProviders = readiness.state !== "not-configured" && readiness.state !== "unknown";
   const sourceProviders = showProviders ? [...data.providers].sort(providerSort) : [];
-  const retained =
-    sourceProviders.length > 0 &&
-    (readiness.state === "unavailable" || readiness.state === "stale");
-  const providers = sourceProviders.map((provider) => cardView(provider, retained));
+  const lastKnownGood = sourceProviders.length > 0 && readiness.state === "unavailable";
+  const stale = readiness.state === "stale" || lastKnownGood;
+  const hasProviderEvidence =
+    readiness.state === "live" || readiness.state === "stale" || lastKnownGood;
+  const providers = sourceProviders.map((provider) => cardView(provider, stale, lastKnownGood));
   const attentionItems = sourceProviders
     .filter(isAttentionProvider)
     .sort(
       (left, right) =>
         attentionPriority(left) - attentionPriority(right) || left.label.localeCompare(right.label),
     )
-    .map((provider) => attentionItem(provider, retained));
+    .map((provider) => attentionItem(provider, stale, lastKnownGood));
   const lead = sourceProviders.find((provider) => provider.roleLabel === "Lead orchestrator");
   const routableModels = sourceProviders
     .filter((provider) => provider.status === "connected")
     .reduce((total, provider) => total + enabledCount(provider), 0);
-  const currentUnavailable = readiness.state === "unavailable" || readiness.state === "unknown";
+  const connected = lastKnownGood
+    ? sourceProviders.filter((provider) => provider.status === "connected").length
+    : (readiness.value?.connected ?? null);
 
   return {
     availability: readiness.state,
     freshnessState: readiness.freshnessState,
     freshnessLabel: freshnessLabel(readiness.state, data.snapshot.refreshedAt, context.evaluatedAt),
     isFreshLive: readiness.state === "live" && readiness.freshnessState === "within-budget",
-    lastKnownGood: retained,
+    lastKnownGood,
     ...stateCopy(readiness.state, sourceProviders.length > 0),
     glance: {
-      connected: currentUnavailable ? null : (readiness.value?.connected ?? null),
-      providersTotal: currentUnavailable ? null : (readiness.value?.providersTotal ?? null),
-      needsAttention: attentionItems.length,
-      routableModels: currentUnavailable ? null : routableModels,
+      connected: hasProviderEvidence ? connected : null,
+      providersTotal: hasProviderEvidence ? sourceProviders.length : null,
+      needsAttention: hasProviderEvidence ? attentionItems.length : null,
+      routableModels: hasProviderEvidence ? routableModels : null,
       leadModel: lead?.model ?? null,
       leadProvider: lead?.label ?? null,
-      stale: retained,
+      leadKnown: hasProviderEvidence,
+      stale,
     },
     attentionItems,
     providers,
+    providerCount: hasProviderEvidence ? sourceProviders.length : null,
     managementHref,
   };
 }

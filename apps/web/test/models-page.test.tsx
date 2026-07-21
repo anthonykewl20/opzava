@@ -21,8 +21,10 @@ function view(): ModelsPageViewModel {
       routableModels: 2,
       leadModel: "openai/gpt-main",
       leadProvider: "OpenAI",
+      leadKnown: true,
       stale: false,
     },
+    providerCount: 2,
     attentionItems: [
       {
         providerId: "zai",
@@ -55,6 +57,7 @@ function view(): ModelsPageViewModel {
         strength: "Orchestration",
         whenToUse: "Main orchestration",
         stale: false,
+        lastKnownGood: false,
         primaryActionLabel: "Manage",
         canSetAsMain: false,
         managementHref: "/connections/providers",
@@ -80,6 +83,7 @@ function view(): ModelsPageViewModel {
         strength: "Long context",
         whenToUse: "Long-context analysis",
         stale: false,
+        lastKnownGood: false,
         primaryActionLabel: "Connect Google Gemini",
         canSetAsMain: false,
         managementHref: "/connections/providers",
@@ -105,6 +109,7 @@ describe("Models page", () => {
     expect(html).toContain("Connect Google Gemini");
     expect(html.match(/href="\/connections\/providers"/g)?.length).toBeGreaterThanOrEqual(4);
     expect(html).not.toContain("<form");
+    expect(html).not.toContain("<main");
     expect(html).not.toContain("api_key=");
     expect(html).not.toMatch(/sk-[a-z0-9]/i);
   });
@@ -123,5 +128,41 @@ describe("Models page", () => {
 
     expect(html).not.toContain("Needs your attention");
     expect(html).toContain("Providers</h2>");
+  });
+
+  it("renders unavailable evidence without fabricating healthy zeroes or no election", () => {
+    const subject = view();
+    const html = renderToStaticMarkup(
+      createElement(ModelsPage, {
+        view: {
+          ...subject,
+          availability: "unavailable",
+          freshnessState: "unknown",
+          freshnessLabel: "Unavailable · last check could not complete",
+          isFreshLive: false,
+          stateTitle: "Current models data is unavailable",
+          stateDescription: "No last-known provider catalog is available.",
+          glance: {
+            connected: null,
+            providersTotal: null,
+            needsAttention: null,
+            routableModels: null,
+            leadModel: null,
+            leadProvider: null,
+            leadKnown: false,
+            stale: false,
+          },
+          attentionItems: [],
+          providers: [],
+          providerCount: null,
+        },
+      }),
+    );
+
+    expect(html).toContain("Current auth health unavailable");
+    expect(html).toContain("No current election evidence");
+    expect(html).toContain("unavailable</span>");
+    expect(html).not.toContain("No provider auth risks reported");
+    expect(html).not.toContain("No provider is set as main");
   });
 });

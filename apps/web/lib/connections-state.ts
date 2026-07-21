@@ -287,7 +287,9 @@ function addProviderToGroup(
   }
 
   group.enabledModelsByProvider.set(provider.id, modelsById(provider.models ?? []));
-  group.catalogModelsByProvider.set(provider.id, modelsById(provider.catalogModels ?? []));
+  if (provider.catalogModels !== undefined) {
+    group.catalogModelsByProvider.set(provider.id, modelsById(provider.catalogModels));
+  }
 
   if (folded) {
     const runtimeLabel =
@@ -402,6 +404,7 @@ export function projectModelProviders(
       // belongs to the same raw provider that supplied the connection; combining siblings would
       // make the Manage dialog mutate a different provider from the catalog it displays.
       const enabledModels = sortedModels(group.enabledModelsByProvider.get(connectionProviderId));
+      const catalogAdvertised = group.catalogModelsByProvider.has(connectionProviderId);
       const catalogModels = sortedModels(group.catalogModelsByProvider.get(connectionProviderId));
       const provider = providerGroupToCatalogEntry(group, enabledModels, catalogModels);
       const apiKeyChoices = provider.authChoices.filter((choice) => choice.mode === "api-key");
@@ -432,8 +435,7 @@ export function projectModelProviders(
         model,
         runtimeLabels: [...group.runtimeLabels].sort((left, right) => left.localeCompare(right)),
         enabledModels,
-        catalogModels,
-        catalogModelCount: catalogModels.length,
+        ...(catalogAdvertised ? { catalogModels, catalogModelCount: catalogModels.length } : {}),
         models: enabledModels,
         authHealth: state?.authHealth ?? null,
         expiryLabel: state?.expiryLabel ?? null,
