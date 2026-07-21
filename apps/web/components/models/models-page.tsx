@@ -95,17 +95,23 @@ function AtAGlance({ view }: { readonly view: ModelsPageViewModel }) {
         <span className={styles["glanceKey"]!}>Needs attention</span>
         <strong className={styles["glanceValue"]!}>
           <StatusDot
-            tone={view.glance.needsAttention > 0 ? "attention" : "healthy"}
+            tone={
+              view.glance.needsAttention === null
+                ? "unknown"
+                : view.glance.needsAttention > 0
+                  ? "attention"
+                  : "healthy"
+            }
             pulse={view.isFreshLive && view.glance.needsAttention === 0}
           />
-          <span className={styles["mono"]!}>
-            <AnimatedCount value={view.glance.needsAttention} />
-          </span>
+          <span className={styles["mono"]!}>{countOrDash(view.glance.needsAttention)}</span>
         </strong>
         <span className={styles["glanceSub"]!}>
-          {view.glance.needsAttention === 0
-            ? "No provider auth risks reported"
-            : `${view.glance.needsAttention} provider ${view.glance.needsAttention === 1 ? "item" : "items"} surfaced below`}
+          {view.glance.needsAttention === null
+            ? "Current auth health unavailable"
+            : view.glance.needsAttention === 0
+              ? "No provider auth risks reported"
+              : `${view.glance.needsAttention} provider ${view.glance.needsAttention === 1 ? "item" : "items"} surfaced below`}
         </span>
       </div>
       <div className={styles["glanceCell"]!}>
@@ -124,12 +130,14 @@ function AtAGlance({ view }: { readonly view: ModelsPageViewModel }) {
       <div className={styles["glanceCell"]!}>
         <span className={styles["glanceKey"]!}>Lead model</span>
         <strong className={`${styles["glanceValue"]!} ${styles["leadModel"]!}`}>
-          {view.glance.leadModel ?? "Not elected"}
+          {view.glance.leadKnown ? (view.glance.leadModel ?? "Not elected") : "Unavailable"}
         </strong>
         <span className={styles["glanceSub"]!}>
-          {view.glance.leadProvider === null
-            ? "No provider is set as main"
-            : `${view.glance.leadProvider} · ${view.glance.stale ? "last known" : "set as main"}`}
+          {!view.glance.leadKnown
+            ? "No current election evidence"
+            : view.glance.leadProvider === null
+              ? "No provider is set as main"
+              : `${view.glance.leadProvider} · ${view.glance.stale ? "last known" : "set as main"}`}
         </span>
       </div>
     </Card>
@@ -276,7 +284,11 @@ function ProviderCard({ provider }: { readonly provider: ModelsProviderCardView 
             {provider.auth.expiryLabel ?? provider.auth.healthLabel}
           </Badge>
         ) : null}
-        {provider.stale ? <Badge variant="muted">Stale evidence</Badge> : null}
+        {provider.stale ? (
+          <Badge variant="muted">
+            {provider.lastKnownGood ? "Last-known · stale" : "Evidence stale"}
+          </Badge>
+        ) : null}
       </div>
 
       {isNotConnected ? (
@@ -351,7 +363,7 @@ function EmptyProviders({ view }: { readonly view: ModelsPageViewModel }) {
 export function ModelsPage({ view }: { readonly view: ModelsPageViewModel }) {
   return (
     <TooltipProvider>
-      <main className={styles["page"]!}>
+      <div className={`page ${styles["page"]!}`}>
         <header className={styles["pageHeader"]!}>
           <div>
             <span className={styles["eyebrow"]!}>AI Runtime</span>
@@ -385,8 +397,8 @@ export function ModelsPage({ view }: { readonly view: ModelsPageViewModel }) {
           <div className={styles["sectionHeader"]!}>
             <h2 id="models-provider-title">Providers</h2>
             <span>
-              · <span className={styles["mono"]!}>{view.providers.length}</span> — lead first, then
-              subagents
+              · <span className={styles["mono"]!}>{view.providerCount ?? "unavailable"}</span>
+              {view.providerCount === null ? "" : " — lead first, then subagents"}
             </span>
           </div>
           {view.providers.length === 0 ? (
@@ -406,7 +418,7 @@ export function ModelsPage({ view }: { readonly view: ModelsPageViewModel }) {
           and manage links open the existing provider-management flow; this page never mutates the
           Gateway or displays token contents.
         </p>
-      </main>
+      </div>
     </TooltipProvider>
   );
 }
