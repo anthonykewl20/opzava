@@ -145,17 +145,18 @@ export function preferredAuthChoice(
 }
 
 export function openclawHealthSummary(health: OpenClawHealth): OpenClawHealthSummary {
-  const healthy = health.components.filter((component) => component.status === "healthy").length;
-  const attention = health.components.filter(
-    (component) => component.status === "attention",
-  ).length;
-  const notChecked = health.components.filter(
-    (component) => component.status === "not_checked",
-  ).length;
+  // Unmanaged rows (OpenClaw's stock `main` agent) are visible evidence, not Opzava's to score.
+  // Counting them permanently capped every rollup that reads this summary — the topbar pill, the
+  // Overview readiness section, and the legacy Connections panels — at a ceiling no owner can act
+  // on (#275). Filter here so every consumer agrees rather than each re-deriving its own totals.
+  const scored = health.components.filter((component) => component.managed !== false);
+  const healthy = scored.filter((component) => component.status === "healthy").length;
+  const attention = scored.filter((component) => component.status === "attention").length;
+  const notChecked = scored.filter((component) => component.status === "not_checked").length;
   const probed = healthy + attention;
 
   return {
-    total: health.components.length,
+    total: scored.length,
     healthy,
     attention,
     notChecked,

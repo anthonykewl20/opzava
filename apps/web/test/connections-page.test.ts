@@ -788,6 +788,44 @@ describe("Connections page state", () => {
     });
   });
 
+  it("excludes unmanaged rows from the shared health rollup every surface reads (#275)", () => {
+    const component = (
+      id: string,
+      status: ConnectionsSnapshot["openclawHealth"]["components"][number]["status"],
+      managed?: boolean,
+    ): ConnectionsSnapshot["openclawHealth"]["components"][number] => ({
+      id,
+      kind: "agent",
+      label: id,
+      status,
+      ...(managed === undefined ? {} : { managed }),
+      detail: null,
+      lastCheckedAt: "2026-07-03T00:00:00.000Z",
+    });
+
+    // OpenClaw's stock `main` agent is visible evidence Opzava never configures, so no owner action
+    // could ever clear it. Counting it kept every rollup permanently below 100% — the exact ceiling
+    // #275 removes. The topbar pill and Overview readiness read this same helper, so excluding it
+    // here is what keeps them from disagreeing with the Health page.
+    expect(
+      openclawHealthSummary({
+        ...snapshot().openclawHealth,
+        components: [
+          component("agent:ask-admin-opzava", "healthy"),
+          component("agent:subagent-zai", "healthy"),
+          component("agent:main", "not_checked", false),
+        ],
+      }),
+    ).toEqual({
+      total: 2,
+      healthy: 2,
+      attention: 0,
+      notChecked: 0,
+      percent: 100,
+      status: "healthy",
+    });
+  });
+
   it("projects auth health, expiry, plan, and usage labels from provider state", () => {
     const providers = projectModelProviders(
       snapshot({
