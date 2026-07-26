@@ -78,6 +78,7 @@ import {
   type AskAdminStartupReconciliationReceipt,
   type StartupOrchestratorConfigPort,
 } from "./startup-reconciler.js";
+import { GatewayAuthTokenSecretRefReconciler } from "./gateway-auth-secretref-reconciler.js";
 import {
   configPatchParams,
   consoleAdminLogger,
@@ -3693,7 +3694,17 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
   private readonly audit: ErrorCapturePort;
 
-  public reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>> {
+  public async reconcileStartup(): Promise<Result<AskAdminStartupReconciliationReceipt>> {
+    // #272: ensure the gateway connect-token is an env SecretRef, not plaintext in openclaw.json.
+    // Runs on every startup so already-provisioned gateways migrate idempotently (local + Dokploy
+    // share this worker path) before the Ask Admin artifact reconcile touches the same connection.
+    const tokenSecretRef = await new GatewayAuthTokenSecretRefReconciler({
+      adminClient: this.options.adminClient,
+    }).reconcile();
+    if (!tokenSecretRef.ok) {
+      return err(tokenSecretRef.error);
+    }
+
     return new AskAdminStartupReconciler({
       adminClient: this.options.adminClient,
       configPort: this,
