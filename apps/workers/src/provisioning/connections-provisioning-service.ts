@@ -80,6 +80,7 @@ import {
 } from "./startup-reconciler.js";
 import { GatewayAuthTokenSecretRefReconciler } from "./gateway-auth-secretref-reconciler.js";
 import { MemorySearchProviderReconciler } from "./memory-search-provider-reconciler.js";
+import { PhoneControlDisableReconciler } from "./phone-control-disable-reconciler.js";
 import {
   configPatchParams,
   consoleAdminLogger,
@@ -3708,6 +3709,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
 
     // #273: opt out of unused embedding memory search so doctor does not require an OpenAI key.
     await new MemorySearchProviderReconciler({
+      adminClient: this.options.adminClient,
+    }).reconcile();
+
+    // #268: disable the unused phone-control plugin and its recurring expiry reconciliation.
+    await new PhoneControlDisableReconciler({
       adminClient: this.options.adminClient,
     }).reconcile();
 
