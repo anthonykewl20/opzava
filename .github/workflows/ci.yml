@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Gateway plugin alignment
+        run: node scripts/check-gateway-plugin-alignment.mjs
+
       # Separate steps (not a single `turbo run typecheck lint`) so a failure names
       # the exact check in the CI log.
       - name: Typecheck (all packages)

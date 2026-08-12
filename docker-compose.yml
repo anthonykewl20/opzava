@@ -298,7 +298,8 @@ services:
         # Bakes the pinned Claude Code CLI into the gateway so Anthropic setup-token /
         # claude-cli auth flows run in-container (PATCHES.md #1). Match the host pin.
         OPZAVA_CLAUDE_CODE_VERSION: ${OPZAVA_CLAUDE_CODE_VERSION:-2.1.207}
-    image: opzava/mainframe-gateway:${OPENCLAW_IMAGE_TAG:-2026.6.11}
+        OPENCLAW_EXTENSIONS: "zai deepseek moonshot cloudflare-ai-gateway"
+    image: opzava/mainframe-gateway:${OPENCLAW_IMAGE_TAG:-2026.7.2-beta.3}
     restart: unless-stopped
     init: true
     logging: *json-file-logging
