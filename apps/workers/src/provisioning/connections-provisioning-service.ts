@@ -79,6 +79,7 @@ import {
   type StartupOrchestratorConfigPort,
 } from "./startup-reconciler.js";
 import { GatewayAuthTokenSecretRefReconciler } from "./gateway-auth-secretref-reconciler.js";
+import { MemorySearchProviderReconciler } from "./memory-search-provider-reconciler.js";
 import {
   configPatchParams,
   consoleAdminLogger,
@@ -3704,6 +3705,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (!tokenSecretRef.ok) {
       return err(tokenSecretRef.error);
     }
+
+    // #273: opt out of unused embedding memory search so doctor does not require an OpenAI key.
+    await new MemorySearchProviderReconciler({
+      adminClient: this.options.adminClient,
+    }).reconcile();
 
     return new AskAdminStartupReconciler({
       adminClient: this.options.adminClient,
