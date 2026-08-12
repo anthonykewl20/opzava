@@ -72,6 +72,10 @@
     {
       "path": "0017_governance_audit.sql",
       "sha256": "e588e280a296f083a4abb6ca8ef8a551308f0967789a695f9b1c751415cd09d8"
+    },
+    {
+      "path": "0018_platform_doctor_scan.sql",
+      "sha256": "16ff12fae6acfca41664eec737ad0060884c1b6d6b80925389aa5665d54e86e8"
     }
   ]
 }
