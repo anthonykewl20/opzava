@@ -134,6 +134,13 @@
       "when": 1786492800000,
       "tag": "0018_platform_doctor_scan",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786579200000,
+      "tag": "0019_platform_scheduled_job",
+      "breakpoints": true
     }
   ]
 }
