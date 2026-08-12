@@ -19,13 +19,16 @@ import { forbiddenFromError, requireContext } from "@/lib/authed-action";
 import type { AppSessionContext } from "@/lib/session";
 import { attestHumanCommand, issueDoneConfirmNonce } from "@/lib/task-attestation";
 
-const taskStatusSchema = z.enum(taskStatuses);
+const taskStatusesExcludingDone = taskStatuses.filter((status) => status !== "done");
+const taskWriteStatusSchema = z
+  .enum(taskStatusesExcludingDone)
+  .transform((status): TaskStatus => status);
 const taskPrioritySchema = z.enum(taskPriorities);
 
 const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(180),
   description: z.string().max(4000).optional(),
-  status: taskStatusSchema.default("todo"),
+  status: taskWriteStatusSchema.default("todo"),
   priority: taskPrioritySchema.default("normal"),
   assignee: z.string().optional(),
   labels: z.string().optional(),
@@ -43,7 +46,7 @@ const updateTaskSchema = z.object({
 
 const moveTaskSchema = z.object({
   taskId: z.string().trim().min(1),
-  status: taskStatusSchema,
+  status: taskWriteStatusSchema,
   position: z.coerce.number().int().min(0),
 });
 
