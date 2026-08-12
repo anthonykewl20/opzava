@@ -79,38 +79,48 @@ export class GatewayAuthTokenSecretRefReconciler {
       return ok({ skipped: true, patched: false });
     }
 
-    // config.get is required only for the base hash that config.patch must echo back. The token
-    // field is redacted in the readback, so it is not inspected here.
-    const current = await this.retry(() => this.options.adminClient.request("config.get", {}));
-    if (!current.ok) {
-      return err(
-        reconcileError(
-          "workers.gatewayAuthTokenSecretRef.configReadFailed",
-          "Gateway config.get failed while reconciling the auth-token SecretRef.",
-          current.error,
-        ),
-      );
-    }
+    const failedStep: { value: "read" | "params" | "patch" } = { value: "read" };
+    const patched = await this.retry(async () => {
+      // config.get is required only for the base hash that config.patch must echo back. The token
+      // field is redacted in the readback, so it is not inspected here.
+      failedStep.value = "read";
+      const current = await this.options.adminClient.request("config.get", {});
+      if (!current.ok) {
+        return current;
+      }
 
-    // One atomic patch: the token SecretRef and its env secret-provider land together, so no
-    // startup cycle can observe a ref whose provider has not been declared yet.
-    const patchParams = configPatchParams({
-      configGetPayload: current.value,
-      patch: {
-        gateway: { auth: { token: TARGET_TOKEN_REF } },
-        secrets: { providers: { default: TARGET_DEFAULT_PROVIDER } },
-      },
-    });
-    if (!patchParams.ok) {
-      return err(patchParams.error);
-    }
+      // One atomic patch: the token SecretRef and its env secret-provider land together, so no
+      // startup cycle can observe a ref whose provider has not been declared yet.
+      failedStep.value = "params";
+      const patchParams = configPatchParams({
+        configGetPayload: current.value,
+        patch: {
+          gateway: { auth: { token: TARGET_TOKEN_REF } },
+          secrets: { providers: { default: TARGET_DEFAULT_PROVIDER } },
+        },
+      });
+      if (!patchParams.ok) {
+        return patchParams;
+      }
 
-    const patched = await this.retry(() =>
-      this.options.adminClient.request("config.patch", patchParams.value, {
+      failedStep.value = "patch";
+      return this.options.adminClient.request("config.patch", patchParams.value, {
         requiredScope: "operator.admin",
-      }),
-    );
+      });
+    });
     if (!patched.ok) {
+      if (failedStep.value === "params") {
+        return err(patched.error);
+      }
+      if (failedStep.value === "read") {
+        return err(
+          reconcileError(
+            "workers.gatewayAuthTokenSecretRef.configReadFailed",
+            "Gateway config.get failed while reconciling the auth-token SecretRef.",
+            patched.error,
+          ),
+        );
+      }
       return err(
         reconcileError(
           "workers.gatewayAuthTokenSecretRef.configPatchFailed",
@@ -158,8 +168,8 @@ export class GatewayAuthTokenSecretRefReconciler {
     }
     // Mutating gateway.auth.* can trigger an in-process gateway restart, so a patch response can be
     // dropped ("closed before a response") and a read can land in the restart window. Treat those
-    // handshake/closed/restart signals as retryable too; the reconciler is idempotent, so a retry
-    // once the gateway returns either re-applies or no-ops on the already-applied ref.
+    // handshake/closed/restart signals as retryable too; each retry re-fetches a fresh base hash
+    // before re-applying, handling both a dropped response and a stale-base-hash rejection.
     const message = isRecord(error) && typeof error["message"] === "string" ? error["message"] : "";
     const text = `${code} ${message}`.toLowerCase();
     return (
@@ -169,7 +179,15 @@ export class GatewayAuthTokenSecretRefReconciler {
       text.includes("service restart") ||
       text.includes("operatorwshandshakefailed") ||
       text.includes("circuitopen") ||
-      text.includes("econnrefused")
+      text.includes("econnrefused") ||
+      text.includes("config changed since last load") ||
+      text.includes("stalebasehash") ||
+      (text.includes("basehash") &&
+        (text.includes("stale") ||
+          text.includes("mismatch") ||
+          text.includes("changed") ||
+          text.includes("conflict") ||
+          text.includes("rejected")))
     );
   }
 }
