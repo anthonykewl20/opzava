@@ -39,6 +39,8 @@ function doctorDocker(input: {
   readonly doctorRunning?: boolean;
   readonly malformedFrames?: boolean;
   readonly maxStdoutBytes?: number;
+  readonly cleanupExitCode?: number;
+  readonly failCleanupCreate?: boolean;
 }) {
   const commands: string[][] = [];
   const paths: string[] = [];
@@ -49,10 +51,14 @@ function doctorDocker(input: {
     paths.push(path);
     if (path.endsWith("/exec")) {
       const body = JSON.parse(String(init?.body ?? "{}")) as DockerExecCreateBody;
+      const isDoctor = (body.Cmd ?? []).join(" ").includes("openclaw.mjs");
+      if (!isDoctor && input.failCleanupCreate === true && nextExec === 1) {
+        return new Response("unavailable", { status: 503 });
+      }
       const id = `doctor-exec-${++nextExec}`;
       const command = body.Cmd ?? [];
       commands.push(command);
-      kinds.set(id, command.join(" ").includes("openclaw.mjs") ? "doctor" : "cleanup");
+      kinds.set(id, isDoctor ? "doctor" : "cleanup");
       return new Response(JSON.stringify({ Id: id }));
     }
     const id = path.match(/\/exec\/([^/]+)\//)?.[1] ?? "";
@@ -77,7 +83,7 @@ function doctorDocker(input: {
       return new Response(
         JSON.stringify(
           kind === "cleanup"
-            ? { Running: false, ExitCode: 0 }
+            ? { Running: false, ExitCode: input.cleanupExitCode ?? 0 }
             : { Running: input.doctorRunning ?? false, ExitCode: input.exitCode ?? 0 },
         ),
       );
@@ -1394,5 +1400,20 @@ describe("DockerOpenClawGatewayRuntime bounded doctor scan (#280 PR B1)", () => 
     expect(docker.commands.some((command) => command.join(" ").includes("shred -u"))).toBe(true);
     expect(docker.paths.some((path) => path.includes("doctor-exec-2/start"))).toBe(true);
     expect(docker.paths.some((path) => path.includes("doctor-exec-1/json"))).toBe(true);
+  });
+
+  it("returns unavailable when cleanup never observes the child pid", async () => {
+    const docker = doctorDocker({ stdout: envelope, cleanupExitCode: 3, doctorRunning: true });
+    const result = await docker.runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+    expect(docker.commands[1]?.join(" ")).toContain("exit 3");
+  });
+
+  it("best-effort deletes the private stderr log when cleanup exec creation fails", async () => {
+    const docker = doctorDocker({ stdout: envelope, failCleanupCreate: true });
+    const result = await docker.runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+    expect(docker.commands.some((command) => command.join(" ").includes("shred -u"))).toBe(true);
+    expect(docker.paths.filter((path) => path.endsWith("/exec"))).toHaveLength(3);
   });
 });

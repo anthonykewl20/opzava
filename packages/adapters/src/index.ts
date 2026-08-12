@@ -38,10 +38,7 @@ export {
   mapDatabaseError,
   mapTenantStoreError,
 } from "./postgres/errors.js";
-export {
-  rowsFromExecuteResult,
-  type QueryRow,
-} from "./postgres/execute-result.js";
+export { rowsFromExecuteResult, type QueryRow } from "./postgres/execute-result.js";
 
 // Re-export the Drizzle `sql` tag so the BFF/server layer can build parameterized
 // read queries against the adapters `db` without taking a direct drizzle-orm
@@ -68,5 +65,7 @@ export {
   type DoctorScanFindingRecord,
   type DoctorScanLeaseClaim,
   type DoctorScanRunRecord,
+  type DoctorScanRepository,
   type PublishDoctorScanInput,
+  type ReadLatestDoctorScanInput,
 } from "./postgres/doctor-scan-repository.js";

@@ -1347,9 +1347,15 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         },
       },
     );
-    if (!created.ok) return unavailable();
+    if (!created.ok) {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
+    }
     const execId = stringValue(created.value.Id);
-    if (execId === null) return unavailable();
+    if (execId === null) {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
+    }
 
     const hardTimeoutMs = this.options.doctorScan?.hardTimeoutMs ?? doctorScanHardTimeoutMs;
     // ADR-021 deliberately leaves no byte figure. Match PR A's parser boundary (256 KiB), so the
@@ -1388,6 +1394,9 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       logPath,
       pidPath,
     });
+    if (!terminated.ok) {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+    }
     if (!readSucceeded || stdout === undefined || !terminated.ok) return unavailable();
 
     const inspected = await this.dockerRequest<{
@@ -1419,6 +1428,13 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "attempt=0",
       'while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 50 ]; do attempt=$((attempt + 1)); sleep 0.05; done',
       `kill -KILL -"$pid" 2>/dev/null || true`,
+      "else",
+      // Without the process-group id, cleanup cannot prove that a detached child was terminated.
+      // Delete the private log, but fail closed so the caller returns unavailable.
+      secureDeleteCommand(input.logPath),
+      `rm -f ${shellQuote(input.pidPath)}`,
+      `rmdir ${shellQuote(input.artifactDir)} 2>/dev/null || true`,
+      "exit 3",
       "fi",
       secureDeleteCommand(input.logPath),
       `rm -f ${shellQuote(input.pidPath)}`,
@@ -1439,13 +1455,14 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     );
     if (!created.ok) return err(created.error);
     const cleanupExecId = stringValue(created.value.Id);
-    if (cleanupExecId === null)
+    if (cleanupExecId === null) {
       return err(
         provisioningError(
           "provisioning.docker.doctorCleanupInvalid",
           "Doctor scan cleanup could not be started.",
         ),
       );
+    }
     const started = await this.dockerRawRequest(
       `/exec/${encodeURIComponent(cleanupExecId)}/start`,
       {
@@ -1493,6 +1510,40 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         "Doctor scan termination could not be confirmed.",
       ),
     );
+  }
+
+  private async bestEffortDeleteDoctorLog(
+    containerId: string,
+    logPath: string,
+    artifactDir: string,
+  ): Promise<void> {
+    try {
+      const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+        `/containers/${encodeURIComponent(containerId)}/exec`,
+        {
+          method: "POST",
+          body: {
+            AttachStdout: false,
+            AttachStderr: false,
+            Tty: false,
+            Cmd: [
+              "sh",
+              "-lc",
+              `${secureDeleteCommand(logPath)}; rmdir ${shellQuote(artifactDir)} 2>/dev/null || true`,
+            ],
+          },
+        },
+      );
+      const execId = created.ok ? stringValue(created.value.Id) : null;
+      if (execId !== null) {
+        await this.dockerRawRequest(`/exec/${encodeURIComponent(execId)}/start`, {
+          method: "POST",
+          body: { Detach: true, Tty: false },
+        });
+      }
+    } catch {
+      // This is deliberately best-effort and must not expose Docker or stderr details.
+    }
   }
 
   public async listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>> {
