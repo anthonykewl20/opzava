@@ -4,6 +4,7 @@ import * as http from "node:http";
 import {
   type DeviceLoginHandle,
   type DeviceLoginState,
+  type DoctorLintRawResult,
   type GatewayRuntimeAgentCredential,
   type GatewayRuntimeAgentCredentialWrite,
   type GatewayRuntimeAgentProviderQuery,
@@ -24,6 +25,7 @@ import {
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import { ASK_ADMIN_AGENT_DIR } from "./ask-admin-agent.js";
+import { MAX_DOCTOR_OUTPUT_BYTES, parseDoctorLintOutput } from "../health-doctor-scan/parser.js";
 
 type Fetch = typeof fetch;
 
@@ -65,6 +67,83 @@ const pluginModelDiscoveryMaxOutputBytes = 2 * 1024 * 1024;
 const pluginModelDiscoveryTruncatedExitCode = 73;
 const pluginModelDiscoveryMagic = "OPZAVA_PLUGIN_DISCOVERY_V1";
 const generatedPluginModelCatalogVersion = "openclaw-plugin-model-catalog-v1";
+
+const doctorScanCommand = [
+  "node",
+  "/app/openclaw.mjs",
+  "doctor",
+  "--lint",
+  "--all",
+  "--severity-min",
+  "info",
+  "--json",
+] as const;
+const doctorScanHardTimeoutMs = 20_000;
+const doctorScanCleanupTimeoutMs = 5_000;
+const doctorScanCleanupPollMs = 50;
+
+export interface DoctorScanExecutionOptions {
+  readonly hardTimeoutMs?: number;
+  readonly cleanupTimeoutMs?: number;
+  readonly cleanupPollMs?: number;
+  readonly maxStdoutBytes?: number;
+}
+
+class DoctorScanReadFailure extends Error {
+  public constructor(public readonly kind: "malformed" | "oversized" | "timeout") {
+    super(kind);
+  }
+}
+
+/** Incrementally demultiplex an attached Docker exec without ever retaining stderr. */
+async function readBoundedDockerStdout(
+  response: Response,
+  maxStdoutBytes: number,
+): Promise<string> {
+  if (response.body === null) throw new DoctorScanReadFailure("malformed");
+  const reader = response.body.getReader();
+  let header = Buffer.alloc(0);
+  let stream: number | undefined;
+  let remaining = 0;
+  const stdout: Buffer[] = [];
+  let stdoutBytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      let chunk = Buffer.from(next.value);
+      while (chunk.length > 0) {
+        if (stream === undefined) {
+          const needed = 8 - header.length;
+          const take = Math.min(needed, chunk.length);
+          header = Buffer.concat([header, chunk.subarray(0, take)]);
+          chunk = chunk.subarray(take);
+          if (header.length < 8) continue;
+          stream = header[0];
+          remaining = header.readUInt32BE(4);
+          header = Buffer.alloc(0);
+          if (stream !== 1 && stream !== 2) throw new DoctorScanReadFailure("malformed");
+          if (remaining === 0) stream = undefined;
+          continue;
+        }
+        const take = Math.min(remaining, chunk.length);
+        if (stream === 1 && take > 0) {
+          stdoutBytes += take;
+          if (stdoutBytes > maxStdoutBytes) throw new DoctorScanReadFailure("oversized");
+          stdout.push(chunk.subarray(0, take));
+        }
+        // Stream 2 is deliberately consumed and discarded. It never becomes a string or error.
+        chunk = chunk.subarray(take);
+        remaining -= take;
+        if (remaining === 0) stream = undefined;
+      }
+    }
+    if (stream !== undefined || header.length !== 0) throw new DoctorScanReadFailure("malformed");
+    return Buffer.concat(stdout, stdoutBytes).toString("utf8");
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 /** The one place credential material is stripped out of text on its way to a Result or a log (#191). */
 function redactCredential(text: string, credential: string): string {
@@ -1213,9 +1292,207 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       readonly containerName?: string;
       readonly fetch?: Fetch;
       readonly execStdinTransport?: DockerExecStdinTransport;
+      readonly doctorScan?: DoctorScanExecutionOptions;
     },
   ) {
     this.baseUrlResult = dockerHttpBaseUrl(options.dockerHost);
+  }
+
+  public async runDoctorLintScan(): Promise<Result<DoctorLintRawResult>> {
+    const unavailable = (): Result<never> =>
+      err(
+        provisioningError(
+          "provisioning.docker.doctorScanUnavailable",
+          "The OpenClaw doctor scan is unavailable.",
+        ),
+      );
+    const containerId = await this.resolveContainerId();
+    if (!containerId.ok || !this.baseUrlResult.ok) return unavailable();
+
+    const scanId = randomUUID();
+    const artifactDir = `/tmp/opzava-doctor-${scanId}`;
+    const logPath = `${artifactDir}/stderr.log`;
+    const pidPath = `${artifactDir}/doctor.pid`;
+    const doctorSession = [
+      "set -u",
+      `printf '%s\\n' "$$" > ${shellQuote(pidPath)}`,
+      `exec ${doctorScanCommand.map(shellQuote).join(" ")}`,
+    ].join("; ");
+    const command = [
+      "set -u",
+      "umask 077",
+      `mkdir ${shellQuote(artifactDir)}`,
+      // TODO(#280 B2): UNVERIFIED until driven against the built opzava/mainframe-gateway image:
+      // (1) in-container timeout binary/path and (2) CLI JSON envelope/exit behavior. The adapter
+      // therefore uses its configurable host-side hard deadline and validates the ADR envelope.
+      // The new session publishes its own process-group id before replacing itself with doctor.
+      // Cleanup therefore never has to infer an in-container pid from Docker's host pid namespace.
+      `setsid sh -c ${shellQuote(doctorSession)} 2>${shellQuote(logPath)} & doctor_pid=$!`,
+      `wait "$doctor_pid"`,
+      "exit_code=$?",
+      secureDeleteCommand(logPath),
+      `rm -f ${shellQuote(pidPath)}`,
+      `rmdir ${shellQuote(artifactDir)}`,
+      'exit "$exit_code"',
+    ].join("; ");
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(containerId.value)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: true,
+          AttachStderr: true,
+          Tty: false,
+          Cmd: ["sh", "-lc", command],
+        },
+      },
+    );
+    if (!created.ok) return unavailable();
+    const execId = stringValue(created.value.Id);
+    if (execId === null) return unavailable();
+
+    const hardTimeoutMs = this.options.doctorScan?.hardTimeoutMs ?? doctorScanHardTimeoutMs;
+    // ADR-021 deliberately leaves no byte figure. Match PR A's parser boundary (256 KiB), so the
+    // executable adapter cannot admit a document the immediate ingest seam would reject.
+    const maxStdoutBytes = this.options.doctorScan?.maxStdoutBytes ?? MAX_DOCTOR_OUTPUT_BYTES;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), hardTimeoutMs);
+    let stdout: string | undefined;
+    let readSucceeded = false;
+    try {
+      const response = await (this.options.fetch ?? fetch)(
+        `${this.baseUrlResult.value}/exec/${encodeURIComponent(execId)}/start`,
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ Detach: false, Tty: false }),
+        },
+      );
+      if (response.ok) {
+        stdout = await readBoundedDockerStdout(response, maxStdoutBytes);
+        readSucceeded = true;
+      }
+    } catch {
+      // Raw Docker/CLI exceptions are intentionally collapsed; they can contain stderr or paths.
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Security boundary: no result (including success) returns until Docker positively confirms the
+    // doctor exec stopped and a bounded cleanup exec securely removed its private stderr log.
+    const terminated = await this.terminateDoctorScan({
+      containerId: containerId.value,
+      execId,
+      artifactDir,
+      logPath,
+      pidPath,
+    });
+    if (!readSucceeded || stdout === undefined || !terminated.ok) return unavailable();
+
+    const inspected = await this.dockerRequest<{
+      readonly Running?: unknown;
+      readonly ExitCode?: unknown;
+    }>(`/exec/${encodeURIComponent(execId)}/json`, { method: "GET" });
+    if (!inspected.ok || inspected.value.Running !== false) return unavailable();
+    const exitCode = inspected.value.ExitCode;
+    if (exitCode !== 0 && exitCode !== 1) return unavailable();
+    const parsed = parseDoctorLintOutput({ exitCode, stdout });
+    return parsed.status === "succeeded" ? ok({ exitCode, stdout }) : unavailable();
+  }
+
+  private async terminateDoctorScan(input: {
+    readonly containerId: string;
+    readonly execId: string;
+    readonly artifactDir: string;
+    readonly logPath: string;
+    readonly pidPath: string;
+  }): Promise<Result<void>> {
+    const cleanupCommand = [
+      "set -u",
+      "attempt=0",
+      `while [ ! -s ${shellQuote(input.pidPath)} ] && [ "$attempt" -lt 50 ]; do attempt=$((attempt + 1)); sleep 0.05; done`,
+      `if [ -s ${shellQuote(input.pidPath)} ]; then`,
+      `pid=$(cat ${shellQuote(input.pidPath)})`,
+      `case "$pid" in ''|*[!0-9]*) exit 2;; esac`,
+      `kill -TERM -"$pid" 2>/dev/null || true`,
+      "attempt=0",
+      'while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 50 ]; do attempt=$((attempt + 1)); sleep 0.05; done',
+      `kill -KILL -"$pid" 2>/dev/null || true`,
+      "fi",
+      secureDeleteCommand(input.logPath),
+      `rm -f ${shellQuote(input.pidPath)}`,
+      `rmdir ${shellQuote(input.artifactDir)} 2>/dev/null || true`,
+      `test ! -e ${shellQuote(input.logPath)}`,
+    ].join("; ");
+    const created = await this.dockerRequest<{ readonly Id?: unknown }>(
+      `/containers/${encodeURIComponent(input.containerId)}/exec`,
+      {
+        method: "POST",
+        body: {
+          AttachStdout: false,
+          AttachStderr: false,
+          Tty: false,
+          Cmd: ["sh", "-lc", cleanupCommand],
+        },
+      },
+    );
+    if (!created.ok) return err(created.error);
+    const cleanupExecId = stringValue(created.value.Id);
+    if (cleanupExecId === null)
+      return err(
+        provisioningError(
+          "provisioning.docker.doctorCleanupInvalid",
+          "Doctor scan cleanup could not be started.",
+        ),
+      );
+    const started = await this.dockerRawRequest(
+      `/exec/${encodeURIComponent(cleanupExecId)}/start`,
+      {
+        method: "POST",
+        body: { Detach: true, Tty: false },
+      },
+    );
+    if (!started.ok) return err(started.error);
+
+    const deadline =
+      Date.now() + (this.options.doctorScan?.cleanupTimeoutMs ?? doctorScanCleanupTimeoutMs);
+    const pollMs = this.options.doctorScan?.cleanupPollMs ?? doctorScanCleanupPollMs;
+    while (Date.now() < deadline) {
+      const cleanup = await this.dockerRequest<{
+        readonly Running?: unknown;
+        readonly ExitCode?: unknown;
+      }>(`/exec/${encodeURIComponent(cleanupExecId)}/json`, {
+        method: "GET",
+        timeoutMs: Math.max(1, deadline - Date.now()),
+      });
+      const doctor = await this.dockerRequest<{ readonly Running?: unknown }>(
+        `/exec/${encodeURIComponent(input.execId)}/json`,
+        { method: "GET", timeoutMs: Math.max(1, deadline - Date.now()) },
+      );
+      if (
+        cleanup.ok &&
+        doctor.ok &&
+        cleanup.value.Running === false &&
+        cleanup.value.ExitCode === 0 &&
+        doctor.value.Running === false
+      )
+        return ok(undefined);
+      if (!cleanup.ok || !doctor.ok)
+        return err(
+          provisioningError(
+            "provisioning.docker.doctorCleanupUnconfirmed",
+            "Doctor scan termination could not be confirmed.",
+          ),
+        );
+      await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
+    }
+    return err(
+      provisioningError(
+        "provisioning.docker.doctorCleanupUnconfirmed",
+        "Doctor scan termination could not be confirmed.",
+      ),
+    );
   }
 
   public async listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>> {
@@ -1698,11 +1975,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       // up its own isolated app-server client. Keep the known-good turn strictly first: only its
       // success proves that the identical turn/start schema is usable before the target is touched.
       const baselineResult = await this.exec(
-        [
-          "sh",
-          "-lc",
-          modelCanaryCommand(input.agentId, input.providerId, baselineModel),
-        ],
+        ["sh", "-lc", modelCanaryCommand(input.agentId, input.providerId, baselineModel)],
         undefined,
         modelCanaryExecTimeoutMs,
       );
