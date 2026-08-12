@@ -10,6 +10,7 @@ import {
   type ConnectionsSnapshot,
   type DeviceLoginHandle,
   type DeviceLoginState,
+  type DoctorLintRawResult,
   type DeviceFlowChallenge,
   type GatewayRuntimeAgentCredential,
   type GatewayRuntimeAgentCredentialWrite,
@@ -615,9 +616,29 @@ class RecordingGatewayRuntime {
        */
       readonly statusFromStores?: { readonly providerId: string; readonly model: string };
       readonly pluginDiscoveryResult?: Result<PluginModelDiscoveryRead>;
+      readonly doctorScanResult?: Result<DoctorLintRawResult>;
+      readonly doctorScanScenario?:
+        "exit-0" | "exit-1" | "exit-2" | "timeout" | "missing" | "malformed" | "oversized";
     } = {},
   ) {
     this.deviceLogBarrier = options.deviceLogBarrier;
+  }
+
+  public async runDoctorLintScan(): Promise<Result<DoctorLintRawResult>> {
+    if (this.options.doctorScanResult !== undefined) return this.options.doctorScanResult;
+    const scenario = this.options.doctorScanScenario ?? "exit-0";
+    if (scenario === "exit-0" || scenario === "exit-1") {
+      return ok({
+        exitCode: scenario === "exit-0" ? 0 : 1,
+        stdout: '{"checksRun":0,"checksSkipped":0,"findings":[]}',
+      });
+    }
+    return err(
+      new DomainError({
+        code: "test.doctorScanUnavailable",
+        message: "The simulated doctor scan is unavailable.",
+      }),
+    );
   }
 
   public async readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>> {
@@ -7267,9 +7288,7 @@ describe("Connections provisioning helpers", () => {
     ).orchestratorReconcileState;
   }
 
-  function autoReconcileAfterConnect(
-    port: GatewayAdminConnectionsProvisioningPort,
-  ): Promise<void> {
+  function autoReconcileAfterConnect(port: GatewayAdminConnectionsProvisioningPort): Promise<void> {
     return (
       port as unknown as {
         reconcileOrchestratorAfterCredentialChange(input: {
@@ -7646,14 +7665,12 @@ describe("Connections provisioning helpers", () => {
 
   it("keeps failed visible across an auto-reconcile enqueue and clears it only on success", async () => {
     let probes = 0;
-    const gatewayRuntime = modelElectionRuntime(
-      (() => {
-        probes += 1;
-        return probes === 1
-          ? ok({ verdict: "unrunnable", reason: "synthetic initial failure" })
-          : ok({ verdict: "runnable", reason: "synthetic repair success" });
-      }),
-    );
+    const gatewayRuntime = modelElectionRuntime(() => {
+      probes += 1;
+      return probes === 1
+        ? ok({ verdict: "unrunnable", reason: "synthetic initial failure" })
+        : ok({ verdict: "runnable", reason: "synthetic repair success" });
+    });
     const port = modelElectionPort({
       admin: mutableManualElectionAdmin(),
       gatewayRuntime,

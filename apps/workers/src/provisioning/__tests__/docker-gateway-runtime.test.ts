@@ -31,6 +31,76 @@ function dockerStdoutFrame(stdout: string): Buffer {
   return dockerOutputFrame(1, stdout);
 }
 
+function doctorDocker(input: {
+  readonly stdout?: string;
+  readonly stderr?: string;
+  readonly exitCode?: number;
+  readonly neverRespond?: boolean;
+  readonly doctorRunning?: boolean;
+  readonly malformedFrames?: boolean;
+  readonly maxStdoutBytes?: number;
+}) {
+  const commands: string[][] = [];
+  const paths: string[] = [];
+  let nextExec = 0;
+  const kinds = new Map<string, "doctor" | "cleanup">();
+  const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const path = new URL(String(url)).pathname;
+    paths.push(path);
+    if (path.endsWith("/exec")) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as DockerExecCreateBody;
+      const id = `doctor-exec-${++nextExec}`;
+      const command = body.Cmd ?? [];
+      commands.push(command);
+      kinds.set(id, command.join(" ").includes("openclaw.mjs") ? "doctor" : "cleanup");
+      return new Response(JSON.stringify({ Id: id }));
+    }
+    const id = path.match(/\/exec\/([^/]+)\//)?.[1] ?? "";
+    const kind = kinds.get(id);
+    if (path.endsWith("/start")) {
+      if (kind === "cleanup") return new Response(Buffer.alloc(0));
+      if (input.neverRespond === true) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      const framed =
+        input.malformedFrames === true
+          ? Buffer.from("not docker multiplexing")
+          : Buffer.concat([
+              dockerStdoutFrame(input.stdout ?? '{"checksRun":0,"checksSkipped":0,"findings":[]}'),
+              dockerOutputFrame(2, input.stderr ?? ""),
+            ]);
+      return new Response(framed);
+    }
+    if (path.endsWith("/json")) {
+      return new Response(
+        JSON.stringify(
+          kind === "cleanup"
+            ? { Running: false, ExitCode: 0 }
+            : { Running: input.doctorRunning ?? false, ExitCode: input.exitCode ?? 0 },
+        ),
+      );
+    }
+    throw new Error(`unexpected docker path ${path}`);
+  }) as unknown as typeof fetch;
+  return {
+    runtime: new DockerOpenClawGatewayRuntime({
+      dockerHost: "tcp://docker-socket-proxy:2375",
+      containerName: "openclaw-platform-gateway",
+      fetch: fetchImpl,
+      doctorScan: {
+        hardTimeoutMs: 5,
+        cleanupTimeoutMs: 10,
+        cleanupPollMs: 1,
+        ...(input.maxStdoutBytes === undefined ? {} : { maxStdoutBytes: input.maxStdoutBytes }),
+      },
+    }),
+    commands,
+    paths,
+  };
+}
+
 interface DockerExec {
   readonly cmd: string[];
   readonly env?: string[];
@@ -200,7 +270,10 @@ const baselineCanaryModel = "openai/gpt-5.5-codex";
 // The bare id the canary sends to the app-server after stripping the native provider prefix (#251).
 const bareCanaryModel = (ref: string): string => ref.replace(/^openai\//, "");
 
-async function runModelCanaryScript(scenario: ModelCanaryScenario, model: string): Promise<{
+async function runModelCanaryScript(
+  scenario: ModelCanaryScenario,
+  model: string,
+): Promise<{
   readonly stdout: string;
   readonly exitCode: number;
 }> {
@@ -499,9 +572,9 @@ describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
   });
 
   it("classifies the target as runnable when the baseline and target both succeed", async () => {
-    await expect(
-      modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel),
-    ).resolves.toBe("runnable");
+    await expect(modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel)).resolves.toBe(
+      "runnable",
+    );
   });
 
   it("strips the provider prefix so the app-server receives a bare model id (#251)", async () => {
@@ -511,9 +584,9 @@ describe("DockerOpenClawGatewayRuntime model canary (#251)", () => {
     // any prefixed model reaches thread/start or turn/start, so a clean `runnable` here proves the
     // canary stripped the prefix before the app-server saw it. Before the fix the script forwarded
     // the prefixed ref, the guard tripped, and this resolved to `unproven`.
-    await expect(
-      modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel),
-    ).resolves.toBe("runnable");
+    await expect(modelCanaryVerdictForScenario("turnCompleted", baselineCanaryModel)).resolves.toBe(
+      "runnable",
+    );
     expect(bareCanaryModel(targetCanaryModel)).toBe("gpt-5.6-sol");
     expect(bareCanaryModel(baselineCanaryModel)).toBe("gpt-5.5-codex");
   });
@@ -1226,5 +1299,100 @@ describe("DockerOpenClawGatewayRuntime onboard connect (#187, #191)", () => {
     );
     expect(docker.execs).toHaveLength(1);
     expect(JSON.stringify(docker.execs)).not.toContain("sk-super-secret");
+  });
+});
+
+describe("DockerOpenClawGatewayRuntime bounded doctor scan (#280 PR B1)", () => {
+  const envelope = '{"checksRun":0,"checksSkipped":0,"findings":[]}';
+
+  it.each([0, 1] as const)(
+    "returns exit %i and the raw parseable stdout only",
+    async (exitCode) => {
+      const docker = doctorDocker({ exitCode, stdout: envelope });
+      await expect(docker.runtime.runDoctorLintScan()).resolves.toEqual({
+        ok: true,
+        value: { exitCode, stdout: envelope },
+      });
+      const command = docker.commands[0]?.join(" ") ?? "";
+      for (const argument of [
+        "node",
+        "/app/openclaw.mjs",
+        "doctor",
+        "--lint",
+        "--all",
+        "--severity-min",
+        "info",
+        "--json",
+      ]) {
+        expect(command).toContain(argument);
+      }
+    },
+  );
+
+  it("maps exit 2 to the closed unavailable error", async () => {
+    const result = await doctorDocker({
+      exitCode: 2,
+      stdout: envelope,
+    }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.code).toBe("provisioning.docker.doctorScanUnavailable");
+  });
+
+  it("maps a missing doctor executable to unavailable", async () => {
+    const result = await doctorDocker({ exitCode: 127, stdout: "" }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+  });
+
+  it("maps timeout to unavailable after bounded termination cleanup", async () => {
+    const result = await doctorDocker({ neverRespond: true }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.code).toBe("provisioning.docker.doctorScanUnavailable");
+  });
+
+  it.each([
+    ["missing output", ""],
+    ["malformed JSON", "not-json"],
+  ])("maps %s to unavailable", async (_name, stdout) => {
+    const result = await doctorDocker({ stdout }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+  });
+
+  it("enforces the stdout byte cap while streaming", async () => {
+    const result = await doctorDocker({
+      stdout: envelope,
+      maxStdoutBytes: 8,
+    }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects malformed Docker multiplexing", async () => {
+    const result = await doctorDocker({ malformedFrames: true }).runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+  });
+
+  it("never returns or logs stderr or a stdout secret sentinel", async () => {
+    const stdoutSecret = "DOCTOR_STDOUT_SECRET_SENTINEL";
+    const stderrSecret = "DOCTOR_STDERR_SECRET_SENTINEL";
+    const stdout = JSON.stringify({
+      checksRun: 1,
+      checksSkipped: 0,
+      findings: [{ checkId: "unknown", severity: "info", message: stdoutSecret }],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await doctorDocker({ stdout, stderr: stderrSecret }).runtime.runDoctorLintScan();
+    expect(result).toEqual({ ok: true, value: { exitCode: 0, stdout } });
+    expect(JSON.stringify(result)).not.toContain(stderrSecret);
+    expect(JSON.stringify([...warn.mock.calls, ...error.mock.calls])).not.toContain(stdoutSecret);
+    expect(JSON.stringify([...warn.mock.calls, ...error.mock.calls])).not.toContain(stderrSecret);
+  });
+
+  it("does not return until cleanup and child termination are positively confirmed", async () => {
+    const docker = doctorDocker({ stdout: envelope, doctorRunning: true });
+    const result = await docker.runtime.runDoctorLintScan();
+    expect(result.ok).toBe(false);
+    expect(docker.commands.some((command) => command.join(" ").includes("shred -u"))).toBe(true);
+    expect(docker.paths.some((path) => path.includes("doctor-exec-2/start"))).toBe(true);
+    expect(docker.paths.some((path) => path.includes("doctor-exec-1/json"))).toBe(true);
   });
 });

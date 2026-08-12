@@ -13,6 +13,15 @@ export interface GatewayRuntimeCommandResult {
   readonly stderr: string;
 }
 
+/**
+ * Hostile, transient doctor output. It may cross only the runtime-to-worker ingest seam and must be
+ * parsed and discarded immediately; it is never a persistence, event, log, or browser DTO.
+ */
+export interface DoctorLintRawResult {
+  readonly exitCode: 0 | 1;
+  readonly stdout: string;
+}
+
 export interface GatewayRuntimeDeviceCodeLogin {
   readonly execId: string;
   readonly logPath: string;
@@ -177,6 +186,7 @@ export interface GatewayRuntimeModelRunProbeQuery {
 }
 
 export interface GatewayRuntimePort {
+  runDoctorLintScan(): Promise<Result<DoctorLintRawResult>>;
   listAuthChoices(): Promise<Result<readonly GatewayRuntimeAuthChoice[]>>;
   modelStatus(): Promise<Result<unknown>>;
   readPluginModelDiscovery(): Promise<Result<PluginModelDiscoveryRead>>;
@@ -220,9 +230,7 @@ export interface GatewayRuntimePort {
    * write and abort the election
    * only on an `unrunnable` verdict; `unproven` proceeds fail-open (see {@link ModelRunProbeVerdict}).
    */
-  probeModelRunnable(
-    input: GatewayRuntimeModelRunProbeQuery,
-  ): Promise<Result<ModelRunProbe>>;
+  probeModelRunnable(input: GatewayRuntimeModelRunProbeQuery): Promise<Result<ModelRunProbe>>;
   /**
    * Auth-profile ids the given agent can actually RESOLVE for a provider, counting the read-through
    * inheritance from the shared store. Empty means that agent would fail with "No API key found".
