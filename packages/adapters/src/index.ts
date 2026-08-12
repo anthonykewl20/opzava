@@ -69,3 +69,10 @@ export {
   type PublishDoctorScanInput,
   type ReadLatestDoctorScanInput,
 } from "./postgres/doctor-scan-repository.js";
+export {
+  PostgresScheduledJobRepository,
+  InMemoryScheduledJobRepository,
+  type ScheduledJobIdentity,
+  type ScheduledJobRecord,
+  type ScheduledJobRepository,
+} from "./postgres/scheduled-job-repository.js";

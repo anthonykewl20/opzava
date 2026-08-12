@@ -1,15 +1,22 @@
 import { type Server } from "node:http";
 import { pathToFileURL } from "node:url";
+import { PostgresDoctorScanRepository, PostgresScheduledJobRepository, type ScheduledJobRepository } from "@opzava/adapters";
 
+import { OpenClawDoctorScanOrchestrator } from "./health-doctor-scan/orchestrator.js";
 import { createConnectionsInternalHttpServer } from "./provisioning/connections-http-server.js";
 import {
   createDefaultConnectionsProvisioningPort,
   type ConnectionsProvisioningRuntimePort,
 } from "./provisioning/gateway-admin-connections.js";
+import { DockerOpenClawGatewayRuntime } from "./provisioning/docker-gateway-runtime.js";
+import { readDockerHost, readGatewayContainerName } from "./provisioning/gateway-config-mutation.js";
+import { DurableScheduler } from "./scheduler/durable-scheduler.js";
+import { createScheduledJobHandlerRegistry, DOCTOR_SCAN_JOB_KEY, DOCTOR_SCAN_SCOPE } from "./scheduler/handler-registry.js";
 
 export interface ProvisioningWorkerRuntimeConfig {
   readonly port: number;
   readonly internalToken: string;
+  readonly platformOrganizationId: string;
 }
 
 function nonEmptyEnv(source: NodeJS.ProcessEnv, primary: string, fallback?: string): string | null {
@@ -40,7 +47,23 @@ export function resolveProvisioningWorkerRuntimeConfig(
     throw new Error("PROVISIONING_WORKER_PORT/PORT must be a TCP port number.");
   }
 
-  return { port, internalToken };
+  const platformOrganizationId = nonEmptyEnv(source, "OPZAVA_PLATFORM_ORGANIZATION_ID");
+  if (platformOrganizationId === null || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(platformOrganizationId)) {
+    throw new Error("OPZAVA_PLATFORM_ORGANIZATION_ID is required and must be a UUID.");
+  }
+
+  return { port, internalToken, platformOrganizationId };
+}
+
+export interface ProvisioningWorkerRuntime {
+  readonly server: Server;
+  readonly scheduler: SchedulerLifecycle;
+  stop(): Promise<void>;
+}
+
+interface SchedulerLifecycle {
+  start(): void;
+  stop(): Promise<void>;
 }
 
 export function startProvisioningWorker(
@@ -48,8 +71,10 @@ export function startProvisioningWorker(
   dependencies: {
     readonly provisioningPort?: ConnectionsProvisioningRuntimePort;
     readonly createServer?: typeof createConnectionsInternalHttpServer;
+    readonly scheduler?: SchedulerLifecycle;
+    readonly scheduledJobs?: ScheduledJobRepository;
   } = {},
-): Promise<Server> {
+): Promise<ProvisioningWorkerRuntime> {
   const provisioningPort =
     dependencies.provisioningPort ?? createDefaultConnectionsProvisioningPort();
 
@@ -60,11 +85,14 @@ export function startProvisioningWorker(
         throw reconciled.error;
       }
 
+      const scheduledJobs = dependencies.scheduledJobs ?? new PostgresScheduledJobRepository();
+      await scheduledJobs.register({ jobKey: DOCTOR_SCAN_JOB_KEY, organizationId: config.platformOrganizationId, scope: DOCTOR_SCAN_SCOPE, cadenceSeconds: 300, now: new Date() });
+      const scheduler = dependencies.scheduler ?? createDefaultScheduler(config, scheduledJobs);
+
       const server = (dependencies.createServer ?? createConnectionsInternalHttpServer)({
         internalToken: config.internalToken,
         provisioningPort,
       });
-      server.once("close", () => provisioningPort.close());
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(config.port, "0.0.0.0", () => {
@@ -73,12 +101,33 @@ export function startProvisioningWorker(
           resolve();
         });
       });
-      return server;
+      scheduler.start();
+      let stopping: Promise<void> | null = null;
+      return {
+        server, scheduler,
+        stop() {
+          stopping ??= (async () => {
+            await scheduler.stop();
+            await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+            provisioningPort.close();
+          })();
+          return stopping;
+        },
+      };
     } catch (error) {
       provisioningPort.close();
       throw error;
     }
   })();
+}
+
+function createDefaultScheduler(config: ProvisioningWorkerRuntimeConfig, repository: ScheduledJobRepository): DurableScheduler {
+  const dockerHost = readDockerHost(process.env);
+  if (dockerHost === null) throw new Error("DOCKER_HOST is required for the doctor scan scheduler.");
+  const containerName = readGatewayContainerName(process.env);
+  const runtime = new DockerOpenClawGatewayRuntime({ dockerHost, ...(containerName === null ? {} : { containerName }) });
+  const doctor = new OpenClawDoctorScanOrchestrator(new PostgresDoctorScanRepository(), runtime);
+  return new DurableScheduler(repository, createScheduledJobHandlerRegistry(doctor), { organizationId: config.platformOrganizationId });
 }
 
 function runningAsEntrypoint(): boolean {
@@ -88,16 +137,9 @@ function runningAsEntrypoint(): boolean {
 
 if (runningAsEntrypoint()) {
   void startProvisioningWorker()
-    .then((server) => {
+    .then((runtime) => {
       const shutdown = (signal: NodeJS.Signals) => {
-        server.close((error) => {
-          if (error !== undefined) {
-            console.error(error);
-            process.exit(1);
-          }
-
-          process.exit(signal === "SIGTERM" || signal === "SIGINT" ? 0 : 1);
-        });
+        void runtime.stop().then(() => process.exit(signal === "SIGTERM" || signal === "SIGINT" ? 0 : 1)).catch(() => process.exit(1));
       };
 
       process.once("SIGTERM", shutdown);

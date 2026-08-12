@@ -1773,11 +1773,18 @@ describe("Connections provisioning helpers", () => {
       resolveProvisioningWorkerRuntimeConfig({
         PROVISIONING_WORKER_TOKEN: "worker-token",
         PROVISIONING_WORKER_PORT: "19188",
+        OPZAVA_PLATFORM_ORGANIZATION_ID: "11111111-1111-4111-8111-111111111111",
       }),
     ).toEqual({
       internalToken: "worker-token",
       port: 19188,
+      platformOrganizationId: "11111111-1111-4111-8111-111111111111",
     });
+  });
+
+  it("fails worker bootstrap without a valid platform organization UUID", () => {
+    expect(() => resolveProvisioningWorkerRuntimeConfig({ PROVISIONING_WORKER_TOKEN: "worker-token" })).toThrow("OPZAVA_PLATFORM_ORGANIZATION_ID");
+    expect(() => resolveProvisioningWorkerRuntimeConfig({ PROVISIONING_WORKER_TOKEN: "worker-token", OPZAVA_PLATFORM_ORGANIZATION_ID: "not-a-uuid" })).toThrow("OPZAVA_PLATFORM_ORGANIZATION_ID");
   });
 
   it("reconciles before listening and injects the same runtime port into the server", async () => {
@@ -1807,9 +1814,11 @@ describe("Connections provisioning helpers", () => {
       },
     };
     const starting = startProvisioningWorker(
-      { port: 0, internalToken: "test-token" },
+      { port: 0, internalToken: "test-token", platformOrganizationId: "11111111-1111-4111-8111-111111111111" },
       {
         provisioningPort: port,
+        scheduledJobs: { register: vi.fn(), claimDue: vi.fn(), ack: vi.fn(), fail: vi.fn() },
+        scheduler: { start: vi.fn(), stop: vi.fn(async () => {}) },
         createServer(options) {
           serverCreated = true;
           injected = options.provisioningPort;
@@ -1821,11 +1830,12 @@ describe("Connections provisioning helpers", () => {
     expect(serverCreated).toBe(false);
 
     release();
-    const server = await starting;
+    const runtime = await starting;
+    const server = runtime.server;
     expect(serverCreated).toBe(true);
     expect(injected).toBe(port);
     expect(closed).toBe(false);
-    await closeServer(server);
+    await runtime.stop();
     expect(closed).toBe(true);
   });
 
@@ -1847,9 +1857,11 @@ describe("Connections provisioning helpers", () => {
 
     await expect(
       startProvisioningWorker(
-        { port: 0, internalToken: "test-token" },
+        { port: 0, internalToken: "test-token", platformOrganizationId: "11111111-1111-4111-8111-111111111111" },
         {
           provisioningPort: port,
+          scheduledJobs: { register: vi.fn(), claimDue: vi.fn(), ack: vi.fn(), fail: vi.fn() },
+          scheduler: { start: vi.fn(), stop: vi.fn(async () => {}) },
           createServer(options) {
             serverCreated = true;
             return createConnectionsInternalHttpServer(options);

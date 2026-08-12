@@ -76,6 +76,10 @@
     {
       "path": "0018_platform_doctor_scan.sql",
       "sha256": "16ff12fae6acfca41664eec737ad0060884c1b6d6b80925389aa5665d54e86e8"
+    },
+    {
+      "path": "0019_platform_scheduled_job.sql",
+      "sha256": "3cdee8c8e9e571ba531e489725e39db0fa33f9d128ea53f59a7ef3164363f17b"
     }
   ]
 }
