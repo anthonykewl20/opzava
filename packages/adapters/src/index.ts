@@ -61,3 +61,12 @@ export {
   type RecordedConfigVersion,
 } from "./in-memory-observability-adapter.js";
 export { PostgresObservabilityAdapter } from "./postgres/observability-adapter.js";
+export {
+  PostgresDoctorScanRepository,
+  InMemoryDoctorScanRepository,
+  type ClaimDoctorScanInput,
+  type DoctorScanFindingRecord,
+  type DoctorScanLeaseClaim,
+  type DoctorScanRunRecord,
+  type PublishDoctorScanInput,
+} from "./postgres/doctor-scan-repository.js";

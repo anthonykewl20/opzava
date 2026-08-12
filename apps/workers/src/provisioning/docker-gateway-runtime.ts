@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 
 import {
+  type DeviceLoginHandle,
+  type DeviceLoginState,
   type GatewayRuntimeAgentCredential,
   type GatewayRuntimeAgentCredentialWrite,
   type GatewayRuntimeAgentProviderQuery,
@@ -16,6 +18,8 @@ import {
   type PluginModelCatalog,
   type PluginModelDiscoveryRead,
   type ProviderAuthProbe,
+  type SetupTokenLoginHandle,
+  type SetupTokenLoginState,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
@@ -173,6 +177,71 @@ function stripAnsi(value: string): string {
   // verification URL + code parse cleanly. ESC (0x1B) is intentional here.
   // eslint-disable-next-line no-control-regex
   return value.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "");
+}
+
+function interactiveLoginText(value: string): string {
+  return stripAnsi(value).replace(/\r\n?/g, "\n");
+}
+
+function deviceLoginStateFromLog(value: string): DeviceLoginState {
+  const text = interactiveLoginText(value);
+  if (
+    /\b(successfully (authenticated|logged in)|authentication successful|login successful|authorization complete)\b/i.test(
+      text,
+    )
+  ) {
+    return { kind: "completed" };
+  }
+  if (
+    /\b(device[_ ]code(?:[_ ]request)?[_ ]failed|access[_ ]denied|authorization[_ ](?:denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|sign[- ]?in (?:failed|was denied|declined))\b/i.test(
+      text,
+    )
+  ) {
+    return { kind: "terminal-failure", reason: "The provider rejected the device login." };
+  }
+
+  const verificationUri =
+    text.match(/https?:\/\/[^\s"']*device[^\s"']*/i)?.[0] ??
+    text.match(/https?:\/\/auth\.[^\s"']+/i)?.[0];
+  const deviceCode =
+    text.match(/Code:\s*([A-Z0-9][A-Z0-9-]{3,})/i)?.[1] ??
+    text.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/i)?.[1];
+  const expiry = text.match(/(?:code\s+)?expires?\s+in\s+(\d+)\s*(seconds?|minutes?)/i);
+  if (verificationUri !== undefined && deviceCode !== undefined) {
+    const amount = Number(expiry?.[1] ?? "15");
+    const expiresInMs = amount * (expiry?.[2]?.toLowerCase().startsWith("second") ? 1_000 : 60_000);
+    return {
+      kind: "awaiting-code",
+      deviceCode: deviceCode.toUpperCase(),
+      verificationUri,
+      expiresInMs,
+    };
+  }
+  return {
+    kind: "terminal-failure",
+    reason: "The device login did not return a usable challenge.",
+  };
+}
+
+function setupTokenLoginStateFromLog(value: string): SetupTokenLoginState {
+  const text = interactiveLoginText(value);
+  if (
+    /\bsk-ant-oat01-[A-Za-z0-9_-]+\b/.test(text) ||
+    /\bsetup token (?:created|ready)\b/i.test(text)
+  ) {
+    return { kind: "completed" };
+  }
+  if (
+    /\b(access denied|authorization (?:denied|declined)|invalid (?:authorization )?code|sign[- ]?in (?:failed|was denied|declined))\b/i.test(
+      text,
+    )
+  ) {
+    return { kind: "terminal-failure", reason: "The provider rejected the setup-token login." };
+  }
+  if (/https?:\/\/[^\s"']*(?:claude|anthropic|oauth)[^\s"']*/i.test(text)) {
+    return { kind: "awaiting-code" };
+  }
+  return { kind: "terminal-failure", reason: "The setup-token login is no longer available." };
 }
 
 function secureDeleteCommand(logPath: string): string {
@@ -1127,6 +1196,16 @@ function parseOnboardAuthChoices(helpText: string): readonly GatewayRuntimeAuthC
 
 export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   private readonly baseUrlResult: Result<string>;
+  private readonly interactiveLogins = new Map<
+    string,
+    | { readonly kind: "device"; readonly execId: string; readonly logPath: string }
+    | {
+        readonly kind: "setup-token";
+        readonly execId: string;
+        readonly logPath: string;
+        readonly stdinPath: string;
+      }
+  >();
 
   public constructor(
     private readonly options: {
@@ -1728,6 +1807,112 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     }
 
     return ok(parseAgentProviderProfileIds(result.value.stdout));
+  }
+
+  public async beginDeviceLogin(input: {
+    readonly providerId: string;
+    readonly agentId: string;
+  }): Promise<Result<DeviceLoginHandle>> {
+    const login = await this.startDeviceCodeLogin(input.providerId, input.agentId);
+    if (!login.ok) return err(login.error);
+    const token = randomUUID();
+    this.interactiveLogins.set(token, { kind: "device", ...login.value });
+    return ok({ __brand: "DeviceLoginHandle", token });
+  }
+
+  public async pollDeviceLogin(handle: DeviceLoginHandle): Promise<Result<DeviceLoginState>> {
+    const login = this.interactiveLogins.get(handle.token);
+    if (login === undefined || login.kind !== "device") {
+      return err(this.interactiveLoginNotFound("device"));
+    }
+    const log = await this.readDeviceCodeLog(login.logPath);
+    return log.ok
+      ? ok(deviceLoginStateFromLog(log.value))
+      : ok({
+          kind: "terminal-failure",
+          reason: "The device login process is no longer available.",
+        });
+  }
+
+  public async cancelDeviceLogin(handle: DeviceLoginHandle): Promise<Result<void>> {
+    const login = this.interactiveLogins.get(handle.token);
+    if (login === undefined || login.kind !== "device") {
+      return err(this.interactiveLoginNotFound("device"));
+    }
+    try {
+      await this.stopDeviceCodeLogin(login.execId, login.logPath);
+      this.interactiveLogins.delete(handle.token);
+      return ok(undefined);
+    } catch (error) {
+      return err(this.interactiveLoginCancellationFailed("device", error));
+    }
+  }
+
+  public async beginSetupTokenLogin(): Promise<Result<SetupTokenLoginHandle>> {
+    const login = await this.startSetupTokenLogin();
+    if (!login.ok) return err(login.error);
+    const token = randomUUID();
+    this.interactiveLogins.set(token, { kind: "setup-token", ...login.value });
+    return ok({ __brand: "SetupTokenLoginHandle", token });
+  }
+
+  public async pollSetupTokenLogin(
+    handle: SetupTokenLoginHandle,
+  ): Promise<Result<SetupTokenLoginState>> {
+    const login = this.interactiveLogins.get(handle.token);
+    if (login === undefined || login.kind !== "setup-token") {
+      return err(this.interactiveLoginNotFound("setup-token"));
+    }
+    const log = await this.readSetupTokenLog(login.logPath);
+    return log.ok
+      ? ok(setupTokenLoginStateFromLog(log.value))
+      : ok({
+          kind: "terminal-failure",
+          reason: "The setup-token login process is no longer available.",
+        });
+  }
+
+  public async submitSetupTokenCode(
+    handle: SetupTokenLoginHandle,
+    code: string,
+  ): Promise<Result<void>> {
+    const login = this.interactiveLogins.get(handle.token);
+    if (login === undefined || login.kind !== "setup-token") {
+      return err(this.interactiveLoginNotFound("setup-token"));
+    }
+    return this.writeSetupTokenInput(login.stdinPath, code);
+  }
+
+  public async cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>> {
+    const login = this.interactiveLogins.get(handle.token);
+    if (login === undefined || login.kind !== "setup-token") {
+      return err(this.interactiveLoginNotFound("setup-token"));
+    }
+    try {
+      await this.stopSetupTokenLogin(login.execId, login.logPath);
+      this.interactiveLogins.delete(handle.token);
+      return ok(undefined);
+    } catch (error) {
+      return err(this.interactiveLoginCancellationFailed("setup-token", error));
+    }
+  }
+
+  private interactiveLoginNotFound(kind: "device" | "setup-token"): DomainError {
+    return provisioningError(
+      "provisioning.docker.interactiveLoginNotFound",
+      `The ${kind === "device" ? "device" : "setup-token"} login handle is invalid or no longer active.`,
+    );
+  }
+
+  private interactiveLoginCancellationFailed(
+    kind: "device" | "setup-token",
+    error: unknown,
+  ): DomainError {
+    return provisioningError(
+      "provisioning.docker.interactiveLoginCancellationFailed",
+      `The ${kind === "device" ? "device" : "setup-token"} login could not be safely cancelled.`,
+      { causeCode: error instanceof DomainError ? error.code : "unknown" },
+    );
   }
 
   public async startDeviceCodeLogin(

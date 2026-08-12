@@ -24,6 +24,33 @@ export interface GatewayRuntimeSetupTokenLogin {
   readonly stdinPath: string;
 }
 
+/** Opaque reference to a device login owned by the runtime adapter. */
+export interface DeviceLoginHandle {
+  readonly __brand: "DeviceLoginHandle";
+  readonly token: string;
+}
+
+/** Opaque reference to a setup-token login owned by the runtime adapter. */
+export interface SetupTokenLoginHandle {
+  readonly __brand: "SetupTokenLoginHandle";
+  readonly token: string;
+}
+
+export type DeviceLoginState =
+  | {
+      readonly kind: "awaiting-code";
+      readonly deviceCode: string;
+      readonly verificationUri: string;
+      readonly expiresInMs: number;
+    }
+  | { readonly kind: "completed" }
+  | { readonly kind: "terminal-failure"; readonly reason: string };
+
+export type SetupTokenLoginState =
+  | { readonly kind: "awaiting-code" }
+  | { readonly kind: "completed" }
+  | { readonly kind: "terminal-failure"; readonly reason: string };
+
 export interface GatewayRuntimeAgentCredential {
   readonly agentId: string;
   readonly providerId: string;
@@ -203,6 +230,16 @@ export interface GatewayRuntimePort {
   listAgentProviderProfiles(
     input: GatewayRuntimeAgentProviderQuery,
   ): Promise<Result<readonly string[]>>;
+  beginDeviceLogin(input: {
+    readonly providerId: string;
+    readonly agentId: string;
+  }): Promise<Result<DeviceLoginHandle>>;
+  pollDeviceLogin(handle: DeviceLoginHandle): Promise<Result<DeviceLoginState>>;
+  cancelDeviceLogin(handle: DeviceLoginHandle): Promise<Result<void>>;
+  beginSetupTokenLogin(): Promise<Result<SetupTokenLoginHandle>>;
+  pollSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<SetupTokenLoginState>>;
+  submitSetupTokenCode(handle: SetupTokenLoginHandle, code: string): Promise<Result<void>>;
+  cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>>;
   /**
    * `agentId` names the auth store the completed OAuth login writes to. It is required rather than
    * defaulted: an un-agented device-code login silently lands in the *configured default* agent,
