@@ -1,8 +1,8 @@
 # Runbook — Opzava platform OpenClaw Gateway
 
 Operating the per-tenant platform Gateway (internal single-tenant phase). Every step below was
-proven live on OpenClaw `2026.6.11` (2026-07-03). Design record: `docs/plan/grilling-decisions.md`
-Q16; live protocol facts: `docs/plan/research/slice2-ask-admin-opzava.md` (live-findings sections).
+proven live on OpenClaw `2026.7.2-beta.3`. Design record: `docs/plan/grilling-decisions.md` Q16;
+live protocol facts: `docs/plan/research/slice2-ask-admin-opzava.md` (live-findings sections).
 
 ## Bring-up (local)
 
@@ -10,7 +10,7 @@ Q16; live protocol facts: `docs/plan/research/slice2-ask-admin-opzava.md` (live-
 docker compose up -d openclaw-platform-gateway
 ```
 
-- Image pinned via `OPENCLAW_IMAGE_TAG` (currently `2026.6.11`); local host port 18799
+- Image pinned via `OPENCLAW_IMAGE_TAG` (currently `2026.7.2-beta.3`); local host port 18799
   (`docker-compose.override.yml`; 18789 is the developer's personal OpenClaw).
 - The platform Gateway now runs by default with `gateway-broker` for the internal single-tenant
   phase. It is still expose-only in compose, with no Traefik labels.
@@ -24,6 +24,25 @@ docker compose run --rm --no-deps --entrypoint node openclaw-platform-gateway \
 
 - Health: `curl http://127.0.0.1:18799/healthz` -> 200. CLI works in-container via loopback only:
   `docker compose exec openclaw-platform-gateway node openclaw.mjs <cmd>`.
+
+## Plugin alignment
+
+The four provider plugins (`zai`, `deepseek`, `moonshot`, and `cloudflare-ai-gateway`) are
+image-baked via the `OPENCLAW_EXTENSIONS` build arg in `docker-compose.yml`, so their versions track
+the `mainframe` source exactly and `core/doctor/workspace-status` never flags them. **Any new
+provider plugin must be added to `OPENCLAW_EXTENSIONS`** in `docker-compose.yml` and the image must
+be rebuilt; otherwise, it will float as an external install and drift. `OPENCLAW_IMAGE_TAG` must
+stay in lockstep with the version in `mainframe/package.json`; the CI gate enforces this.
+
+**Required one-time cleanup for existing environments:** a bundled image does not remove legacy
+external install records from the `openclaw-platform-config` volume. In an environment previously
+running `2026.6.11`, rebuild and restart the gateway, then run in-container
+`openclaw plugins uninstall <id>` for each of the four plugins (or `openclaw doctor --fix` if it
+clears them). Confirm that `doctor --lint --all --json` reports zero `core/doctor/workspace-status`
+findings. Without this cleanup, the advisory persists despite the correct image.
+
+For live Dokploy, confirm that the environment does not override `OPENCLAW_IMAGE_TAG=2026.6.11`; if
+it does, the compose default bump will not take effect there.
 
 ## Broker device pairing (once per environment)
 
