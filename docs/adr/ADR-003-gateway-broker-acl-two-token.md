@@ -4,7 +4,7 @@ Status: Accepted
 
 > Current-context note (2026-07-15): CRM references in this retained decision mean the deferred CRM rebuild, which returns only with the future user-side dashboard (GitHub issue #200).
 
-Opzava will put all OpenClaw runtime access behind a separate long-lived Node `gateway-broker` service. The broker is the single ACL and anti-corruption layer to OpenClaw, uses one WS-first scoped operator client per active tenant Gateway, and enforces a two-token model: a hot-path paired device token with `operator.write` + `operator.approvals`, plus a separate short-lived JIT `operator.admin` provisioning credential used only by the provisioning worker.
+Opzava will put all hot-path OpenClaw runtime access behind a separate long-lived Node `gateway-broker` service. The broker is the single hot-path ACL and anti-corruption layer to OpenClaw, uses one WS-first scoped operator client per active tenant Gateway, and enforces a two-token model: a hot-path paired device token with `operator.write` + `operator.approvals`, plus a separate short-lived JIT `operator.admin` provisioning credential used only by the provisioning worker through the audited admin/JIT ACL.
 
 ## Context
 
@@ -20,7 +20,7 @@ Q4 and Q4b add two related constraints. First, OpenClaw owns runtime capabilitie
 
 ## Decision
 
-Use a separate long-lived Node `gateway-broker` service as the only production path from Opzava applications to OpenClaw Gateway. Browser clients, Next.js route handlers, server actions, domain packages, and workers do not call OpenClaw directly. They call Opzava application services or broker-facing ports, and the broker translates those requests into OpenClaw protocol operations.
+Use a separate long-lived Node `gateway-broker` service as the only hot-path ACL from Opzava applications to OpenClaw Gateway. Browser clients, Next.js route handlers, server actions, domain packages, and workers outside the provisioning path do not call OpenClaw directly; they call Opzava application services or broker-facing ports, and the broker translates those requests into OpenClaw protocol operations. The provisioning worker owns the audited admin/JIT ACL: it calls OpenClaw only out of band from the hot path, using the separate short-lived `operator.admin` credential for admin-only config writes and other provisioning operations described below.
 
 The broker owns the OpenClaw anti-corruption layer:
 
@@ -104,6 +104,14 @@ Create individual OpenClaw operator identities for every Opzava user. Rejected b
 - ADR-002: Pure-per-tenant tenancy, `GatewayRuntimePort`, and provisioning saga.
 - ADR-004: Data model boundary, hybrid CQRS, outbox, and projections.
 - ADR-005: Tool-policy-first security, approval gates, and sandbox posture.
+
+## Amendment (ADR-019 alignment)
+
+This amendment clarifies the hot-path-versus-admin/JIT distinction to resolve the textual tension
+with the provisioning worker's `operator.admin` path. The `gateway-broker` remains the only hot-path
+ACL, while the provisioning worker owns the audited admin/JIT ACL. This aligns with ADR-019's
+provisioning modularization decision and unblocks issue #163's shared `@opzava/openclaw-wire`
+package without changing the two-token architecture.
 
 ---
 > **Validate against official docs before implementing.** Training knowledge is a starting point, not the source of truth — check `docs/plan/official-docs.md`, `docs/openclaw`, and current vendor docs. See `CLAUDE.md` (Official-docs rule).
