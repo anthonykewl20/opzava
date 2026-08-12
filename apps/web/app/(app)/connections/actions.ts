@@ -10,30 +10,10 @@ import {
   requireConnectionMutationRole,
   startGitHubDeviceFlowForContext,
 } from "@/lib/connections";
-import { getAppSessionContext } from "@/lib/session";
-
-async function requireConnectionsContext() {
-  const context = await getAppSessionContext();
-  if (context === null) {
-    redirect("/login");
-  }
-
-  return context;
-}
+import { errorCode, requireContext } from "@/lib/authed-action";
 
 function throwConnectionActionError(error: unknown): never {
   throw error instanceof Error ? error : new Error("Connection provisioning action failed.");
-}
-
-function connectionActionErrorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : connectionActionErrorCode((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
 function redirectToConnectionsNotice(input: {
@@ -54,7 +34,7 @@ function handleConnectionMutationError(
   providerId?: string,
   basePath = "/connections",
 ): never {
-  if (connectionActionErrorCode(error) === "provisioning.openclawAdmin.operatorAdminRequired") {
+  if (errorCode(error) === "provisioning.openclawAdmin.operatorAdminRequired") {
     redirectToConnectionsNotice({
       notice: "operator-admin-required",
       basePath,
@@ -62,7 +42,7 @@ function handleConnectionMutationError(
     });
   }
 
-  if (connectionActionErrorCode(error) === "provisioning.githubOAuth.notConfigured") {
+  if (errorCode(error) === "provisioning.githubOAuth.notConfigured") {
     redirectToConnectionsNotice({
       notice: "github-not-configured",
       basePath,
@@ -74,7 +54,7 @@ function handleConnectionMutationError(
 }
 
 async function requireConnectionsMutationContext() {
-  const context = await requireConnectionsContext();
+  const context = await requireContext();
   const allowed = requireConnectionMutationRole(context);
   if (!allowed.ok) {
     throwConnectionActionError(allowed.error);
@@ -116,7 +96,7 @@ export async function disconnectGitHubAction(basePath = "/connections/github"): 
 }
 
 export async function refreshConnectionsAction(basePath = "/connections"): Promise<void> {
-  const context = await requireConnectionsContext();
+  const context = await requireContext();
   const result = await refreshConnectionsPageData(context);
   if (!result.ok) {
     redirectToConnectionsNotice({ notice: "health-check-error", basePath });

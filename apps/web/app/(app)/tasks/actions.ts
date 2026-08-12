@@ -11,11 +11,12 @@ import {
   type TaskStatus,
 } from "@opzava/project-management";
 import { revalidatePath } from "next/cache";
-import { forbidden, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { formFailureState, formValidationState, type FormActionState } from "@/lib/action-state";
-import { getAppSessionContext, type AppSessionContext } from "@/lib/session";
+import { forbiddenFromError, requireContext } from "@/lib/authed-action";
+import type { AppSessionContext } from "@/lib/session";
 import { attestHumanCommand, issueDoneConfirmNonce } from "@/lib/task-attestation";
 
 const taskStatusSchema = z.enum(taskStatuses);
@@ -63,16 +64,6 @@ function assigneeFromForm(value: string | undefined, context: AppSessionContext)
   return value === "me" ? context.user.id : null;
 }
 
-async function requireTaskContext(): Promise<AppSessionContext> {
-  const context = await getAppSessionContext();
-
-  if (context === null) {
-    redirect("/login");
-  }
-
-  return context;
-}
-
 function actorFromContext(context: AppSessionContext) {
   return {
     userId: context.user.id,
@@ -85,32 +76,8 @@ function redirectAfterMutation(): never {
   redirect("/tasks");
 }
 
-function errorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
-function errorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
 function taskActionErrorState(error: unknown, fallback: string): FormActionState {
-  if (errorCode(error) === "projectManagement.forbidden" || errorStatus(error) === 403) {
-    forbidden();
-  }
+  forbiddenFromError(error);
 
   return formFailureState(error instanceof Error ? error.message : fallback);
 }
@@ -119,7 +86,7 @@ export async function createTaskAction(
   _previousState: FormActionState,
   formData: FormData,
 ): Promise<FormActionState> {
-  const context = await requireTaskContext();
+  const context = await requireContext();
   const parsed = createTaskSchema.safeParse({
     title: stringFromForm(formData, "title"),
     description: stringFromForm(formData, "description"),
@@ -158,7 +125,7 @@ export async function updateTaskAction(
   _previousState: FormActionState,
   formData: FormData,
 ): Promise<FormActionState> {
-  const context = await requireTaskContext();
+  const context = await requireContext();
   const parsed = updateTaskSchema.safeParse({
     taskId: stringFromForm(formData, "taskId"),
     title: stringFromForm(formData, "title"),
@@ -195,7 +162,7 @@ export async function moveTaskAction(
   _previousState: FormActionState,
   formData: FormData,
 ): Promise<FormActionState> {
-  const context = await requireTaskContext();
+  const context = await requireContext();
   const parsed = moveTaskSchema.safeParse({
     taskId: stringFromForm(formData, "taskId"),
     status: stringFromForm(formData, "status"),
