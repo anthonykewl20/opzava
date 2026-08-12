@@ -4,11 +4,18 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { ConnectionsProvisioningPort, ConnectionProvisioningPrincipal } from "@opzava/ports";
 
 import { createDefaultConnectionsProvisioningPort } from "./gateway-admin-connections.js";
+import type {
+  DoctorScanLatest,
+  OpenClawDoctorScanPort,
+} from "../health-doctor-scan/orchestrator.js";
 
 export interface ConnectionsInternalHttpServerOptions {
   readonly provisioningPort?: ConnectionsProvisioningPort;
   readonly internalToken: string;
   readonly maxBodyBytes?: number;
+  readonly doctorScanPort?: OpenClawDoctorScanPort;
+  readonly platformOrganizationId?: string;
+  readonly doctorScanScope?: string;
 }
 
 const defaultMaxBodyBytes = 64 * 1024;
@@ -92,6 +99,86 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
+function closedDoctorScanLatest(value: DoctorScanLatest): DoctorScanLatest {
+  const latest = value.latest;
+  return {
+    availability: value.availability,
+    latest:
+      latest === null
+        ? null
+        : {
+            status: latest.status,
+            checksRun: latest.checksRun,
+            checksSkipped: latest.checksSkipped,
+            findings: latest.findings.map((finding) => ({
+              checkId: finding.checkId,
+              severity: finding.severity,
+              group: finding.group,
+              summary: finding.summary,
+              detailState: finding.detailState,
+              locationLabel: finding.locationLabel,
+              targetLabel: finding.targetLabel,
+              fixHint: finding.fixHint,
+              suppressed: finding.suppressed,
+              suppressionReason: finding.suppressionReason,
+            })),
+            ...(latest.failureCode === undefined ? {} : { failureCode: latest.failureCode }),
+          },
+    inProgress: value.inProgress,
+  };
+}
+
+async function handleDoctorScanRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: ConnectionsInternalHttpServerOptions,
+): Promise<void> {
+  if (!authenticated(request, options.internalToken)) {
+    writeJson(response, 401, { error: "unauthorized" });
+    return;
+  }
+
+  if (
+    options.doctorScanPort === undefined ||
+    options.platformOrganizationId === undefined ||
+    options.doctorScanScope === undefined
+  ) {
+    writeJson(response, 503, { error: "doctor_scan_not_configured" });
+    return;
+  }
+
+  const url = new URL(request.url ?? "", "http://internal");
+  const organizationId = url.searchParams.get("organizationId")?.trim();
+  const scope = url.searchParams.get("scope")?.trim();
+  // The internal token authenticates the BFF, while these equality checks bind its query to the
+  // worker-owned platform tenant and scope. A caller cannot select an arbitrary RLS tenant.
+  if (
+    organizationId !== options.platformOrganizationId ||
+    scope !== options.doctorScanScope ||
+    [...url.searchParams.keys()].length !== 2 ||
+    [...url.searchParams.keys()].some((key) => key !== "organizationId" && key !== "scope")
+  ) {
+    writeJson(response, 400, { error: "invalid_doctor_scan_scope" });
+    return;
+  }
+
+  const input = { organizationId, scope };
+  let result: DoctorScanLatest;
+  if (request.method === "GET" && url.pathname === "/internal/doctor-scan") {
+    result = await options.doctorScanPort.readLatest(input);
+  } else if (request.method === "POST" && url.pathname === "/internal/doctor-scan/ensure") {
+    result = await options.doctorScanPort.ensureFresh(input);
+  } else if (request.method === "POST" && url.pathname === "/internal/doctor-scan/force") {
+    // The shared internal token is the force trust boundary. The web BFF must enforce admin auth
+    // before calling this endpoint; the orchestrator is wired to authorize this trusted path.
+    result = await options.doctorScanPort.force(input);
+  } else {
+    writeJson(response, 404, { error: "not_found" });
+    return;
+  }
+  writeJson(response, 200, closedDoctorScanLatest(result));
+}
+
 function mutationErrorStatus(code: string): number {
   return code === "provisioning.connections.providerConnectInFlight" ||
     code === "provisioning.connections.orchestratorElectionInFlight" ||
@@ -132,7 +219,10 @@ function errorPayload(error: unknown): {
 async function handleConnectionsRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: Required<ConnectionsInternalHttpServerOptions>,
+  options: ConnectionsInternalHttpServerOptions & {
+    readonly provisioningPort: ConnectionsProvisioningPort;
+    readonly maxBodyBytes: number;
+  },
 ): Promise<void> {
   if (!authenticated(request, options.internalToken)) {
     writeJson(response, 401, { error: "unauthorized" });
@@ -537,15 +627,27 @@ async function handleConnectionsRequest(
 export function createConnectionsInternalHttpServer(
   options: ConnectionsInternalHttpServerOptions,
 ): http.Server {
-  const resolvedOptions: Required<ConnectionsInternalHttpServerOptions> = {
+  const resolvedOptions = {
     provisioningPort: options.provisioningPort ?? createDefaultConnectionsProvisioningPort(),
     internalToken: options.internalToken,
     maxBodyBytes: options.maxBodyBytes ?? defaultMaxBodyBytes,
+    ...(options.doctorScanPort === undefined ? {} : { doctorScanPort: options.doctorScanPort }),
+    ...(options.platformOrganizationId === undefined
+      ? {}
+      : { platformOrganizationId: options.platformOrganizationId }),
+    ...(options.doctorScanScope === undefined ? {} : { doctorScanScope: options.doctorScanScope }),
   };
 
   return http.createServer((request, response) => {
     if (request.method === "GET" && request.url === "/healthz") {
       writeJson(response, 200, { status: "ok" });
+      return;
+    }
+
+    if (new URL(request.url ?? "", "http://internal").pathname.startsWith("/internal/doctor-scan")) {
+      void handleDoctorScanRequest(request, response, resolvedOptions).catch(() => {
+        writeJson(response, 500, { error: "doctor_scan_failed" });
+      });
       return;
     }
 
