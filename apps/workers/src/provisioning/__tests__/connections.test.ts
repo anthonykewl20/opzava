@@ -1831,7 +1831,6 @@ describe("Connections provisioning helpers", () => {
 
     release();
     const runtime = await starting;
-    const server = runtime.server;
     expect(serverCreated).toBe(true);
     expect(injected).toBe(port);
     expect(closed).toBe(false);
