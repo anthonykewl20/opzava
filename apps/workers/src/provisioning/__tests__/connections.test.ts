@@ -1795,6 +1795,7 @@ describe("Connections provisioning helpers", () => {
     let closed = false;
     let serverCreated = false;
     let injected: unknown;
+    let injectedDoctor: unknown;
     const port: ConnectionsProvisioningRuntimePort = {
       ...fakeProvisioningPort(),
       async reconcileStartupOrchestrator() {
@@ -1813,15 +1814,23 @@ describe("Connections provisioning helpers", () => {
         closed = true;
       },
     };
+    const doctorScanPort = {
+      readLatest: vi.fn(),
+      ensureFresh: vi.fn(),
+      force: vi.fn(),
+      tick: vi.fn(),
+    };
     const starting = startProvisioningWorker(
       { port: 0, internalToken: "test-token", platformOrganizationId: "11111111-1111-4111-8111-111111111111" },
       {
         provisioningPort: port,
         scheduledJobs: { register: vi.fn(), claimDue: vi.fn(), ack: vi.fn(), fail: vi.fn() },
         scheduler: { start: vi.fn(), stop: vi.fn(async () => {}) },
+        doctorScanPort,
         createServer(options) {
           serverCreated = true;
           injected = options.provisioningPort;
+          injectedDoctor = options.doctorScanPort;
           return createConnectionsInternalHttpServer(options);
         },
       },
@@ -1833,6 +1842,7 @@ describe("Connections provisioning helpers", () => {
     const runtime = await starting;
     expect(serverCreated).toBe(true);
     expect(injected).toBe(port);
+    expect(injectedDoctor).toBe(doctorScanPort);
     expect(closed).toBe(false);
     await runtime.stop();
     expect(closed).toBe(true);

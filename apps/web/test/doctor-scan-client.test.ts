@@ -1,0 +1,33 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { defaultDoctorScanClient } from "@/lib/doctor-scan";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("doctor scan worker client", () => {
+  it("fails closed when the worker is not configured", async () => {
+    const result = await defaultDoctorScanClient({}).readLatest({ organizationId: "org-1", scope: "platform-gateway" });
+    expect(result).toMatchObject({ ok: false, error: { code: "web.doctorScanNotConfigured" } });
+  });
+
+  it("calls all typed routes and returns the worker shape", async () => {
+    const latest = { availability: "unknown" as const, latest: null, inProgress: true };
+    const fetchMock = vi.fn(async (...args: [string, RequestInit]) => {
+      void args;
+      return new Response(JSON.stringify(latest), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = defaultDoctorScanClient({ PROVISIONING_WORKER_URL: "http://worker:19188", PROVISIONING_WORKER_TOKEN: "token" });
+    const input = { organizationId: "org-1", scope: "platform-gateway" };
+
+    await expect(client.readLatest(input)).resolves.toEqual({ ok: true, value: latest });
+    await expect(client.ensureFresh(input)).resolves.toEqual({ ok: true, value: latest });
+    await expect(client.force(input)).resolves.toEqual({ ok: true, value: latest });
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method])).toEqual([
+      ["http://worker:19188/internal/doctor-scan?organizationId=org-1&scope=platform-gateway", "GET"],
+      ["http://worker:19188/internal/doctor-scan/ensure?organizationId=org-1&scope=platform-gateway", "POST"],
+      ["http://worker:19188/internal/doctor-scan/force?organizationId=org-1&scope=platform-gateway", "POST"],
+    ]);
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).toEqual({ authorization: "Bearer token" });
+  });
+});

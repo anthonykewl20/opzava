@@ -2,7 +2,7 @@ import { type Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import { PostgresDoctorScanRepository, PostgresScheduledJobRepository, type ScheduledJobRepository } from "@opzava/adapters";
 
-import { OpenClawDoctorScanOrchestrator } from "./health-doctor-scan/orchestrator.js";
+import { OpenClawDoctorScanOrchestrator, type OpenClawDoctorScanPort } from "./health-doctor-scan/orchestrator.js";
 import { createConnectionsInternalHttpServer } from "./provisioning/connections-http-server.js";
 import {
   createDefaultConnectionsProvisioningPort,
@@ -73,6 +73,7 @@ export function startProvisioningWorker(
     readonly createServer?: typeof createConnectionsInternalHttpServer;
     readonly scheduler?: SchedulerLifecycle;
     readonly scheduledJobs?: ScheduledJobRepository;
+    readonly doctorScanPort?: OpenClawDoctorScanPort;
   } = {},
 ): Promise<ProvisioningWorkerRuntime> {
   const provisioningPort =
@@ -87,11 +88,15 @@ export function startProvisioningWorker(
 
       const scheduledJobs = dependencies.scheduledJobs ?? new PostgresScheduledJobRepository();
       await scheduledJobs.register({ jobKey: DOCTOR_SCAN_JOB_KEY, organizationId: config.platformOrganizationId, scope: DOCTOR_SCAN_SCOPE, cadenceSeconds: 300, now: new Date() });
-      const scheduler = dependencies.scheduler ?? createDefaultScheduler(config, scheduledJobs);
+      const doctorScanPort = dependencies.doctorScanPort ?? createDefaultDoctorScanPort();
+      const scheduler = dependencies.scheduler ?? createDefaultScheduler(config, scheduledJobs, doctorScanPort);
 
       const server = (dependencies.createServer ?? createConnectionsInternalHttpServer)({
         internalToken: config.internalToken,
         provisioningPort,
+        doctorScanPort,
+        platformOrganizationId: config.platformOrganizationId,
+        doctorScanScope: DOCTOR_SCAN_SCOPE,
       });
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
@@ -121,12 +126,17 @@ export function startProvisioningWorker(
   })();
 }
 
-function createDefaultScheduler(config: ProvisioningWorkerRuntimeConfig, repository: ScheduledJobRepository): DurableScheduler {
+function createDefaultDoctorScanPort(): OpenClawDoctorScanPort {
   const dockerHost = readDockerHost(process.env);
   if (dockerHost === null) throw new Error("DOCKER_HOST is required for the doctor scan scheduler.");
   const containerName = readGatewayContainerName(process.env);
   const runtime = new DockerOpenClawGatewayRuntime({ dockerHost, ...(containerName === null ? {} : { containerName }) });
-  const doctor = new OpenClawDoctorScanOrchestrator(new PostgresDoctorScanRepository(), runtime);
+  return new OpenClawDoctorScanOrchestrator(new PostgresDoctorScanRepository(), runtime, {
+    authorizeForce: () => true,
+  });
+}
+
+function createDefaultScheduler(config: ProvisioningWorkerRuntimeConfig, repository: ScheduledJobRepository, doctor: OpenClawDoctorScanPort): DurableScheduler {
   return new DurableScheduler(repository, createScheduledJobHandlerRegistry(doctor), { organizationId: config.platformOrganizationId });
 }
 
