@@ -15,6 +15,7 @@ COPY packages/project-management/package.json packages/project-management/packag
 COPY packages/runtime-control/package.json packages/runtime-control/package.json
 COPY packages/shared-kernel/package.json packages/shared-kernel/package.json
 COPY packages/ports/package.json packages/ports/package.json
+COPY packages/openclaw-wire/package.json packages/openclaw-wire/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/gateway-broker/package.json apps/gateway-broker/package.json
 COPY apps/mcp-server/package.json apps/mcp-server/package.json
