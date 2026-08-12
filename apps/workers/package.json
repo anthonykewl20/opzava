@@ -24,6 +24,7 @@
   "dependencies": {
     "@opzava/adapters": "workspace:*",
     "@opzava/identity-access": "workspace:*",
+    "@opzava/openclaw-wire": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/project-management": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",

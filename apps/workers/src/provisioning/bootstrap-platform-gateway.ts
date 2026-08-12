@@ -1,10 +1,28 @@
 import "dotenv/config";
 
-import { createHash, createPrivateKey, createPublicKey, sign as signData } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { expectedLocalFileSecretReference, LocalFileSecretsVault } from "@opzava/adapters";
+import {
+  Ed25519DeviceKeypair,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
+  OPENCLAW_PROTOCOL_VERSION,
+  deriveDeviceIdFromPublicKey,
+  deriveOpenClawDeviceIdentity as deriveSharedOpenClawDeviceIdentity,
+  hasExactScopeProfile,
+  isConnectChallenge,
+  isHelloOkEnvelope,
+  isRecord,
+  parseOpenClawFrame,
+  serializeOpenClawFrame,
+  type DeviceKeypair,
+  type DeviceSignatureInput,
+  type OpenClawDeviceIdentity,
+  type OpenClawFrame,
+  type OpenClawResponseFrame,
+} from "@opzava/openclaw-wire";
 import type { SecretReference, SecretsVaultPort } from "@opzava/ports";
 import { DomainError, type Result } from "@opzava/shared-kernel";
 
@@ -44,31 +62,9 @@ export interface BootstrapPlatformGatewayReceipt {
   readonly manualSteps: readonly string[];
 }
 
-export interface BootstrapDeviceSignatureInput {
-  readonly clientId: string;
-  readonly clientMode: string;
-  readonly clientVersion: string;
-  readonly platform: string;
-  readonly deviceFamily?: string;
-  readonly deviceId: string;
-  readonly publicKey: string;
-  readonly role: "operator";
-  readonly scopes: readonly string[];
-  readonly token: string;
-  readonly nonce: string;
-  readonly signedAt: number;
-}
-
-export interface BootstrapDeviceKeypair {
-  readonly deviceId: string;
-  readonly publicKey: string;
-  sign(input: BootstrapDeviceSignatureInput): Promise<string>;
-}
-
-export interface OpenClawDeviceIdentity {
-  readonly deviceId: string;
-  readonly publicKeyBase64Url: string;
-}
+export type BootstrapDeviceSignatureInput = DeviceSignatureInput;
+export type BootstrapDeviceKeypair = DeviceKeypair;
+export type { OpenClawDeviceIdentity };
 
 export interface BootstrapWebSocket {
   send(data: string): void;
@@ -118,24 +114,8 @@ interface BootstrapDeviceProfile {
   readonly userAgent: string;
 }
 
-interface OpenClawFrame {
-  readonly type: string;
-  readonly event?: string;
-  readonly id?: string;
-  readonly ok?: boolean;
-  readonly method?: string;
-  readonly params?: Record<string, unknown>;
-  readonly payload?: unknown;
-  readonly error?: {
-    readonly code?: string;
-    readonly message?: string;
-    readonly details?: Record<string, unknown>;
-  };
-}
-
-const openClawClientId = "cli";
-const openClawClientMode = "cli";
-const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
+const openClawClientId = OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID;
+const openClawClientMode = OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE;
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const brokerHotPathProfile: BootstrapDeviceProfile = {
   name: "broker hot-path",
@@ -177,129 +157,25 @@ function bootstrapError(code: string, message: string, cause?: unknown): DomainE
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseOpenClawFrame(raw: string): OpenClawFrame | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-
-  return isRecord(parsed) && typeof parsed["type"] === "string"
-    ? (parsed as unknown as OpenClawFrame)
-    : null;
-}
-
-function serializeOpenClawFrame(frame: OpenClawFrame): string {
-  return JSON.stringify(frame);
-}
-
 function hasExactExpectedScopes(
   profile: BootstrapDeviceProfile,
   scopes: readonly string[],
 ): boolean {
-  const allowed = new Set<string>(profile.allowedGrantedScopes);
-  const unique = new Set(scopes);
-  return (
-    unique.size === scopes.length &&
-    profile.requestedScopes.every((scope) => scopes.includes(scope)) &&
-    scopes.every((scope) => allowed.has(scope))
+  return hasExactScopeProfile(
+    { required: profile.requestedScopes, allowed: profile.allowedGrantedScopes },
+    scopes,
   );
-}
-
-function rawOpenClawPublicKey(publicKey: string): Buffer {
-  const normalized = publicKey.trim();
-  if (normalized.startsWith("-----BEGIN PUBLIC KEY-----")) {
-    const spki = Buffer.from(createPublicKey(normalized).export({ type: "spki", format: "der" }));
-    const raw = spki.subarray(ed25519SpkiPrefix.length);
-    if (
-      spki.length !== ed25519SpkiPrefix.length + 32 ||
-      !spki.subarray(0, ed25519SpkiPrefix.length).equals(ed25519SpkiPrefix)
-    ) {
-      throw domainError(
-        "workers.openclawBootstrap.invalidDeviceKey",
-        "OpenClaw device public key must be an Ed25519 SPKI PEM key.",
-      );
-    }
-
-    return raw;
-  }
-
-  const raw = Buffer.from(normalized, "base64url");
-  if (raw.length !== 32) {
-    throw domainError(
-      "workers.openclawBootstrap.invalidDeviceKey",
-      "OpenClaw device public key must be raw 32-byte Ed25519 base64url.",
-    );
-  }
-
-  return raw;
-}
-
-function deviceIdFromRawPublicKey(rawPublicKey: Buffer): string {
-  return createHash("sha256").update(rawPublicKey).digest("hex");
 }
 
 export function deriveOpenClawDeviceIdentity(privateKeyPem: string): OpenClawDeviceIdentity {
-  const spki = Buffer.from(
-    createPublicKey(createPrivateKey(privateKeyPem)).export({ type: "spki", format: "der" }),
-  );
-  const raw = spki.subarray(ed25519SpkiPrefix.length);
-  if (
-    spki.length !== ed25519SpkiPrefix.length + 32 ||
-    !spki.subarray(0, ed25519SpkiPrefix.length).equals(ed25519SpkiPrefix)
-  ) {
-    throw domainError(
-      "workers.openclawBootstrap.invalidDeviceKey",
-      "OpenClaw device private key must be an Ed25519 PKCS8 PEM key.",
-    );
-  }
-
-  return {
-    deviceId: deviceIdFromRawPublicKey(raw),
-    publicKeyBase64Url: raw.toString("base64url"),
-  };
-}
-
-function deviceSignaturePayload(input: BootstrapDeviceSignatureInput): string {
-  return [
-    "v2",
-    input.deviceId,
-    input.clientId,
-    input.clientMode,
-    input.role,
-    input.scopes.join(","),
-    String(input.signedAt),
-    input.token,
-    input.nonce,
-  ].join("|");
-}
-
-class Ed25519DeviceKeypair implements BootstrapDeviceKeypair {
-  public readonly deviceId: string;
-  public readonly publicKey: string;
-  private readonly privateKeyPem: string;
-
-  public constructor(input: {
-    readonly deviceId: string;
-    readonly publicKey: string;
-    readonly privateKeyPem: string;
-  }) {
-    this.deviceId = input.deviceId;
-    this.publicKey = input.publicKey;
-    this.privateKeyPem = input.privateKeyPem;
-  }
-
-  public async sign(input: BootstrapDeviceSignatureInput): Promise<string> {
-    return signData(
-      null,
-      Buffer.from(deviceSignaturePayload(input), "utf8"),
-      createPrivateKey(this.privateKeyPem),
-    ).toString("base64url");
+  try {
+    return deriveSharedOpenClawDeviceIdentity(privateKeyPem);
+  } catch (error) {
+    throw new DomainError({
+      code: "workers.openclawBootstrap.invalidDeviceKey",
+      message: "OpenClaw device private key must be an Ed25519 PKCS8 PEM key.",
+      cause: error,
+    });
   }
 }
 
@@ -342,9 +218,7 @@ function readDeviceKeypair(env: NodeJS.ProcessEnv, prefix?: string): BootstrapDe
   }
 
   if (explicitPublicKey !== undefined) {
-    const explicitDeviceIdFromPublicKey = deviceIdFromRawPublicKey(
-      rawOpenClawPublicKey(explicitPublicKey),
-    );
+    const explicitDeviceIdFromPublicKey = deriveDeviceIdFromPublicKey(explicitPublicKey);
     if (explicitDeviceIdFromPublicKey !== derived.deviceId) {
       throw domainError(
         "workers.openclawBootstrap.deviceIdentityMismatch",
@@ -475,7 +349,7 @@ function manualPairingSteps(
   ];
 }
 
-function errorDetails(frame: OpenClawFrame): Record<string, unknown> {
+function errorDetails(frame: OpenClawResponseFrame): Record<string, unknown> {
   return isRecord(frame.error?.details) ? frame.error.details : {};
 }
 
@@ -495,7 +369,7 @@ function stringDetail(
 
 function pendingPairingResult(
   url: string,
-  frame?: OpenClawFrame,
+  frame?: OpenClawResponseFrame,
 ): BootstrapOpenClawHandshakeResult {
   const details = frame === undefined ? {} : errorDetails(frame);
   const requestId = stringDetail(details, [
@@ -551,8 +425,8 @@ function buildConnectFrame(input: {
       id: input.profile.connectId,
       method: "connect",
       params: {
-        minProtocol: 4,
-        maxProtocol: 4,
+        minProtocol: OPENCLAW_PROTOCOL_VERSION,
+        maxProtocol: OPENCLAW_PROTOCOL_VERSION,
         client: {
           id: openClawClientId,
           version: ASK_ADMIN_AGENT_VERSION,
@@ -588,7 +462,7 @@ function validatedHandshakeResult(
     readonly requireIssuedDeviceToken?: boolean;
   },
 ): Result<BootstrapOpenClawDialResult> {
-  if (!isRecord(payload) || payload["type"] !== "hello-ok") {
+  if (!isHelloOkEnvelope(payload)) {
     return {
       ok: false,
       error: bootstrapError(
@@ -615,7 +489,7 @@ function validatedHandshakeResult(
     isRecord(auth) && typeof auth["issuedAtMs"] === "number" ? auth["issuedAtMs"] : undefined;
   if (
     typeof protocol !== "number" ||
-    protocol !== 4 ||
+    protocol !== OPENCLAW_PROTOCOL_VERSION ||
     !isRecord(auth) ||
     auth["role"] !== "operator" ||
     (options.requireExpectedScopes && !hasExactExpectedScopes(options.profile, scopes)) ||
@@ -722,9 +596,7 @@ async function dialOpenClawGateway(input: {
       }
 
       if (frame.type === "event" && frame.event === "connect.challenge") {
-        const payload = isRecord(frame.payload) ? frame.payload : {};
-        const nonce = payload["nonce"];
-        if (typeof nonce !== "string" || nonce.trim() === "") {
+        if (!isConnectChallenge(frame, { requireTimestamp: false })) {
           settle({
             ok: false,
             error: bootstrapError(
@@ -738,7 +610,7 @@ async function dialOpenClawGateway(input: {
         void buildConnectFrame({
           profile: input.profile,
           keypair: input.keypair,
-          nonce,
+          nonce: frame.payload.nonce,
           ...(input.credential === undefined ? {} : { credential: input.credential }),
           now: input.now,
         })
