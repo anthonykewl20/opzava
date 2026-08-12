@@ -312,6 +312,10 @@ export interface TaskApplicationDependencies {
   readonly authorizationPort?: AuthorizationPort;
 }
 
+export interface CleanupDoneConfirmationsInput {
+  readonly orgId: string;
+}
+
 interface PreparedTaskFields {
   readonly title: string;
   readonly description: string;
@@ -3011,6 +3015,29 @@ export async function issueDoneConfirmation(
       return typeof nonce === "string"
         ? ok(nonce)
         : err(taskError("projectManagement.taskNotFound", "Task was not found."));
+    });
+  } catch (error) {
+    return err(databaseError(error));
+  }
+}
+
+export async function cleanupDoneConfirmations(
+  input: CleanupDoneConfirmationsInput,
+): Promise<Result<number>> {
+  const knownOrgId = assertKnownUuid(input.orgId, "Organization ID");
+  if (!knownOrgId.ok) {
+    return err(knownOrgId.error);
+  }
+
+  try {
+    return await withTenant(input.orgId, async (tx) => {
+      const result = await tx.execute(sql`
+        delete from public.task_done_confirmation
+        where consumed_at is not null
+          or expires_at < now()
+        returning id
+      `);
+      return ok(rowsFromExecuteResult(result).length);
     });
   } catch (error) {
     return err(databaseError(error));

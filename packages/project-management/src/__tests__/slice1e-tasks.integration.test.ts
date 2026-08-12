@@ -18,6 +18,7 @@ import {
   addTaskEvidenceFile,
   addTaskEvidenceLink,
   approveQualityReview,
+  cleanupDoneConfirmations,
   createStep,
   createTask,
   ensureTaskQualityReview,
@@ -686,6 +687,183 @@ describe("slice 1e tasks", () => {
       taskId: task.value.id,
     });
     expect(loaded).toMatchObject({ ok: true, value: { status: "todo" } });
+  });
+
+  it("rejects reusing a Done confirmation across tenants", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-source-tenant");
+    const otherTenant = await adminCreateTenant("done-confirmation-target-tenant");
+    const sourceTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Source tenant confirmation",
+    });
+    const targetTask = await createTask({
+      orgId: otherTenant.organizationId,
+      workspaceId: otherTenant.workspaceId,
+      actor: actor(otherTenant.userId),
+      title: "Target tenant task",
+    });
+    expect(sourceTask.ok && targetTask.ok).toBe(true);
+    if (!sourceTask.ok || !targetTask.ok) {
+      throw new Error("expected cross-tenant task fixtures");
+    }
+    await approveTaskReview(otherTenant, targetTask.value.id);
+    const sourceNonce = await insertDoneConfirmationFixture({
+      tenant,
+      taskId: sourceTask.value.id,
+    });
+
+    const result = await markTaskDone({
+      orgId: otherTenant.organizationId,
+      workspaceId: otherTenant.workspaceId,
+      actor: actor(otherTenant.userId),
+      taskId: targetTask.value.id,
+      position: 2,
+      humanCommand: {
+        confirmedByUserId: otherTenant.userId,
+        confirmSource: "admin-web",
+        confirmNonce: sourceNonce,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+    const sourceConfirmation = await withTenant(tenant.organizationId, async (tx) =>
+      tx.execute(sql`
+        select consumed_at as "consumedAt"
+        from public.task_done_confirmation
+        where id = ${sourceNonce}
+      `),
+    );
+    expect(rowsFromExecuteResult(sourceConfirmation)).toEqual([{ consumedAt: null }]);
+  });
+
+  it("rolls back nonce consumption when the task disappears before the Done update", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-task-delete-rollback");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Rollback deleted task race",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) {
+      throw task.error;
+    }
+    await approveTaskReview(tenant, task.value.id);
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
+    const triggerName = `task_done_delete_${testRunId.replaceAll("-", "")}`;
+    const functionName = `${triggerName}_fn`;
+
+    await adminPool.query(`
+      create function public.${functionName}() returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.id = '${nonce}'::uuid and new.consumed_at is not null then
+          delete from public.tasks where id = new.task_id;
+        end if;
+        return new;
+      end
+      $$
+    `);
+    await adminPool.query(`
+      create trigger ${triggerName}
+      after update on public.task_done_confirmation
+      for each row execute function public.${functionName}()
+    `);
+
+    try {
+      const result = await markTaskDone({
+        orgId: tenant.organizationId,
+        workspaceId: tenant.workspaceId,
+        actor: actor(tenant.userId),
+        taskId: task.value.id,
+        position: 3,
+        humanCommand: {
+          confirmedByUserId: tenant.userId,
+          confirmSource: "admin-web",
+          confirmNonce: nonce,
+        },
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "projectManagement.taskNotFound" },
+      });
+
+      const state = await withTenant(tenant.organizationId, async (tx) =>
+        tx.execute(sql`
+          select t.status, c.consumed_at as "consumedAt"
+          from public.tasks t
+          join public.task_done_confirmation c on c.task_id = t.id
+          where t.id = ${task.value.id} and c.id = ${nonce}
+        `),
+      );
+      expect(rowsFromExecuteResult(state)).toEqual([{ status: "todo", consumedAt: null }]);
+    } finally {
+      await adminPool.query(`drop trigger if exists ${triggerName} on public.task_done_confirmation`);
+      await adminPool.query(`drop function if exists public.${functionName}()`);
+    }
+  });
+
+  it("cleans up consumed and expired Done confirmations for only the requested tenant", async () => {
+    const tenant = await adminCreateTenant("done-confirmation-cleanup");
+    const otherTenant = await adminCreateTenant("done-confirmation-cleanup-other");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Clean confirmation fixtures",
+    });
+    const otherTask = await createTask({
+      orgId: otherTenant.organizationId,
+      workspaceId: otherTenant.workspaceId,
+      actor: actor(otherTenant.userId),
+      title: "Keep other tenant confirmation",
+    });
+    expect(task.ok && otherTask.ok).toBe(true);
+    if (!task.ok || !otherTask.ok) {
+      throw new Error("expected cleanup task fixtures");
+    }
+    await approveTaskReview(tenant, task.value.id);
+    const consumedNonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
+    const expiredNonce = await insertDoneConfirmationFixture({
+      tenant,
+      taskId: task.value.id,
+      issuedAt: new Date(Date.now() - 2 * 60_000),
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const freshNonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
+    const otherNonce = await insertDoneConfirmationFixture({
+      tenant: otherTenant,
+      taskId: otherTask.value.id,
+    });
+    const completed = await markTaskDone({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 1,
+      humanCommand: {
+        confirmedByUserId: tenant.userId,
+        confirmSource: "admin-web",
+        confirmNonce: consumedNonce,
+      },
+    });
+    expect(completed.ok).toBe(true);
+
+    await expect(cleanupDoneConfirmations({ orgId: tenant.organizationId })).resolves.toEqual({
+      ok: true,
+      value: 2,
+    });
+    const remaining = await adminPool.query(
+      `select id from public.task_done_confirmation where id = any($1::uuid[]) order by id`,
+      [[consumedNonce, expiredNonce, freshNonce, otherNonce]],
+    );
+    expect(remaining.rows.map((row) => row.id).sort()).toEqual([freshNonce, otherNonce].sort());
   });
 
   it("allocates human-readable card numbers per workspace without consuming replays", async () => {

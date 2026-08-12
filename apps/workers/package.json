@@ -13,6 +13,7 @@
     "bootstrap:platform-gateway": "tsx src/provisioning/bootstrap-platform-gateway.ts",
     "issue:mcp-link-token": "tsx src/link-tokens/issue-mcp-link-token.ts",
     "issue:close-outbox": "tsx src/issues/process-close-outbox.ts",
+    "task:cleanup-done-confirmations": "tsx src/tasks/cleanup-done-confirmations.ts",
     "seed:roadmap": "tsx src/seed/roadmap.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
