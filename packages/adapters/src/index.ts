@@ -61,4 +61,3 @@ export {
   type RecordedConfigVersion,
 } from "./in-memory-observability-adapter.js";
 export { PostgresObservabilityAdapter } from "./postgres/observability-adapter.js";
-export { PostgresRuntimeConversationStore } from "./postgres/stores/runtime-conversation-store.js";

@@ -48,6 +48,7 @@ export type {
 } from "./domain/index.js";
 export * from "./ports/index.js";
 export { InMemoryRuntimeConversationStore } from "./adapters/in-memory/runtime-conversation-store.js";
+export { PostgresRuntimeConversationStore } from "./adapters/postgres/runtime-conversation-store.js";
 export {
   assistantConversationStatuses,
   assistantToolOutcomeStatuses,

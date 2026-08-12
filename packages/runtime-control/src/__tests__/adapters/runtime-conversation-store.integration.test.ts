@@ -1,16 +1,21 @@
 import { randomUUID } from "node:crypto";
 
-import { runtimeConversationStoreContract } from "@opzava/runtime-control/testing/runtime-conversation-store-contract";
+import {
+  assertCurrentTenant,
+  createPostgresDatabase,
+  createPostgresPool,
+  db,
+  mapTenantStoreError,
+  rowsFromExecuteResult,
+  withTenant
+} from "@opzava/adapters";
 import { makeOrgId, makeUserId, makeWorkspaceId, TenantAccessDeniedError } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { createPostgresDatabase, createPostgresPool, db } from "../client.js";
-import { mapTenantStoreError } from "../errors.js";
-import { rowsFromExecuteResult } from "../execute-result.js";
-import { PostgresRuntimeConversationStore } from "../stores/runtime-conversation-store.js";
-import { assertCurrentTenant, withTenant } from "../tenant-context.js";
+import { PostgresRuntimeConversationStore } from "../../adapters/postgres/runtime-conversation-store.js";
+import { runtimeConversationStoreContract } from "../contracts/runtime-conversation-store.contract.js";
 
 const migrationUrl = process.env["DATABASE_MIGRATION_URL"]?.trim();
 const runtimeUrl = process.env["DATABASE_URL"]?.trim();

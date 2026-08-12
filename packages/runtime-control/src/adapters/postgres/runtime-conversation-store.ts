@@ -21,7 +21,15 @@ import type {
   RuntimeTurnTransition,
   StartRuntimeToolOutcome,
   WorkspaceScope
-} from "@opzava/runtime-control";
+} from "../../ports/index.js";
+import {
+  mapTenantStoreError,
+  rowsFromExecuteResult,
+  withTenant,
+  type QueryRow,
+  type TenantTransaction,
+  type createPostgresDatabase
+} from "@opzava/adapters";
 import {
   DomainError,
   TenantAccessDeniedError,
@@ -32,11 +40,6 @@ import {
   ok,
   type Result
 } from "@opzava/shared-kernel";
-
-import type { createPostgresDatabase } from "../client.js";
-import { mapTenantStoreError } from "../errors.js";
-import { rowsFromExecuteResult, type QueryRow } from "../execute-result.js";
-import { withTenant, type TenantTransaction } from "../tenant-context.js";
 
 type PostgresDatabase = ReturnType<typeof createPostgresDatabase>;
 
