@@ -19,6 +19,20 @@ export class DomainError extends Error {
   }
 }
 
+/** A tenant-scoped operation was denied at the persistence boundary. */
+export class TenantAccessDeniedError extends DomainError {
+  public readonly status = 403;
+
+  public constructor(cause?: unknown) {
+    super({
+      code: "tenant.accessDenied",
+      message: "Tenant access denied.",
+      ...(cause === undefined ? {} : { cause })
+    });
+    this.name = "TenantAccessDeniedError";
+  }
+}
+
 export interface Ok<T> {
   readonly ok: true;
   readonly value: T;

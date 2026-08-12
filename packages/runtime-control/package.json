@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./testing/runtime-conversation-store-contract": {
+      "types": "./src/__tests__/contracts/runtime-conversation-store.contract.ts",
+      "default": "./dist/__tests__/contracts/runtime-conversation-store.contract.js"
     }
   },
   "scripts": {
@@ -28,6 +32,8 @@
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
-    "@opzava/config": "workspace:*"
+    "@opzava/config": "workspace:*",
+    "@types/pg": "8.20.0",
+    "pg": "8.22.0"
   }
 }
