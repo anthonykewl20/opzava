@@ -46,6 +46,8 @@ export type {
   AssistantTurnRole,
   AssistantTurnStatus
 } from "./domain/index.js";
+export * from "./ports/index.js";
+export { InMemoryRuntimeConversationStore } from "./adapters/in-memory/runtime-conversation-store.js";
 export {
   assistantConversationStatuses,
   assistantToolOutcomeStatuses,

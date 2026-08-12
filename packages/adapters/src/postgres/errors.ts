@@ -105,3 +105,10 @@ export function mapDatabaseError(error: unknown): Error {
 
   return new DatabaseOperationError();
 }
+
+/** Translate adapter-level forbidden errors at a tenant store boundary. */
+export function mapTenantStoreError(error: unknown): Error {
+  const mapped = mapDatabaseError(error);
+  return mapped instanceof ForbiddenError ? new TenantAccessDeniedError(mapped) : mapped;
+}
+import { TenantAccessDeniedError } from "@opzava/shared-kernel";

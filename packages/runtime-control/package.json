@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./testing/runtime-conversation-store-contract": {
+      "types": "./src/__tests__/contracts/runtime-conversation-store.contract.ts",
+      "default": "./dist/__tests__/contracts/runtime-conversation-store.contract.js"
     }
   },
   "scripts": {

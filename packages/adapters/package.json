@@ -28,6 +28,7 @@
     "@aws-sdk/s3-request-presigner": "3.1079.0",
     "@opzava/config": "workspace:*",
     "@opzava/ports": "workspace:*",
+    "@opzava/runtime-control": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",
