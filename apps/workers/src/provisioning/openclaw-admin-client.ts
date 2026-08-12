@@ -1,11 +1,22 @@
-import {
-  createHash,
-  createPrivateKey,
-  createPublicKey,
-  randomUUID,
-  sign as signData,
-} from "node:crypto";
+import { randomUUID } from "node:crypto";
 
+import {
+  Ed25519DeviceKeypair,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID,
+  OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE,
+  OPENCLAW_PROTOCOL_VERSION,
+  deriveDeviceIdFromPublicKey,
+  deriveOpenClawDeviceIdentity,
+  isConnectChallenge,
+  isHelloOkEnvelope,
+  isRecord,
+  parseOpenClawFrame,
+  serializeOpenClawFrame,
+  type DeviceKeypair,
+  type DeviceSignatureInput,
+  type OpenClawFrame,
+  type OpenClawResponseFrame,
+} from "@opzava/openclaw-wire";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 import type {
   OpenClawAdminConnectionMetadata,
@@ -15,10 +26,9 @@ import type {
 
 import { ASK_ADMIN_AGENT_VERSION } from "./ask-admin-agent.js";
 
-const openClawClientId = "cli";
-const openClawClientMode = "cli";
-const openClawProtocolVersion = 4;
-const ed25519SpkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
+const openClawClientId = OPENCLAW_EXTERNAL_OPERATOR_CLIENT_ID;
+const openClawClientMode = OPENCLAW_EXTERNAL_OPERATOR_CLIENT_MODE;
+const openClawProtocolVersion = OPENCLAW_PROTOCOL_VERSION;
 const defaultOperatorScopes = ["operator.read"] as const;
 
 export interface OpenClawAdminWebSocket {
@@ -48,22 +58,8 @@ export interface OpenClawAdminLogger {
   error(message: string, details: Record<string, unknown>): void;
 }
 
-export interface OpenClawAdminDeviceSignatureInput {
-  readonly clientId: string;
-  readonly clientMode: string;
-  readonly deviceId: string;
-  readonly role: "operator";
-  readonly scopes: readonly string[];
-  readonly token: string;
-  readonly nonce: string;
-  readonly signedAt: number;
-}
-
-export interface OpenClawAdminDeviceKeypair {
-  readonly deviceId: string;
-  readonly publicKey: string;
-  sign(input: OpenClawAdminDeviceSignatureInput): Promise<string>;
-}
+export type OpenClawAdminDeviceSignatureInput = DeviceSignatureInput<OpenClawOperatorScope>;
+export type OpenClawAdminDeviceKeypair = DeviceKeypair<OpenClawOperatorScope>;
 
 export interface OpenClawAdminRpcClientOptions {
   readonly url: string;
@@ -87,20 +83,7 @@ export interface OpenClawAdminRpcClientOptions {
   readonly logger?: OpenClawAdminLogger | null;
 }
 
-interface OpenClawAdminFrame {
-  readonly type: string;
-  readonly event?: string;
-  readonly id?: string;
-  readonly ok?: boolean;
-  readonly method?: string;
-  readonly params?: Record<string, unknown>;
-  readonly payload?: unknown;
-  readonly error?: {
-    readonly code?: string;
-    readonly message?: string;
-    readonly details?: Record<string, unknown>;
-  };
-}
+type OpenClawAdminFrame = OpenClawFrame;
 
 interface PendingRequest {
   readonly method: string;
@@ -188,23 +171,6 @@ function scopeError(
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseFrame(raw: string): OpenClawAdminFrame | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-
-  return isRecord(parsed) && typeof parsed["type"] === "string"
-    ? (parsed as unknown as OpenClawAdminFrame)
-    : null;
-}
-
 function operatorScopes(value: unknown): readonly OpenClawOperatorScope[] {
   if (!Array.isArray(value)) {
     return [];
@@ -269,10 +235,6 @@ function normalizeRequestedScopes(
   return unique.length === 0 ? defaultOperatorScopes : unique;
 }
 
-function serializeFrame(frame: OpenClawAdminFrame): string {
-  return JSON.stringify(frame);
-}
-
 function defaultSocketFactory(url: string): OpenClawAdminWebSocket {
   const WebSocketCtor = (
     globalThis as unknown as {
@@ -323,80 +285,25 @@ function defaultSocketFactory(url: string): OpenClawAdminWebSocket {
   };
 }
 
-function rawOpenClawPublicKey(publicKey: string): Buffer {
-  const normalized = publicKey.trim();
-  if (normalized.startsWith("-----BEGIN PUBLIC KEY-----")) {
-    const spki = Buffer.from(createPublicKey(normalized).export({ type: "spki", format: "der" }));
-    if (
-      spki.length !== ed25519SpkiPrefix.length + 32 ||
-      !spki.subarray(0, ed25519SpkiPrefix.length).equals(ed25519SpkiPrefix)
-    ) {
-      throw adminError(
-        "provisioning.openclawAdmin.invalidDeviceKey",
-        "OpenClaw admin device public key must be an Ed25519 SPKI PEM key.",
-      );
-    }
-
-    return spki.subarray(ed25519SpkiPrefix.length);
-  }
-
-  const raw = Buffer.from(normalized, "base64url");
-  if (raw.length !== 32) {
-    throw adminError(
-      "provisioning.openclawAdmin.invalidDeviceKey",
-      "OpenClaw admin device public key must be raw 32-byte Ed25519 base64url.",
-    );
-  }
-
-  return raw;
-}
-
-function deviceIdFromRawPublicKey(rawPublicKey: Buffer): string {
-  return createHash("sha256").update(rawPublicKey).digest("hex");
-}
-
-function deviceSignaturePayload(input: OpenClawAdminDeviceSignatureInput): string {
-  return [
-    "v2",
-    input.deviceId,
-    input.clientId,
-    input.clientMode,
-    input.role,
-    input.scopes.join(","),
-    String(input.signedAt),
-    input.token,
-    input.nonce,
-  ].join("|");
-}
-
 export function deriveOpenClawAdminDeviceIdentity(privateKeyPem: string): {
   readonly deviceId: string;
   readonly publicKeyBase64Url: string;
 } {
-  const spki = Buffer.from(
-    createPublicKey(createPrivateKey(privateKeyPem)).export({ type: "spki", format: "der" }),
-  );
-  if (
-    spki.length !== ed25519SpkiPrefix.length + 32 ||
-    !spki.subarray(0, ed25519SpkiPrefix.length).equals(ed25519SpkiPrefix)
-  ) {
+  try {
+    return deriveOpenClawDeviceIdentity(privateKeyPem);
+  } catch (error) {
     throw adminError(
       "provisioning.openclawAdmin.invalidDeviceKey",
       "OpenClaw admin device private key must be an Ed25519 PKCS8 PEM key.",
+      error,
     );
   }
-
-  const raw = spki.subarray(ed25519SpkiPrefix.length);
-  return {
-    deviceId: deviceIdFromRawPublicKey(raw),
-    publicKeyBase64Url: raw.toString("base64url"),
-  };
 }
 
 export class Ed25519OpenClawAdminDeviceKeypair implements OpenClawAdminDeviceKeypair {
   public readonly deviceId: string;
   public readonly publicKey: string;
-  private readonly privateKeyPem: string;
+  private readonly keypair: Ed25519DeviceKeypair<OpenClawOperatorScope>;
 
   public constructor(input: {
     readonly privateKeyPem: string;
@@ -411,32 +318,39 @@ export class Ed25519OpenClawAdminDeviceKeypair implements OpenClawAdminDeviceKey
       );
     }
 
-    if (
-      input.publicKey !== undefined &&
-      deviceIdFromRawPublicKey(rawOpenClawPublicKey(input.publicKey)) !== derived.deviceId
-    ) {
-      throw adminError(
-        "provisioning.openclawAdmin.deviceIdentityMismatch",
-        "OPENCLAW_DEVICE_PUBLIC_KEY does not match the Ed25519 private key.",
-      );
+    if (input.publicKey !== undefined) {
+      let publicKeyDeviceId: string;
+      try {
+        publicKeyDeviceId = deriveDeviceIdFromPublicKey(input.publicKey);
+      } catch (error) {
+        throw adminError(
+          "provisioning.openclawAdmin.invalidDeviceKey",
+          "OpenClaw admin device public key must be an Ed25519 SPKI PEM key or raw 32-byte Ed25519 base64url.",
+          error,
+        );
+      }
+      if (publicKeyDeviceId !== derived.deviceId) {
+        throw adminError(
+          "provisioning.openclawAdmin.deviceIdentityMismatch",
+          "OPENCLAW_DEVICE_PUBLIC_KEY does not match the Ed25519 private key.",
+        );
+      }
     }
 
-    this.privateKeyPem = input.privateKeyPem;
-    this.deviceId = derived.deviceId;
-    this.publicKey = derived.publicKeyBase64Url;
+    this.keypair = new Ed25519DeviceKeypair<OpenClawOperatorScope>({
+      privateKeyPem: input.privateKeyPem,
+    });
+    this.deviceId = this.keypair.deviceId;
+    this.publicKey = this.keypair.publicKey;
   }
 
-  public async sign(input: OpenClawAdminDeviceSignatureInput): Promise<string> {
-    return signData(
-      null,
-      Buffer.from(deviceSignaturePayload(input), "utf8"),
-      createPrivateKey(this.privateKeyPem),
-    ).toString("base64url");
+  public sign(input: OpenClawAdminDeviceSignatureInput): Promise<string> {
+    return this.keypair.sign(input);
   }
 }
 
 function helloPayload(value: unknown): Result<OpenClawAdminHello> {
-  if (!isRecord(value) || value["type"] !== "hello-ok") {
+  if (!isHelloOkEnvelope(value)) {
     return err(
       adminError(
         "provisioning.openclawAdmin.invalidHello",
@@ -491,7 +405,7 @@ function authCredentialFromOptions(
   );
 }
 
-function connectFailureDetails(frame: OpenClawAdminFrame): OpenClawAdminFailureDetails {
+function connectFailureDetails(frame: OpenClawResponseFrame): OpenClawAdminFailureDetails {
   const gatewayCode = frame.error?.code;
   const rawDetails = isRecord(frame.error?.details) ? frame.error.details : {};
   const rejectedScope =
@@ -647,7 +561,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
       this.pendingRequests.set(id, { method, resolve, timeout });
       try {
         socket.send(
-          serializeFrame({
+          serializeOpenClawFrame({
             type: "req",
             id,
             method,
@@ -934,7 +848,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
 
       socket.onMessage((raw) => {
         this.touchSocketActivity(socket);
-        const frame = parseFrame(raw);
+        const frame = parseOpenClawFrame(raw);
         if (frame === null) {
           settle(
             err(
@@ -948,11 +862,7 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
         }
 
         if (!settled && frame.type === "event" && frame.event === "connect.challenge") {
-          const nonce =
-            isRecord(frame.payload) && typeof frame.payload["nonce"] === "string"
-              ? frame.payload["nonce"]
-              : null;
-          if (nonce === null || nonce.trim() === "") {
+          if (!isConnectChallenge(frame, { requireTimestamp: false })) {
             settle(
               err(
                 adminError(
@@ -964,8 +874,8 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
             return;
           }
 
-          void this.buildConnectFrame(connectId, nonce)
-            .then((connectFrame) => socket.send(serializeFrame(connectFrame)))
+          void this.buildConnectFrame(connectId, frame.payload.nonce)
+            .then((connectFrame) => socket.send(serializeOpenClawFrame(connectFrame)))
             .catch((error: unknown) => {
               settle(
                 err(
@@ -1082,7 +992,10 @@ export class OpenClawAdminRpcClient implements OpenClawAdminRpcPort {
     const signature = await this.options.keypair.sign({
       clientId: openClawClientId,
       clientMode: openClawClientMode,
+      clientVersion: ASK_ADMIN_AGENT_VERSION,
+      platform: "node",
       deviceId: this.options.keypair.deviceId,
+      publicKey: this.options.keypair.publicKey,
       role: "operator",
       scopes: this.requestedScopes,
       token: this.authCredential.token,

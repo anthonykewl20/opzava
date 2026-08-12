@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@opzava/adapters": "workspace:*",
+    "@opzava/openclaw-wire": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
     "ws": "8.20.1"

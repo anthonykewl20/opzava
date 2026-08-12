@@ -44,6 +44,9 @@ importers:
       '@opzava/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@opzava/openclaw-wire':
+        specifier: workspace:*
+        version: link:../../packages/openclaw-wire
       '@opzava/ports':
         specifier: workspace:*
         version: link:../../packages/ports
@@ -206,6 +209,9 @@ importers:
       '@opzava/identity-access':
         specifier: workspace:*
         version: link:../../packages/identity-access
+      '@opzava/openclaw-wire':
+        specifier: workspace:*
+        version: link:../../packages/openclaw-wire
       '@opzava/ports':
         specifier: workspace:*
         version: link:../../packages/ports
@@ -292,6 +298,12 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/pg@8.20.0)(kysely@0.29.2)(pg@8.22.0)
+    devDependencies:
+      '@opzava/config':
+        specifier: workspace:*
+        version: link:../config
+
+  packages/openclaw-wire:
     devDependencies:
       '@opzava/config':
         specifier: workspace:*
