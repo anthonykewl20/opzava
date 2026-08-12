@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { createIssueAction, syncIssuesAction } from "@/app/(app)/issues/actions";
 import { ActionStateForm } from "@/components/forms/action-state-form";
+import { errorCode, errorStatusCode } from "@/lib/authed-action";
 import {
   issueAssigneeView,
   issueDivergenceLabel,
@@ -330,28 +331,6 @@ const issuesLiveWiringStyles = `
     }
 `;
 
-function errorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
-function errorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
 function issueAgeLabel(value: string): string {
   const relative = relativeIssueTime(value);
   return relative === "now" ? "now" : `${relative} ago`;
@@ -561,7 +540,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
   if (!result.ok) {
     if (
       errorCode(result.error) === "projectManagement.forbidden" ||
-      errorStatus(result.error) === 403
+      errorStatusCode(result.error) === 403
     ) {
       redirect("/");
     }

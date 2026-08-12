@@ -3,20 +3,9 @@
 import { createHash } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
-import { forbidden, redirect } from "next/navigation";
-
 import { createIssueForContext, syncIssuesForContext } from "@/lib/issues";
 import { formFailureState, initialFormActionState, type FormActionState } from "@/lib/action-state";
-import { getAppSessionContext } from "@/lib/session";
-
-async function requireIssuesContext() {
-  const context = await getAppSessionContext();
-  if (context === null) {
-    redirect("/login");
-  }
-
-  return context;
-}
+import { forbiddenFromError, requireContext } from "@/lib/authed-action";
 
 function stringFromForm(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -47,39 +36,13 @@ function idempotencyKeyFromForm(
 }
 
 function throwIssueActionError(error: unknown): never {
-  if (issueErrorCode(error) === "projectManagement.forbidden" || issueErrorStatus(error) === 403) {
-    forbidden();
-  }
+  forbiddenFromError(error);
 
   throw error instanceof Error ? error : new Error("GitHub issue action failed.");
 }
 
-function issueErrorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : issueErrorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
-function issueErrorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : issueErrorCode((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
 function issueActionErrorState(error: unknown): FormActionState {
-  if (issueErrorCode(error) === "projectManagement.forbidden" || issueErrorStatus(error) === 403) {
-    forbidden();
-  }
+  forbiddenFromError(error);
 
   return formFailureState(
     error instanceof Error ? error.message : "GitHub issue could not be created.",
@@ -87,7 +50,7 @@ function issueActionErrorState(error: unknown): FormActionState {
 }
 
 export async function syncIssuesAction(): Promise<void> {
-  const context = await requireIssuesContext();
+  const context = await requireContext();
   const result = await syncIssuesForContext(context);
   if (!result.ok) {
     throwIssueActionError(result.error);
@@ -100,7 +63,7 @@ export async function createIssueAction(
   _previousState: FormActionState,
   formData: FormData,
 ): Promise<FormActionState> {
-  const context = await requireIssuesContext();
+  const context = await requireContext();
   const title = stringFromForm(formData, "title");
   const body = stringFromForm(formData, "body");
   const labels = labelsFromForm(stringFromForm(formData, "labels"));

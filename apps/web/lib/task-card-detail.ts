@@ -56,6 +56,7 @@ import {
   type MentionTarget,
 } from "@/lib/task-card-mentions";
 import type { AppSessionContext } from "@/lib/session";
+import { errorCode, errorStatusCode } from "@/lib/authed-action";
 import { attestHumanCommand, issueDoneConfirmNonce } from "@/lib/task-attestation";
 
 export interface TaskCardPageData {
@@ -247,30 +248,10 @@ export function isTaskCardNotFound(error: unknown): boolean {
 }
 
 export function isTaskCardForbidden(error: unknown): boolean {
-  return errorCode(error) === "projectManagement.forbidden" || errorStatus(error) === 403;
+  return errorCode(error) === "projectManagement.forbidden" || errorStatusCode(error) === 403;
 }
 
-export function errorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
-export function errorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
-}
+export { errorCode } from "@/lib/authed-action";
 
 function labelsFromString(value: string): readonly string[] {
   return value.split(",");

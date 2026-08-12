@@ -2,6 +2,7 @@ import { listTasks } from "@opzava/project-management";
 import { redirect } from "next/navigation";
 
 import { TasksBoard } from "@/components/tasks/tasks-board";
+import { errorCode, errorStatusCode } from "@/lib/authed-action";
 import { getAppSessionContext } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -13,28 +14,6 @@ function todayLabel(date: Date): string {
     month: "long",
     year: "numeric",
   }).format(date);
-}
-
-function errorStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const status = (error as { readonly status?: unknown }).status;
-  return typeof status === "number"
-    ? status
-    : errorStatus((error as { readonly cause?: unknown }).cause, depth + 1);
-}
-
-function errorCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 5 || typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const code = (error as { readonly code?: unknown }).code;
-  return typeof code === "string"
-    ? code
-    : errorCode((error as { readonly cause?: unknown }).cause, depth + 1);
 }
 
 export default async function TasksPage() {
@@ -56,7 +35,7 @@ export default async function TasksPage() {
   if (!result.ok) {
     if (
       errorCode(result.error) === "projectManagement.forbidden" ||
-      errorStatus(result.error) === 403
+      errorStatusCode(result.error) === 403
     ) {
       redirect("/");
     }
