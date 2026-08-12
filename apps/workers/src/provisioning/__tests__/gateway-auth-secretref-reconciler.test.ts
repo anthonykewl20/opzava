@@ -11,8 +11,10 @@ const TARGET_REF = { source: "env", provider: "default", id: GATEWAY_TOKEN_ENV }
 interface FakeState {
   getFailures: number;
   patchFailures: number;
+  configGetMissingHash?: boolean;
   /** Times config.patch returns a "closed before a response" drop (matches the restart-window retryable set only). */
   patchDropResponse?: number;
+  patchStaleBaseHash?: number;
   nonRetryableGet: boolean;
   nonRetryablePatch: boolean;
 }
@@ -24,6 +26,7 @@ class GatewayAdminClient implements OpenClawAdminRpcPort {
     readonly requiredScope?: string;
   }> = [];
   public closed = false;
+  private hash = 0;
   public constructor(private readonly state: FakeState) {}
 
   public async request(
@@ -55,9 +58,13 @@ class GatewayAdminClient implements OpenClawAdminRpcPort {
           }),
         );
       }
+      if (this.state.configGetMissingHash) {
+        return ok({ config: { gateway: { auth: { token: "__OPENCLAW_REDACTED__" } } } });
+      }
       // gateway.auth.token is redacted in the real readback; the reconciler must not depend on it.
+      this.hash += 1;
       return ok({
-        hash: "hash-1",
+        hash: `hash-${this.hash}`,
         config: { gateway: { auth: { token: "__OPENCLAW_REDACTED__" } } },
       });
     }
@@ -68,6 +75,15 @@ class GatewayAdminClient implements OpenClawAdminRpcPort {
           new DomainError({
             code: "provisioning.openclawAdmin.operatorAdminRequired",
             message: "scope",
+          }),
+        );
+      }
+      if ((this.state.patchStaleBaseHash ?? 0) > 0) {
+        this.state.patchStaleBaseHash = (this.state.patchStaleBaseHash ?? 0) - 1;
+        return err(
+          new DomainError({
+            code: "provisioning.openclawAdmin.requestError",
+            message: "config changed since last load; re-run config.get and retry",
           }),
         );
       }
@@ -196,6 +212,31 @@ describe("GatewayAuthTokenSecretRefReconciler", () => {
     expect(result).toMatchObject({ ok: true, value: { patched: true } });
   });
 
+  it("re-gets and re-patches with a fresh base hash after a stale-base-hash error", async () => {
+    const state: FakeState = {
+      getFailures: 0,
+      patchFailures: 0,
+      patchStaleBaseHash: 1,
+      nonRetryableGet: false,
+      nonRetryablePatch: false,
+    };
+    const admin = new GatewayAdminClient(state);
+    const r = new GatewayAuthTokenSecretRefReconciler({
+      adminClient: admin,
+      env: { OPENCLAW_GATEWAY_TOKEN: "tok" },
+      sleep: async () => undefined,
+    });
+
+    const result = await r.reconcile();
+
+    expect(result).toMatchObject({ ok: true, value: { skipped: false, patched: true } });
+    const getCalls = admin.calls.filter((call) => call.method === "config.get");
+    const patchCalls = admin.calls.filter((call) => call.method === "config.patch");
+    expect(getCalls).toHaveLength(2);
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls.map((call) => call.params["baseHash"])).toEqual(["hash-1", "hash-2"]);
+  });
+
   it("fails closed on a non-retryable config.get error", async () => {
     const state: FakeState = {
       getFailures: 0,
@@ -208,6 +249,30 @@ describe("GatewayAuthTokenSecretRefReconciler", () => {
       ok: false,
       error: { code: "workers.gatewayAuthTokenSecretRef.configReadFailed" },
     });
+  });
+
+  it("surfaces a raw configBaseHashMissing error when config.get omits the hash (no patch attempted)", async () => {
+    const state: FakeState = {
+      getFailures: 0,
+      patchFailures: 0,
+      configGetMissingHash: true,
+      nonRetryableGet: false,
+      nonRetryablePatch: false,
+    };
+    const admin = new GatewayAdminClient(state);
+    const r = new GatewayAuthTokenSecretRefReconciler({
+      adminClient: admin,
+      env: { OPENCLAW_GATEWAY_TOKEN: "tok" },
+      sleep: async () => undefined,
+    });
+
+    const result = await r.reconcile();
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.configBaseHashMissing" },
+    });
+    expect(admin.calls.map((call) => call.method)).toEqual(["config.get"]);
   });
 
   it("fails closed on a non-retryable config.patch error", async () => {
