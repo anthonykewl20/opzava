@@ -7125,6 +7125,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           subagents: reconciled.value.allowAgents,
         });
         auditReconcile("completed", "success");
+        this.orchestratorReconcileState = { status: "idle" };
       },
       onUnexpected: () => {
         console.error("connections.orchestrator.reconcileFailed", {
@@ -7153,11 +7154,16 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     readonly onSettled?: () => void;
   }): Promise<void> {
     this.orchestratorReconcileQueued += 1;
-    if (this.orchestratorReconcileQueued === 1) {
+    if (
+      this.orchestratorReconcileQueued === 1 &&
+      this.orchestratorReconcileState.status !== "failed"
+    ) {
       this.orchestratorReconcileState = input.tracking;
     }
     const continuation = this.orchestratorReconcileTail.then(async () => {
-      this.orchestratorReconcileState = input.tracking;
+      if (this.orchestratorReconcileState.status !== "failed") {
+        this.orchestratorReconcileState = input.tracking;
+      }
       try {
         await input.run();
       } catch {
@@ -7226,8 +7232,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     if (!prepared.ok) {
       return err(prepared.error);
     }
-    // Preparation awaits multiple gateway reads. Re-check after that yield so concurrent retries
-    // still deduplicate and competing targets get the election-specific busy error.
+    // Coalescing is intentionally two-phase: preparation awaits gateway reads, so re-check after
+    // that yield. From this second check through assigning `mainOrchestratorElectionInFlight` there
+    // is no await, so the first resumed invocation installs the entry synchronously and the next
+    // invocation observes it here; `alreadyCurrent` remains the defense-in-depth backstop.
     const acceptedDuringPreflight = this.coalesceMainOrchestratorElection(input);
     if (acceptedDuringPreflight !== null) return acceptedDuringPreflight;
     if (this.providerWriteReserved(writeKey)) {
@@ -7291,6 +7299,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           return;
         }
         this.auditMainOrchestratorElectionTerminal(input, "completed", null, elected.value);
+        this.orchestratorReconcileState = { status: "idle" };
       },
       onUnexpected: () => {
         const failure = {

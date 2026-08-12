@@ -7196,6 +7196,29 @@ describe("Connections provisioning helpers", () => {
     };
   }
 
+  function currentOrchestratorReconcileState(
+    port: GatewayAdminConnectionsProvisioningPort,
+  ): unknown {
+    return (
+      port as unknown as {
+        readonly orchestratorReconcileState: unknown;
+      }
+    ).orchestratorReconcileState;
+  }
+
+  function autoReconcileAfterConnect(
+    port: GatewayAdminConnectionsProvisioningPort,
+  ): Promise<void> {
+    return (
+      port as unknown as {
+        reconcileOrchestratorAfterCredentialChange(input: {
+          readonly reason: "connect";
+          readonly providerId: string;
+        }): Promise<void>;
+      }
+    ).reconcileOrchestratorAfterCredentialChange({ reason: "connect", providerId: "openai" });
+  }
+
   async function reconcileCanaryModel(
     port: GatewayAdminConnectionsProvisioningPort,
   ): Promise<Result<OrchestratorDelegationState>> {
@@ -7206,7 +7229,7 @@ describe("Connections provisioning helpers", () => {
   }
 
   function modelElectionRuntime(
-    modelRunProbeResult?: Result<ModelRunProbe>,
+    modelRunProbeResult?: Result<ModelRunProbe> | (() => Result<ModelRunProbe>),
   ): RecordingGatewayRuntime {
     return new RecordingGatewayRuntime({
       status: {
@@ -7558,6 +7581,116 @@ describe("Connections provisioning helpers", () => {
       });
     });
     expect(admin.calls.filter((call) => call.method === "config.patch")).toHaveLength(1);
+  });
+
+  it("keeps failed visible across an auto-reconcile enqueue and clears it only on success", async () => {
+    let probes = 0;
+    const gatewayRuntime = modelElectionRuntime(
+      (() => {
+        probes += 1;
+        return probes === 1
+          ? ok({ verdict: "unrunnable", reason: "synthetic initial failure" })
+          : ok({ verdict: "runnable", reason: "synthetic repair success" });
+      }),
+    );
+    const port = modelElectionPort({
+      admin: mutableManualElectionAdmin(),
+      gatewayRuntime,
+    }).port;
+
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "failed-before-auto-reconcile",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toMatchObject({
+        status: "failed",
+        reason: "set-main",
+      }),
+    );
+
+    const repairing = autoReconcileAfterConnect(port);
+    expect(currentOrchestratorReconcileState(port)).toMatchObject({
+      status: "failed",
+      reason: "set-main",
+    });
+    await repairing;
+    expect(currentOrchestratorReconcileState(port)).toEqual({ status: "idle" });
+  });
+
+  it("clears failed when an already-current set-main succeeds", async () => {
+    let probes = 0;
+    const gatewayRuntime = modelElectionRuntime(() => {
+      probes += 1;
+      return probes === 1
+        ? ok({ verdict: "runnable", reason: "synthetic initial success" })
+        : ok({ verdict: "unrunnable", reason: "synthetic repairable failure" });
+    });
+    const port = modelElectionPort({
+      admin: mutableManualElectionAdmin(),
+      gatewayRuntime,
+    }).port;
+
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "establish-current-before-failure",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toEqual({ status: "idle" }),
+    );
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "failed-before-already-current",
+      providerId: "openai",
+      model: "gpt-5.5",
+    });
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toMatchObject({ status: "failed" }),
+    );
+    await port.setMainOrchestrator({
+      ...principal(),
+      requestId: "already-current-repair",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+    });
+
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toEqual({ status: "idle" }),
+    );
+  });
+
+  it("keeps failed visible when a repair fails again", async () => {
+    const gatewayRuntime = modelElectionRuntime(
+      ok({ verdict: "unrunnable", reason: "synthetic repeated failure" }),
+    );
+    const port = modelElectionPort({
+      admin: mutableManualElectionAdmin(),
+      gatewayRuntime,
+    }).port;
+    const elect = (requestId: string) =>
+      port.setMainOrchestrator({
+        ...principal(),
+        requestId,
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+      });
+
+    await elect("failed-repair-first");
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toMatchObject({ status: "failed" }),
+    );
+    await elect("failed-repair-second");
+    await vi.waitFor(() =>
+      expect(currentOrchestratorReconcileState(port)).toMatchObject({
+        status: "failed",
+        reason: "set-main",
+        requestId: "failed-repair-second",
+      }),
+    );
   });
 
   it("rejects an unrunnable model election before any orchestrator config write", async () => {
