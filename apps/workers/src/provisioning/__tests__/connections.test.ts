@@ -8,6 +8,8 @@ import { GITHUB_ISSUES_TOKEN_SECRET_LABEL, LocalFileSecretsVault } from "@opzava
 import {
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
+  type DeviceLoginHandle,
+  type DeviceLoginState,
   type DeviceFlowChallenge,
   type GatewayRuntimeAgentCredential,
   type GatewayRuntimeAgentCredentialWrite,
@@ -23,6 +25,8 @@ import {
   type ProviderAuthProbe,
   type ProviderConnectionState,
   type SecretReference,
+  type SetupTokenLoginHandle,
+  type SetupTokenLoginState,
 } from "@opzava/ports";
 import { DomainError, err, ok, type Result, type TenantId } from "@opzava/shared-kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -562,6 +566,17 @@ class RecordingGatewayRuntime {
   public modelStatusCalls = 0;
   public pluginDiscoveryCalls = 0;
   public deviceLogBarrier: Promise<void> | undefined;
+  private readonly opaqueLogins = new Map<
+    string,
+    {
+      readonly kind: "device" | "setup-token";
+      readonly login: {
+        readonly execId: string;
+        readonly logPath: string;
+        readonly stdinPath?: string;
+      };
+    }
+  >();
 
   public constructor(
     private readonly options: {
@@ -840,6 +855,115 @@ class RecordingGatewayRuntime {
     const created = new Set<string>();
     this.agentStores.set(agentId, created);
     return created;
+  }
+
+  public async beginDeviceLogin(input: {
+    readonly providerId: string;
+    readonly agentId: string;
+  }): Promise<Result<DeviceLoginHandle>> {
+    const login = await this.startDeviceCodeLogin(input.providerId, input.agentId);
+    if (!login.ok) return login;
+    const token = randomUUID();
+    this.opaqueLogins.set(token, { kind: "device", login: login.value });
+    return ok({ __brand: "DeviceLoginHandle", token });
+  }
+
+  public async pollDeviceLogin(handle: DeviceLoginHandle): Promise<Result<DeviceLoginState>> {
+    const entry = this.opaqueLogins.get(handle.token);
+    if (entry === undefined || entry.kind !== "device") {
+      return err(
+        new DomainError({
+          code: "test.deviceLoginNotFound",
+          message: "Device login was not found.",
+        }),
+      );
+    }
+    const log = await this.readDeviceCodeLog(entry.login.logPath);
+    if (!log.ok) return ok({ kind: "terminal-failure", reason: "The device login process ended." });
+    if (/success|complete/i.test(log.value)) return ok({ kind: "completed" });
+    const uri = log.value.match(/https?:\/\/\S+/)?.[0];
+    const code = log.value.match(/Code:\s*([A-Z0-9-]+)/i)?.[1];
+    return uri !== undefined && code !== undefined
+      ? ok({ kind: "awaiting-code", deviceCode: code, verificationUri: uri, expiresInMs: 900_000 })
+      : ok({ kind: "terminal-failure", reason: "The device login process ended." });
+  }
+
+  public async cancelDeviceLogin(handle: DeviceLoginHandle): Promise<Result<void>> {
+    const entry = this.opaqueLogins.get(handle.token);
+    if (entry === undefined || entry.kind !== "device") {
+      return err(
+        new DomainError({
+          code: "test.deviceLoginNotFound",
+          message: "Device login was not found.",
+        }),
+      );
+    }
+    await this.stopDeviceCodeLogin(entry.login.execId, entry.login.logPath);
+    this.opaqueLogins.delete(handle.token);
+    return ok(undefined);
+  }
+
+  public async beginSetupTokenLogin(): Promise<Result<SetupTokenLoginHandle>> {
+    const login = await this.startSetupTokenLogin();
+    if (!login.ok) return login;
+    const token = randomUUID();
+    this.opaqueLogins.set(token, { kind: "setup-token", login: login.value });
+    return ok({ __brand: "SetupTokenLoginHandle", token });
+  }
+
+  public async pollSetupTokenLogin(
+    handle: SetupTokenLoginHandle,
+  ): Promise<Result<SetupTokenLoginState>> {
+    const entry = this.opaqueLogins.get(handle.token);
+    if (entry === undefined || entry.kind !== "setup-token") {
+      return err(
+        new DomainError({
+          code: "test.setupTokenLoginNotFound",
+          message: "Setup-token login was not found.",
+        }),
+      );
+    }
+    const log = await this.readSetupTokenLog(entry.login.logPath);
+    if (!log.ok)
+      return ok({ kind: "terminal-failure", reason: "The setup-token login process ended." });
+    return ok(
+      /sk-ant-oat01-|complete/i.test(log.value) ? { kind: "completed" } : { kind: "awaiting-code" },
+    );
+  }
+
+  public async submitSetupTokenCode(
+    handle: SetupTokenLoginHandle,
+    code: string,
+  ): Promise<Result<void>> {
+    const entry = this.opaqueLogins.get(handle.token);
+    if (
+      entry === undefined ||
+      entry.kind !== "setup-token" ||
+      entry.login.stdinPath === undefined
+    ) {
+      return err(
+        new DomainError({
+          code: "test.setupTokenLoginNotFound",
+          message: "Setup-token login was not found.",
+        }),
+      );
+    }
+    return this.writeSetupTokenInput(entry.login.stdinPath, code);
+  }
+
+  public async cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>> {
+    const entry = this.opaqueLogins.get(handle.token);
+    if (entry === undefined || entry.kind !== "setup-token") {
+      return err(
+        new DomainError({
+          code: "test.setupTokenLoginNotFound",
+          message: "Setup-token login was not found.",
+        }),
+      );
+    }
+    await this.stopSetupTokenLogin(entry.login.execId, entry.login.logPath);
+    this.opaqueLogins.delete(handle.token);
+    return ok(undefined);
   }
 
   public async startDeviceCodeLogin(
