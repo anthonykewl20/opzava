@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed — awaiting owner approval. No implementation in the issue #162 migration may begin until
-the owner approves this decision and the RLS error contract below.
+Accepted — ratified 2026-08-12
+**Ratified by:** merged PRs #297, #301 below.
 
 ## Context
 

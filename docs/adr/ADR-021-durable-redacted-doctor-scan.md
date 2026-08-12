@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed — awaiting owner approval. Issue #280 remains `status:blocked`; implementation must not
-begin until the owner approves this decision and resolves the three owner decisions below.
+Accepted — ratified 2026-08-12
+**Ratified by:** merged PRs #299, #300 below.
 
 > **OWNER DECISION — TOPOLOGY DEFAULT:** This ADR proceeds with current reality: scan the single
 > static `openclaw-platform-gateway` as a **platform-scoped, not tenant-scoped**, capability.
