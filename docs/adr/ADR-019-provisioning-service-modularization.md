@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed — awaiting owner approval. No implementation in the multi-PR program may begin until the
-owner approves this decision and resolves the owner decisions below.
+Accepted — ratified 2026-08-12
+**Ratified by:** merged PRs #293, #295, #296, #294, #298, #302 below.
 
 ## Context
 
