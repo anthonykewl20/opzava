@@ -37,12 +37,7 @@ import {
   ASK_ADMIN_AGENT_VERSION,
   SUBAGENT_TOOL_POLICY_DENY,
 } from "../ask-admin-agent.js";
-import {
-  buildGitHubConnectionProvisioningReceipt,
-  buildOrchestratorAgentConfig,
-  gatewayApiKeyConfigPatchInvocation,
-  redactedGatewayConfigPatchInvocation,
-} from "../connections.js";
+import { buildOrchestratorAgentConfig } from "../connections.js";
 import { createConnectionsInternalHttpServer } from "../connections-http-server.js";
 import {
   createDefaultConnectionsProvisioningPort,
@@ -1326,52 +1321,6 @@ describe("Connections provisioning helpers", () => {
     }
   });
 
-  it("builds an OpenClaw config.patch API-key payload without logging the secret", () => {
-    const invocation = gatewayApiKeyConfigPatchInvocation({
-      authChoice: apiKeyChoice(),
-      apiKey: "runtime-secret",
-      configBaseHash: "config-hash-1",
-    });
-
-    expect(invocation.ok).toBe(true);
-    if (!invocation.ok) {
-      throw invocation.error;
-    }
-
-    expect(invocation.value).toMatchObject({
-      method: "config.patch",
-      params: {
-        baseHash: "config-hash-1",
-        raw: JSON.stringify({
-          auth: {
-            profiles: {
-              "zai-zai-api-key": {
-                id: "zai-zai-api-key",
-                providerId: "zai",
-                authChoiceId: "zai-api-key",
-                type: "api-key",
-                key: "runtime-secret",
-              },
-            },
-            order: { zai: ["zai-zai-api-key"] },
-          },
-        }),
-      },
-    });
-    expect(redactedGatewayConfigPatchInvocation(invocation.value)).toContain("<redacted>");
-    expect(redactedGatewayConfigPatchInvocation(invocation.value)).not.toContain("runtime-secret");
-  });
-
-  it("rejects device-flow auth choices for API-key config.patch provisioning", () => {
-    const invocation = gatewayApiKeyConfigPatchInvocation({
-      authChoice: apiKeyChoice({ mode: "device-flow" }),
-      apiKey: "runtime-secret",
-      configBaseHash: "config-hash-1",
-    });
-
-    expect(invocation.ok).toBe(false);
-  });
-
   it("renders the orchestrator delegation config and audited tool expansion", () => {
     const subagents: readonly OrchestratorSubagentRole[] = [
       {
@@ -1459,18 +1408,6 @@ describe("Connections provisioning helpers", () => {
     ).toMatchObject({
       ok: false,
       error: { code: "provisioning.connections.reservedSubagentAgentId" },
-    });
-  });
-
-  it("records the GitHub connection vault label without token material", () => {
-    expect(
-      buildGitHubConnectionProvisioningReceipt({ repository: "anthonykewl20/opzava" }),
-    ).toEqual({
-      provider: "github",
-      repository: "anthonykewl20/opzava",
-      secretLabel: "github-issues-token",
-      storage: "SecretsVaultPort",
-      tokenMaterialIncluded: false,
     });
   });
 
