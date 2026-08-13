@@ -338,6 +338,10 @@ function secureDeleteCommand(logPath: string): string {
   ].join(" ");
 }
 
+function terminateProcessGroupByPid(pidVariable: string, signal: "TERM" | "KILL"): string {
+  return `kill -${signal} -"$${pidVariable}" 2>/dev/null || true`;
+}
+
 function flowControlPath(logPath: string): string {
   const separator = logPath.lastIndexOf("/");
   if (separator <= 0) {
@@ -1394,20 +1398,32 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       logPath,
       pidPath,
     });
-    if (!terminated.ok) {
+    if (!readSucceeded || stdout === undefined || !terminated.ok) {
+      // A failed read or unconfirmed termination may leave the private stderr artifact behind even
+      // when the primary cleanup exec was created. Always make one final discard attempt.
       await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
     }
-    if (!readSucceeded || stdout === undefined || !terminated.ok) return unavailable();
 
     const inspected = await this.dockerRequest<{
       readonly Running?: unknown;
       readonly ExitCode?: unknown;
     }>(`/exec/${encodeURIComponent(execId)}/json`, { method: "GET" });
-    if (!inspected.ok || inspected.value.Running !== false) return unavailable();
+    if (!inspected.ok || inspected.value.Running !== false) {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
+    }
     const exitCode = inspected.value.ExitCode;
-    if (exitCode !== 0 && exitCode !== 1) return unavailable();
+    if (exitCode !== 0 && exitCode !== 1) {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
+    }
     const parsed = parseDoctorLintOutput({ exitCode, stdout });
-    return parsed.status === "succeeded" ? ok({ exitCode, stdout }) : unavailable();
+    if (parsed.status !== "succeeded") {
+      await this.bestEffortDeleteDoctorLog(containerId.value, logPath, artifactDir);
+      return unavailable();
+    }
+    return ok({ exitCode, stdout });
   }
 
   private async terminateDoctorScan(input: {
@@ -1417,17 +1433,32 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     readonly logPath: string;
     readonly pidPath: string;
   }): Promise<Result<void>> {
+    const initialDoctor = await this.dockerRequest<{ readonly Running?: unknown }>(
+      `/exec/${encodeURIComponent(input.execId)}/json`,
+      { method: "GET" },
+    );
+    if (!initialDoctor.ok || typeof initialDoctor.value.Running !== "boolean") {
+      return err(
+        provisioningError(
+          "provisioning.docker.doctorCleanupUnconfirmed",
+          "Doctor scan termination could not be confirmed.",
+        ),
+      );
+    }
+    const doctorWasRunning = initialDoctor.value.Running;
+    const shouldWaitForPid = `[ -s ${shellQuote(input.pidPath)} ] || ${doctorWasRunning ? "true" : "false"}`;
     const cleanupCommand = [
       "set -u",
+      `if ${shouldWaitForPid}; then`,
       "attempt=0",
       `while [ ! -s ${shellQuote(input.pidPath)} ] && [ "$attempt" -lt 50 ]; do attempt=$((attempt + 1)); sleep 0.05; done`,
       `if [ -s ${shellQuote(input.pidPath)} ]; then`,
       `pid=$(cat ${shellQuote(input.pidPath)})`,
       `case "$pid" in ''|*[!0-9]*) exit 2;; esac`,
-      `kill -TERM -"$pid" 2>/dev/null || true`,
+      terminateProcessGroupByPid("pid", "TERM"),
       "attempt=0",
       'while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 50 ]; do attempt=$((attempt + 1)); sleep 0.05; done',
-      `kill -KILL -"$pid" 2>/dev/null || true`,
+      terminateProcessGroupByPid("pid", "KILL"),
       "else",
       // Without the process-group id, cleanup cannot prove that a detached child was terminated.
       // Delete the private log, but fail closed so the caller returns unavailable.
@@ -1435,6 +1466,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       `rm -f ${shellQuote(input.pidPath)}`,
       `rmdir ${shellQuote(input.artifactDir)} 2>/dev/null || true`,
       "exit 3",
+      "fi",
       "fi",
       secureDeleteCommand(input.logPath),
       `rm -f ${shellQuote(input.pidPath)}`,
@@ -1496,6 +1528,15 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       )
         return ok(undefined);
       if (!cleanup.ok || !doctor.ok)
+        return err(
+          provisioningError(
+            "provisioning.docker.doctorCleanupUnconfirmed",
+            "Doctor scan termination could not be confirmed.",
+          ),
+        );
+      // A stopped cleanup exec with a non-zero status is definitive failure (including the no-pid
+      // sentinel). Never wait out the poll budget or accept the doctor's later exit as confirmation.
+      if (cleanup.value.Running === false && cleanup.value.ExitCode !== 0)
         return err(
           provisioningError(
             "provisioning.docker.doctorCleanupUnconfirmed",
@@ -2643,7 +2684,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
           `set -- $identity`,
           `if [ "\${1:-}" = "$pid" ] && [ "\${2:-}" = "$pid" ]; then`,
           `cmdline=$(tr '\\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null) || cmdline=""`,
-          `case "$cmdline" in *"$expected_dir"*) kill -TERM -"$pid" 2>/dev/null || true;; esac`,
+          `case "$cmdline" in *"$expected_dir"*) ${terminateProcessGroupByPid("pid", "TERM")};; esac`,
           "fi",
           "fi",
         ].join("\n"),

@@ -1406,7 +1406,47 @@ describe("DockerOpenClawGatewayRuntime bounded doctor scan (#280 PR B1)", () => 
     const docker = doctorDocker({ stdout: envelope, cleanupExitCode: 3, doctorRunning: true });
     const result = await docker.runtime.runDoctorLintScan();
     expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.code).toBe("provisioning.docker.doctorScanUnavailable");
     expect(docker.commands[1]?.join(" ")).toContain("exit 3");
+  });
+
+  it("returns an error from termination when cleanup never observes the child pid", async () => {
+    const docker = doctorDocker({ cleanupExitCode: 3, doctorRunning: true });
+    const terminateDoctorScan = (
+      docker.runtime as unknown as {
+        terminateDoctorScan(input: {
+          readonly containerId: string;
+          readonly execId: string;
+          readonly artifactDir: string;
+          readonly logPath: string;
+          readonly pidPath: string;
+        }): Promise<{ readonly ok: boolean }>;
+      }
+    ).terminateDoctorScan.bind(docker.runtime);
+
+    const result = await terminateDoctorScan({
+      containerId: "container-id",
+      execId: "doctor-exec",
+      artifactDir: "/tmp/opzava-doctor-test",
+      logPath: "/tmp/opzava-doctor-test/stderr.log",
+      pidPath: "/tmp/opzava-doctor-test/doctor.pid",
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("skips the bounded pid wait after normal doctor completion", async () => {
+    const docker = doctorDocker({ stdout: envelope, doctorRunning: false });
+
+    await expect(docker.runtime.runDoctorLintScan()).resolves.toEqual({
+      ok: true,
+      value: { exitCode: 0, stdout: envelope },
+    });
+
+    const cleanupCommand = docker.commands[1]?.join(" ") ?? "";
+    expect(cleanupCommand).toContain("|| false; then");
+    expect(cleanupCommand).toContain("while [ ! -s");
+    expect(docker.paths.some((path) => path.includes("doctor-exec-2/start"))).toBe(true);
   });
 
   it("best-effort deletes the private stderr log when cleanup exec creation fails", async () => {
