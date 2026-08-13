@@ -4,6 +4,7 @@ import {
   rowsFromExecuteResult,
   withTenant,
   type QueryRow,
+  type TenantTransaction,
   type createPostgresDatabase
 } from "@opzava/adapters";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
@@ -12,9 +13,13 @@ import type {
   CommandReceiptLookup,
   CommandReceiptRecord,
   CommandReceiptRepository,
-  CommandReceiptResult
+  CommandReceiptResult,
+  FinalizeCommandReceiptInput
 } from "../../application/command-receipt-store.js";
-import type { CommandEnvelope } from "../../domain/command-envelope.js";
+import type {
+  CommandEnvelope,
+  CommandExpectedVersion
+} from "../../domain/command-envelope.js";
 
 type PostgresDatabase = ReturnType<typeof createPostgresDatabase>;
 
@@ -38,6 +43,9 @@ function rowToReceipt(row: QueryRow): CommandReceiptRecord {
     throw invalidReceipt();
   }
   const outcomeCode = row["outcome_code"];
+  const resultRef = row["result_ref"];
+  const resultSummary = row["result_summary"];
+  const resultingVersions = row["resulting_versions"];
   return {
     organizationId: String(row["organization_id"]),
     workspaceId: String(row["workspace_id"]),
@@ -46,15 +54,44 @@ function rowToReceipt(row: QueryRow): CommandReceiptRecord {
     requestHash: String(row["request_hash"]),
     commandId: String(row["command_id"]),
     state,
-    ...(typeof outcomeCode === "string" ? { outcomeCode } : {})
+    ...(typeof outcomeCode === "string" ? { outcomeCode } : {}),
+    ...(state !== "reserved" && typeof resultRef === "string" ? { resultRef } : {}),
+    ...(state !== "reserved" && isRecord(resultSummary) ? { resultSummary } : {}),
+    ...(state !== "reserved" && isExpectedVersionArray(resultingVersions)
+      ? { resultingVersions }
+      : {})
   };
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isExpectedVersionArray(
+  value: unknown
+): value is readonly CommandExpectedVersion[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item["recordKind"] === "string" &&
+        typeof item["recordId"] === "string" &&
+        typeof item["version"] === "number"
+    )
+  );
 }
 
 function receiptResult(receipt: CommandReceiptRecord): CommandReceiptResult {
   return {
     commandId: receipt.commandId,
     state: receipt.state,
-    ...(receipt.outcomeCode === undefined ? {} : { outcomeCode: receipt.outcomeCode })
+    ...(receipt.outcomeCode === undefined ? {} : { outcomeCode: receipt.outcomeCode }),
+    ...(receipt.resultRef === undefined ? {} : { resultRef: receipt.resultRef }),
+    ...(receipt.resultSummary === undefined ? {} : { resultSummary: receipt.resultSummary }),
+    ...(receipt.resultingVersions === undefined
+      ? {}
+      : { resultingVersions: receipt.resultingVersions })
   };
 }
 
@@ -66,8 +103,16 @@ export class PostgresCommandReceiptRepository implements CommandReceiptRepositor
   ): Promise<Result<CommandReceiptResult>> {
     return withTenant(
       envelope.organizationId,
-      async (tx) => {
-        const inserted = await tx.execute(sql`
+      (tx) => this.reserveOrReplayTransaction(tx, envelope),
+      this.database
+    );
+  }
+
+  public async reserveOrReplayTransaction(
+    tx: TenantTransaction,
+    envelope: CommandEnvelope
+  ): Promise<Result<CommandReceiptResult>> {
+    const inserted = await tx.execute(sql`
           insert into public.dev_board_command_receipt (
             organization_id, workspace_id, command_id, command_name, idempotency_key,
             request_hash, target_aggregate_id, actor_kind, actor_stable_id, actor_role,
@@ -86,30 +131,48 @@ export class PostgresCommandReceiptRepository implements CommandReceiptRepositor
           on conflict (organization_id, workspace_id, command_name, idempotency_key)
           do nothing
           returning organization_id, workspace_id, command_name, idempotency_key, request_hash,
-            command_id, state, outcome_code
-        `);
-        const insertedRow = rowsFromExecuteResult(inserted)[0];
-        if (insertedRow !== undefined) return ok(receiptResult(rowToReceipt(insertedRow)));
+            command_id, state, outcome_code, result_ref, result_summary, resulting_versions
+    `);
+    const insertedRow = rowsFromExecuteResult(inserted)[0];
+    if (insertedRow !== undefined) return ok(receiptResult(rowToReceipt(insertedRow)));
 
-        const selected = await tx.execute(sql`
+    const selected = await tx.execute(sql`
           select organization_id, workspace_id, command_name, idempotency_key, request_hash,
-            command_id, state, outcome_code
+            command_id, state, outcome_code, result_ref, result_summary, resulting_versions
           from public.dev_board_command_receipt
           where organization_id = ${envelope.organizationId}::uuid
             and workspace_id = ${envelope.workspaceId}::uuid
             and command_name = ${envelope.commandName}
             and idempotency_key = ${envelope.idempotencyKey}
           limit 1
-        `);
-        const existingRow = rowsFromExecuteResult(selected)[0];
-        if (existingRow === undefined) throw invalidReceipt();
-        const existing = rowToReceipt(existingRow);
-        return existing.requestHash === envelope.requestHash
-          ? ok(receiptResult(existing))
-          : err(idempotencyConflict());
-      },
-      this.database
-    );
+    `);
+    const existingRow = rowsFromExecuteResult(selected)[0];
+    if (existingRow === undefined) throw invalidReceipt();
+    const existing = rowToReceipt(existingRow);
+    return existing.requestHash === envelope.requestHash
+      ? ok(receiptResult(existing))
+      : err(idempotencyConflict());
+  }
+
+  public async finalizeTransaction(
+    tx: TenantTransaction,
+    input: FinalizeCommandReceiptInput
+  ): Promise<Result<void>> {
+    const updated = await tx.execute(sql`
+      update public.dev_board_command_receipt
+      set state = ${input.outcome},
+        finalized_at = now(),
+        outcome_code = ${input.outcomeCode ?? null},
+        result_ref = ${input.resultRef ?? null}::uuid,
+        result_summary = ${JSON.stringify(input.resultSummary ?? {})}::jsonb,
+        resulting_versions = ${JSON.stringify(input.resultingVersions ?? [])}::jsonb,
+        updated_at = now()
+      where organization_id = ${input.organizationId}::uuid
+        and command_id = ${input.commandId}::uuid
+        and state = 'reserved'
+      returning command_id
+    `);
+    return rowsFromExecuteResult(updated)[0] === undefined ? err(invalidReceipt()) : ok(undefined);
   }
 
   public async readReceipt(lookup: CommandReceiptLookup): Promise<CommandReceiptRecord | null> {
@@ -118,7 +181,7 @@ export class PostgresCommandReceiptRepository implements CommandReceiptRepositor
       async (tx) => {
         const selected = await tx.execute(sql`
           select organization_id, workspace_id, command_name, idempotency_key, request_hash,
-            command_id, state, outcome_code
+            command_id, state, outcome_code, result_ref, result_summary, resulting_versions
           from public.dev_board_command_receipt
           where organization_id = ${lookup.organizationId}::uuid
             and workspace_id = ${lookup.workspaceId}::uuid

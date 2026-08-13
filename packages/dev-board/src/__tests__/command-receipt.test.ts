@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryCommandReceiptRepository } from "../adapters/in-memory-command-receipt-repository.js";
 import type { CommandEnvelope } from "../domain/command-envelope.js";
+import type { TenantTransaction } from "@opzava/adapters";
 
 function envelope(overrides: Partial<CommandEnvelope> = {}): CommandEnvelope {
   return {
@@ -61,5 +62,44 @@ describe("command receipt reservation", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("dev_board.idempotency_conflict");
+  });
+
+  it("replays terminal fields after transaction-scoped finalization", async () => {
+    const repository = new InMemoryCommandReceiptRepository();
+    const command = envelope();
+    const tx = {} as TenantTransaction;
+    const resultingVersions = [
+      { recordKind: "dev_ticket", recordId: command.targetAggregateId, version: 1 }
+    ];
+
+    await repository.reserveOrReplayTransaction(tx, command);
+    await expect(
+      repository.finalizeTransaction(tx, {
+        organizationId: command.organizationId,
+        commandId: command.commandId,
+        outcome: "accepted",
+        resultSummary: { title: "Accepted" },
+        resultingVersions
+      })
+    ).resolves.toEqual({ ok: true, value: undefined });
+
+    await expect(repository.reserveOrReplayTransaction(tx, command)).resolves.toEqual({
+      ok: true,
+      value: {
+        commandId: command.commandId,
+        state: "accepted",
+        resultSummary: { title: "Accepted" },
+        resultingVersions
+      }
+    });
+    const secondFinalization = await repository.finalizeTransaction(tx, {
+      organizationId: command.organizationId,
+      commandId: command.commandId,
+      outcome: "rejected"
+    });
+    expect(secondFinalization.ok).toBe(false);
+    if (!secondFinalization.ok) {
+      expect(secondFinalization.error.code).toBe("dev_board.invalid_command_receipt");
+    }
   });
 });
