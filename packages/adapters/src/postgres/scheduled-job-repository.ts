@@ -77,13 +77,13 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
           select job_key, organization_id, scope
           from public.platform_scheduled_job
           where organization_id = ${input.organizationId}::uuid and next_run_at <= ${input.now}
-            and (dispatch_lease_token is null or dispatch_lease_expires_at <= ${input.now})
+            and (dispatch_lease_token is null or dispatch_lease_expires_at <= now())
           order by next_run_at, job_key, scope
           for update skip locked limit ${input.batchLimit}
         )
         update public.platform_scheduled_job job set
           dispatch_lease_token = gen_random_uuid(),
-          dispatch_lease_expires_at = ${input.now} + (${DISPATCH_LEASE_SECONDS} * interval '1 second'),
+          dispatch_lease_expires_at = ${input.now}::timestamptz + (${DISPATCH_LEASE_SECONDS} * interval '1 second'),
           last_started_at = ${input.now}, updated_at = ${input.now}
         from due
         where job.job_key = due.job_key and job.organization_id = due.organization_id and job.scope = due.scope
@@ -98,13 +98,13 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
     return withTenant(input.organizationId, async (tx) => {
       const result = await tx.execute(sql`
         update public.platform_scheduled_job set
-          next_run_at = ${input.now} + (${input.cadenceSeconds} * interval '1 second'),
+          next_run_at = ${input.now}::timestamptz + (${input.cadenceSeconds} * interval '1 second'),
           dispatch_lease_token = null, dispatch_lease_expires_at = null,
           consecutive_failures = 0, last_completed_at = ${input.now}, last_failure_code = null,
           updated_at = ${input.now}
         where job_key = ${input.jobKey} and organization_id = ${input.organizationId}::uuid
           and scope = ${input.scope} and dispatch_lease_token = ${input.leaseToken}::uuid
-          and dispatch_lease_expires_at > ${input.now}
+          and dispatch_lease_expires_at > now()
         returning job_key
       `);
       return rows(result).length === 1;
@@ -117,13 +117,13 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
     return withTenant(input.organizationId, async (tx) => {
       const result = await tx.execute(sql`
         update public.platform_scheduled_job set
-          next_run_at = ${input.now} + (${input.retryBackoffSeconds} * interval '1 second'),
+          next_run_at = ${input.now}::timestamptz + (${input.retryBackoffSeconds} * interval '1 second'),
           dispatch_lease_token = null, dispatch_lease_expires_at = null,
           consecutive_failures = least(consecutive_failures + 1, 2147483647), last_failure_code = ${input.failureCode},
           updated_at = ${input.now}
         where job_key = ${input.jobKey} and organization_id = ${input.organizationId}::uuid
           and scope = ${input.scope} and dispatch_lease_token = ${input.leaseToken}::uuid
-          and dispatch_lease_expires_at > ${input.now}
+          and dispatch_lease_expires_at > now()
         returning job_key
       `);
       return rows(result).length === 1;
