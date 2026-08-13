@@ -36,5 +36,7 @@ export const DOCTOR_SAFE_SUMMARY_REGISTRY = {
 } as const satisfies Readonly<Record<string, SafeSummaryDefinition>>;
 
 export function lookupSafeSummary(checkId: string): SafeSummaryDefinition | undefined {
-  return (DOCTOR_SAFE_SUMMARY_REGISTRY as Readonly<Record<string, SafeSummaryDefinition>>)[checkId];
+  return Object.hasOwn(DOCTOR_SAFE_SUMMARY_REGISTRY, checkId)
+    ? (DOCTOR_SAFE_SUMMARY_REGISTRY as Readonly<Record<string, SafeSummaryDefinition>>)[checkId]
+    : undefined;
 }
