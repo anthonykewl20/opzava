@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle2, RefreshCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useFormStatus } from "react-dom";
 
+import { recheckDoctorScanAction } from "@/app/(app)/health/actions";
+import { ActionStateForm } from "@/components/forms/action-state-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { HealthAttentionItemView, HealthPageViewModel } from "@/lib/health/health-view-model";
+import { doctorScanCooldown } from "@/lib/health/doctor-scan-cooldown";
 
 import { AllComponents } from "./all-components";
 import { HealthRing } from "./health-ring";
@@ -43,21 +47,39 @@ function HealthLegend({ view }: { readonly view: HealthPageViewModel }) {
   );
 }
 
-function DisabledRecheck() {
-  const explanation = "Re-check wiring lands in a follow-up";
+function RecheckSubmitButton() {
+  const { pending } = useFormStatus();
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className={styles["disabledAction"]!} tabIndex={0} aria-label={explanation}>
-            <Button disabled variant="outline">
-              <RefreshCcw aria-hidden="true" /> Re-check now
-            </Button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{explanation}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Button type="submit" disabled={pending} variant="outline" aria-busy={pending}>
+      <RefreshCcw aria-hidden="true" /> {pending ? "Re-checking…" : "Re-check now"}
+    </Button>
+  );
+}
+
+function RecheckDoctorScan({ runCheckedAt }: { readonly runCheckedAt: string | null }) {
+  const [nowMs, setNowMs] = useState(() =>
+    runCheckedAt === null ? 0 : Date.parse(runCheckedAt),
+  );
+  const cooldown = doctorScanCooldown(runCheckedAt, nowMs);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [runCheckedAt]);
+
+  if (cooldown.disabled) {
+    return (
+      <Button disabled variant="outline" aria-live="polite">
+        <RefreshCcw aria-hidden="true" /> {cooldown.label}
+      </Button>
+    );
+  }
+
+  return (
+    <ActionStateForm action={recheckDoctorScanAction} errorTitle="Re-check failed">
+      <RecheckSubmitButton />
+    </ActionStateForm>
   );
 }
 
@@ -267,7 +289,7 @@ export function HealthPage({ view }: { readonly view: HealthPageViewModel }) {
           </div>
           <HealthLegend view={view} />
           <LastKnownGood view={view} />
-          <DisabledRecheck />
+          <RecheckDoctorScan runCheckedAt={view.scanFindings.runCheckedAt} />
         </Card>
 
         <AttentionTile view={view} />
@@ -280,9 +302,8 @@ export function HealthPage({ view }: { readonly view: HealthPageViewModel }) {
       <ScannerFindings scan={view.scanFindings} />
 
       <p className={styles["footerNote"]!}>
-        Reads and links only — this page never changes runtime state. Every value carries freshness;
-        unknown and not checked are never shown as healthy, and last-known-good evidence is marked
-        stale.
+        Every value carries freshness; unknown and not checked are never shown as healthy, and
+        last-known-good evidence is marked stale. Re-check only requests fresh diagnostic evidence.
       </p>
     </div>
   );
