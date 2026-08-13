@@ -26,6 +26,8 @@ interface IssuesPageProps {
   readonly searchParams?: Promise<{
     readonly filter?: string;
     readonly page?: string;
+    readonly title?: string;
+    readonly body?: string;
   }>;
 }
 
@@ -532,6 +534,9 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
   }
 
   const params = await searchParams;
+  const issueTitlePrefill = params?.title?.slice(0, 256) ?? "";
+  const issueBodyPrefill = params?.body ?? "";
+  const hasIssuePrefill = issueTitlePrefill !== "" || issueBodyPrefill !== "";
   const result = await loadIssuesPageData({
     context,
     ...(params?.filter === undefined ? {} : { filter: params.filter }),
@@ -606,7 +611,7 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                   Sync now
                 </button>
               </form>
-              <details className="issues-new-menu">
+              <details className="issues-new-menu" open={hasIssuePrefill || undefined}>
                 <summary className="btn btn-primary">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <path
@@ -635,13 +640,20 @@ export default async function IssuesPage({ searchParams }: IssuesPageProps) {
                       type="text"
                       required
                       maxLength={256}
+                      defaultValue={issueTitlePrefill}
                     />
                   </div>
                   <div className="field">
                     <label className="label" htmlFor="new-issue-body">
                       Body
                     </label>
-                    <textarea className="textarea" id="new-issue-body" name="body" rows={4} />
+                    <textarea
+                      className="textarea"
+                      id="new-issue-body"
+                      name="body"
+                      rows={4}
+                      defaultValue={issueBodyPrefill}
+                    />
                   </div>
                   <div className="field">
                     <label className="label" htmlFor="new-issue-labels">

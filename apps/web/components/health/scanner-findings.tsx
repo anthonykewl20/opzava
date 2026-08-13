@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, ChevronRight, Clipboard, EyeOff } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,23 @@ function findingBlock(finding: ScanFindingView): string {
   ]
     .filter((line): line is string => line !== null)
     .join("\n");
+}
+
+function ticketHref(finding: ScanFindingView): string {
+  const title = `[Health] ${finding.checkId}: ${finding.summary}`;
+  const body = [
+    "## Scanner finding",
+    "",
+    `**Code:** \`${finding.checkId}\``,
+    `**Severity:** ${finding.severity}`,
+    `**Summary:** ${finding.summary}`,
+    finding.fixHint === null ? null : `**Suggested fix:** ${finding.fixHint}`,
+    "",
+    "Prepared from the redacted Health doctor-scan result. Review before submitting.",
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+  return `/issues?${new URLSearchParams({ title, body }).toString()}`;
 }
 
 function FindingRow({ finding }: { readonly finding: ScanFindingView }) {
@@ -73,6 +91,11 @@ function FindingRow({ finding }: { readonly finding: ScanFindingView }) {
           {copied ? <Check aria-hidden="true" /> : <Clipboard aria-hidden="true" />}
           {copied ? "Copied" : "Copy"}
         </Button>
+        {finding.attention ? (
+          <Button asChild>
+            <Link href={ticketHref(finding)}>Prepare ticket</Link>
+          </Button>
+        ) : null}
       </div>
     </div>
   );
