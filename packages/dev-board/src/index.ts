@@ -10,6 +10,9 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
+export type { DevBoardPlanningStore, DevTicketRow, InsertDevTicketInput, InsertProposalInput, ProposalRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, ApproveReadyToTodoInput, CommandResult, DevBoardPlanningCommandDependencies, DraftProposalInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
+export { acceptProposal, approveReadyToTodo, draftProposal, submitProposal } from "./application/dev-board-planning-commands.js";
 export { InMemoryCommandReceiptRepository } from "./adapters/in-memory-command-receipt-repository.js";
 export {
   InMemoryDevBoardLedgerAppendStore,
@@ -18,9 +21,15 @@ export {
 } from "./adapters/in-memory-dev-board-ledger-append-store.js";
 export { PostgresCommandReceiptRepository } from "./adapters/postgres/postgres-command-receipt-repository.js";
 export { PostgresDevBoardLedgerAppendStore } from "./adapters/postgres/postgres-dev-board-ledger-append-store.js";
+export { InMemoryDevBoardPlanningStore } from "./adapters/in-memory-dev-board-planning-store.js";
+export { PostgresDevBoardPlanningStore } from "./adapters/postgres/postgres-dev-board-planning-store.js";
 export type {
   CommandActorRef,
   CommandEnvelope,
   CommandExpectedVersion,
   CommandSourceRef
 } from "./domain/command-envelope.js";
+export { blockingAssessments, normalizeDiscoverySummary, parseBlockingAssessment, parseProposalLifecycleState, proposalLifecycleStates } from "./domain/proposal.js";
+export type { BlockingAssessment, Proposal, ProposalLifecycleState } from "./domain/proposal.js";
+export { computeReadyContractContentHash, devTicketLanes, originKinds, parseDevTicketLane, parseOriginKind, parseReadyContractContent, parseReadyState, readyStates } from "./domain/dev-ticket.js";
+export type { DevTicket, DevTicketLane, OriginKind, ReadyContract, ReadyState } from "./domain/dev-ticket.js";

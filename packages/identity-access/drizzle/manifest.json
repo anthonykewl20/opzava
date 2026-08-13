@@ -84,6 +84,10 @@
     {
       "path": "0020_dev_board_command_spine.sql",
       "sha256": "f5cdee62088c563808007bd3775a1a6af70053c1d961e43738673edda6e7b2da"
+    },
+    {
+      "path": "0021_dev_board_planning_lifecycle.sql",
+      "sha256": "5613d20902f74926fc9c7f0c3c47e7ae44487a06de764f7006a73b2325854204"
     }
   ]
 }
