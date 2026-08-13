@@ -1322,9 +1322,11 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       "set -u",
       "umask 077",
       `mkdir ${shellQuote(artifactDir)}`,
-      // TODO(#280 B2): UNVERIFIED until driven against the built opzava/mainframe-gateway image:
-      // (1) in-container timeout binary/path and (2) CLI JSON envelope/exit behavior. The adapter
-      // therefore uses its configurable host-side hard deadline and validates the ADR envelope.
+      // #280 B2 (PROVEN against opzava/mainframe-gateway:2026.7.2-beta.3): the image ships
+      // /usr/bin/timeout, and `doctor --lint --all --severity-min info --json` exits 1 with a valid
+      // { ok, checksRun, checksSkipped, findings[] } envelope that parseDoctorLintOutput accepts.
+      // The adapter keeps its configurable host-side hard deadline and ADR-envelope validation as
+      // defense-in-depth.
       // The new session publishes its own process-group id before replacing itself with doctor.
       // Cleanup therefore never has to infer an in-container pid from Docker's host pid namespace.
       `setsid sh -c ${shellQuote(doctorSession)} 2>${shellQuote(logPath)} & doctor_pid=$!`,
