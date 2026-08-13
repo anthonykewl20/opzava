@@ -113,7 +113,7 @@ export interface ScanFindingGroupView {
 }
 
 export interface HealthScanFindingsView {
-  readonly availability: "available" | "not-configured" | "unavailable";
+  readonly availability: "available" | "stale" | "not-configured" | "unavailable";
   readonly inProgress: boolean;
   readonly runCheckedAt: string | null;
   readonly freshnessLabel: string;
@@ -146,6 +146,8 @@ const scanGroupOrder = [
   "Sessions",
   "Storage",
 ] as const;
+
+const SCAN_STALE_AFTER_MS = 10 * 60_000;
 
 function severityRank(severity: ScanFindingSeverity): number {
   return severity === "error" ? 3 : severity === "warning" ? 2 : 1;
@@ -230,13 +232,24 @@ function scanFindingsView(
 
   const runCheckedAt = scan.latest.runCheckedAt;
   const runAge = runCheckedAt === null ? null : scanRunRelativeAge(runCheckedAt, evaluatedAt);
+  const runCheckedAtMs = runCheckedAt === null ? Number.NaN : Date.parse(runCheckedAt);
+  const evaluatedAtMs = Date.parse(evaluatedAt);
+  const hasValidRunTime =
+    Number.isFinite(runCheckedAtMs) &&
+    Number.isFinite(evaluatedAtMs) &&
+    runCheckedAtMs <= evaluatedAtMs;
+  const stale = hasValidRunTime && evaluatedAtMs - runCheckedAtMs > SCAN_STALE_AFTER_MS;
+  let availability: HealthScanFindingsView["availability"] = "unavailable";
+  if (hasValidRunTime) availability = stale ? "stale" : "available";
 
   return {
-    availability: "available",
+    availability,
     inProgress: scan.inProgress,
     runCheckedAt,
     freshnessLabel:
-      runAge === null ? "last full scan time unavailable" : `last full scan ${runAge}`,
+      runAge === null
+        ? "last full scan time unavailable"
+        : `last full scan ${runAge}${stale ? " · stale" : ""}`,
     groups,
   };
 }
