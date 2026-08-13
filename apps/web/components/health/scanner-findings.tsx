@@ -141,6 +141,14 @@ function unavailableCopy(scan: HealthScanFindingsView): { readonly title: string
   };
 }
 
+function staleCopy(scan: HealthScanFindingsView): { readonly title: string; readonly detail: string } {
+  return {
+    title: `Stale · ${scan.freshnessLabel.replace(/ · stale$/, "")}`,
+    detail:
+      "This result is older than the deep-scan freshness budget and may not reflect the current state.",
+  };
+}
+
 export function ScannerFindings({ scan }: { readonly scan: HealthScanFindingsView }) {
   const totals = scan.groups.reduce(
     (sum, group) => ({
@@ -152,15 +160,23 @@ export function ScannerFindings({ scan }: { readonly scan: HealthScanFindingsVie
     { errors: 0, warnings: 0, info: 0, suppressed: 0 },
   );
   const unavailable = unavailableCopy(scan);
+  const stale = staleCopy(scan);
+  const hasPreviousResult = scan.availability === "available" || scan.availability === "stale";
 
   return (
     <Card className={styles["scanner"]!}>
       <div className={styles["scannerHeader"]!}>
         <div>
           <span className={styles["eyebrow"]!}>Scanner findings · deep scan</span>
-          {scan.inProgress ? <p>Scan in progress · showing the previous recorded result.</p> : null}
+          {scan.inProgress ? (
+            <p>
+              {hasPreviousResult
+                ? "Scan in progress · showing the previous recorded result."
+                : "Scan in progress"}
+            </p>
+          ) : null}
         </div>
-        {scan.availability === "available" ? (
+        {hasPreviousResult ? (
           <div className={styles["scannerCounts"]!} aria-label="Deep scan finding counts">
             errors <strong className={styles["scanError"]!}>{totals.errors}</strong> · warnings{" "}
             <strong className={styles["scanWarning"]!}>{totals.warnings}</strong> · info{" "}
@@ -168,7 +184,22 @@ export function ScannerFindings({ scan }: { readonly scan: HealthScanFindingsVie
           </div>
         ) : null}
       </div>
-      {scan.availability !== "available" ? (
+      {scan.availability === "stale" ? (
+        <>
+          <div className={styles["scannerUnavailable"]!} data-availability={scan.availability}>
+            <Badge variant="warning">{stale.title}</Badge>
+            <p>{stale.detail}</p>
+          </div>
+          {scan.groups.length === 0 ? (
+            <div className={styles["scannerClean"]!}>
+              <strong>No findings in the recorded scan</strong>
+              <p>The stale completed deep scan returned no findings; this is not a current all-clear.</p>
+            </div>
+          ) : (
+            scan.groups.map((group) => <Group group={group} key={group.name} />)
+          )}
+        </>
+      ) : scan.availability !== "available" ? (
         <div className={styles["scannerUnavailable"]!} data-availability={scan.availability}>
           <strong>{unavailable.title}</strong>
           <p>{unavailable.detail}</p>

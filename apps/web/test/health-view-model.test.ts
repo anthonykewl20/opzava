@@ -1,6 +1,10 @@
 import type { ConnectionsSnapshot } from "@opzava/ports";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { HealthPage } from "../components/health/health-page";
+import { ScannerFindings } from "../components/health/scanner-findings";
 import { buildHealthPageViewModel } from "../lib/health/health-view-model";
 import type { ConnectionsPageData } from "../lib/connections";
 import { providerConnectionSummary } from "../lib/connections-state";
@@ -195,9 +199,133 @@ describe("Health page view model", () => {
       },
     });
     expect(view.scanFindings).toMatchObject({
+      availability: "unavailable",
       runCheckedAt: null,
       freshnessLabel: "last full scan time unavailable",
     });
+  });
+
+  it("marks an old succeeded scan stale without turning its empty result into an all-clear", () => {
+    const current = snapshot({
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: snapshot().openclawHealth.components.map((component) => ({
+          ...component,
+          status: "healthy" as const,
+        })),
+        warnings: [],
+      },
+    });
+    const view = buildHealthPageViewModel(pageData(current), liveContext, {
+      availability: "available",
+      inProgress: false,
+      latest: {
+        status: "succeeded",
+        runCheckedAt: "2026-07-20T22:00:30.000Z",
+        checksRun: 4,
+        checksSkipped: 0,
+        findings: [],
+      },
+    });
+    const html = renderToStaticMarkup(createElement(HealthPage, { view }));
+
+    expect(view.scanFindings).toMatchObject({
+      availability: "stale",
+      freshnessLabel: "last full scan 2h ago · stale",
+      groups: [],
+    });
+    expect(html).toContain("Current state unverified");
+    expect(html).not.toContain("Nothing needs your attention in the current health evidence.");
+  });
+
+  it("keeps a recent succeeded scan available", () => {
+    const view = buildHealthPageViewModel(pageData(), liveContext, {
+      availability: "available",
+      inProgress: false,
+      latest: {
+        status: "succeeded",
+        runCheckedAt: "2026-07-20T23:58:30.000Z",
+        checksRun: 4,
+        checksSkipped: 0,
+        findings: [],
+      },
+    });
+
+    expect(view.scanFindings).toMatchObject({
+      availability: "available",
+      freshnessLabel: "last full scan 2m ago",
+    });
+  });
+
+  it("does not claim a previous result during the first scan", () => {
+    const firstScan = renderToStaticMarkup(
+      createElement(ScannerFindings, {
+        scan: {
+          availability: "unavailable",
+          inProgress: true,
+          runCheckedAt: null,
+          freshnessLabel: "no scan yet",
+          groups: [],
+        },
+      }),
+    );
+    const repeatScan = renderToStaticMarkup(
+      createElement(ScannerFindings, {
+        scan: {
+          availability: "stale",
+          inProgress: true,
+          runCheckedAt: "2026-07-20T22:00:30.000Z",
+          freshnessLabel: "last full scan 2h ago · stale",
+          groups: [],
+        },
+      }),
+    );
+
+    expect(firstScan).toContain("Scan in progress");
+    expect(firstScan).not.toContain("showing the previous recorded result");
+    expect(repeatScan).toContain("showing the previous recorded result");
+    expect(repeatScan).toContain("may not reflect the current state");
+  });
+
+  it("labels stale recorded findings as historical rather than current attention", () => {
+    const current = snapshot({
+      openclawHealth: {
+        ...snapshot().openclawHealth,
+        components: snapshot().openclawHealth.components.map((component) => ({
+          ...component,
+          status: "healthy" as const,
+        })),
+        warnings: [],
+      },
+    });
+    const view = buildHealthPageViewModel(pageData(current), liveContext, {
+      availability: "available",
+      inProgress: false,
+      latest: {
+        status: "succeeded",
+        runCheckedAt: "2026-07-20T22:00:30.000Z",
+        checksRun: 1,
+        checksSkipped: 0,
+        findings: [
+          {
+            checkId: "stale-warning",
+            severity: "warning",
+            group: "Gateway",
+            summary: "Recorded warning",
+            detailState: "available",
+            locationLabel: null,
+            targetLabel: null,
+            fixHint: null,
+            suppressed: false,
+            suppressionReason: null,
+          },
+        ],
+      },
+    });
+    const html = renderToStaticMarkup(createElement(HealthPage, { view }));
+
+    expect(html).toContain("The stale recorded scan contains findings that needed attention.");
+    expect(html).toContain("Current state unverified");
   });
 
   it("does not turn missing scanner evidence into a healthy zero or affect live RPC state", () => {

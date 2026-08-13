@@ -91,6 +91,16 @@ function AttentionItem({ item }: { readonly item: HealthAttentionItemView }) {
   );
 }
 
+function unverifiedAttentionCopy(view: HealthPageViewModel, scanAttention: number): string {
+  if (scanAttention === 0) {
+    return "Current exceptions cannot be fully verified. RPC and deep-scan evidence keep separate states; no zero count is inferred from unavailable, stale, or unknown evidence.";
+  }
+  if (view.scanFindings.availability === "stale") {
+    return "The stale recorded scan contains findings that needed attention. Review them below, but do not treat them as current evidence.";
+  }
+  return "Scanner findings need attention and are listed in their separate deep-scan section.";
+}
+
 function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
   const scanAttention = view.scanFindings.groups.reduce(
     (total, group) => total + group.counts.errors + group.counts.warnings,
@@ -129,11 +139,7 @@ function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
             Nothing needs your attention in the current health evidence.
           </p>
         ) : (
-          <p className={styles["quietState"]!}>
-            {scanAttention > 0
-              ? "Scanner findings need attention and are listed in their separate deep-scan section."
-              : "Current exceptions cannot be fully verified. RPC and deep-scan evidence keep separate states; no zero count is inferred from unavailable, stale, or unknown evidence."}
-          </p>
+          <p className={styles["quietState"]!}>{unverifiedAttentionCopy(view, scanAttention)}</p>
         )}
       </CardContent>
     </Card>
