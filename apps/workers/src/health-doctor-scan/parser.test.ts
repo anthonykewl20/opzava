@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_DOCTOR_FINDINGS, MAX_DOCTOR_OUTPUT_BYTES, parseDoctorLintOutput } from "./parser.js";
 import { DOCTOR_SAFE_SUMMARY_REGISTRY } from "./safe-summary-registry.js";
+import { DOCTOR_SUPPRESSION_REGISTRY } from "./suppression-registry.js";
 
 function output(findings: readonly Record<string, unknown>[], exitCode = 1) {
   return { exitCode, stdout: JSON.stringify({ ok: false, checksRun: 2, checksSkipped: 1, findings }) };
@@ -38,6 +39,44 @@ describe("parseDoctorLintOutput redaction boundary", () => {
     });
   });
 
+  it("retains a structurally inapplicable finding with its suppression reason", () => {
+    const run = parseDoctorLintOutput(output([{
+      checkId: "core/doctor/gateway-daemon",
+      severity: "warning",
+      message: "UPSTREAM_SECRET"
+    }]));
+
+    expect(run.findings).toHaveLength(1);
+    expect(run.findings[0]).toMatchObject({
+      checkId: "core/doctor/gateway-daemon",
+      severity: "warning",
+      suppressed: true,
+      suppressionReason: "OpenClaw runs as a container, not a system service."
+    });
+    expect(JSON.stringify(run)).not.toContain("UPSTREAM_SECRET");
+  });
+
+  it("leaves a registered safe-summary check unsuppressed", () => {
+    const run = parseDoctorLintOutput(output([{
+      checkId: "core/doctor/session-locks",
+      severity: "warning"
+    }]));
+
+    expect(run.findings[0]).toMatchObject({
+      checkId: "core/doctor/session-locks",
+      suppressed: false,
+      suppressionReason: null
+    });
+  });
+
+  it("does not suppress prototype-colliding check ids", () => {
+    for (const checkId of ["constructor"]) {
+      const run = parseDoctorLintOutput(output([{ checkId, severity: "info", message: "SECRET" }]));
+      expect(run.findings[0]).toMatchObject({ checkId, suppressed: false, suppressionReason: null });
+      expect(JSON.stringify(run)).not.toContain("SECRET");
+    }
+  });
+
   it("uses the exact safe fallback for unknown and unsafe check ids", () => {
     for (const checkId of ["plugin.future-check", "../../SECRET", "X".repeat(129)]) {
       const run = parseDoctorLintOutput(output([{ checkId, severity: "error", message: "SECRET" }]));
@@ -45,7 +84,9 @@ describe("parseDoctorLintOutput redaction boundary", () => {
         checkId: checkId === "plugin.future-check" ? checkId : "unknown",
         group: "Other",
         summary: "OpenClaw doctor reported a error finding in an unclassified check.",
-        detailState: "redacted_unavailable"
+        detailState: "redacted_unavailable",
+        suppressed: false,
+        suppressionReason: null
       });
       expect(JSON.stringify(run)).not.toContain("SECRET");
     }
@@ -88,6 +129,18 @@ describe("safe-summary registry", () => {
         checkId, group: entry.group, summary: entry.summary, detailState: "available"
       });
       expect(JSON.stringify(finding)).not.toContain("UPSTREAM_SECRET");
+    }
+  });
+});
+
+describe("suppression registry", () => {
+  it("contains only bounded safe ids, reasons, and non-empty review owners", () => {
+    expect(Object.keys(DOCTOR_SUPPRESSION_REGISTRY).length).toBeGreaterThan(0);
+    for (const [checkId, entry] of Object.entries(DOCTOR_SUPPRESSION_REGISTRY)) {
+      expect(checkId).toMatch(/^[a-z0-9][a-z0-9._/-]{0,127}$/);
+      expect(entry.reason.length).toBeGreaterThanOrEqual(1);
+      expect(entry.reason.length).toBeLessThanOrEqual(64);
+      expect(entry.reviewOwner.length).toBeGreaterThan(0);
     }
   });
 });
