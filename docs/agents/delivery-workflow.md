@@ -75,6 +75,11 @@ status file to go stale.**
 - **Read the full diff** and vouch for every hunk.
 - **Verify the guardrail:** `git -C <main-checkout> log -1 development` — it must not have moved.
 
+### Local-verification gotchas (confirmed in practice)
+- **OCR gate in worktrees**: a gated `git commit`/`git push` inside a worktree MUST use `git -C <worktree>` (or pass the bash `workdir` arg). The OCR-gate plugin resolves the target checkout from a `git -C` in the command or the `workdir` arg — NOT from a `cd` inside the command — so `cd <wt> && git commit` is seen as operating on the main checkout and is blocked ("no valid gate pass for this workspace"). Always `git -C <worktree>` for gated ops.
+- **`--filter` gates bypass turbo**: `pnpm --filter <pkg> typecheck|test|lint|build` runs ONLY that package's script — it does NOT build workspace dependencies (turbo's `^build` is bypassed) and does NOT lint/typecheck OTHER packages. CI runs the full-workspace `pnpm turbo run typecheck test lint build`. Before pushing: (a) in a fresh worktree, run `pnpm turbo run build --filter=<pkg>...` so dependencies' `dist/` exists; (b) run the FULL `pnpm turbo run lint typecheck build` (all packages), not just `--filter`, so cross-package surfaces (e.g. `@opzava/ports` lint) are covered. Env-gated integration suites (those needing `DATABASE_URL`/`DATABASE_MIGRATION_URL`) skip locally and in CI — note them, don't "fix" them.
+- **CI does not apply migrations**: the `verify` workflow runs typecheck/test/lint/build but NOT `db:migrate` or the migration-manifest gate. Any slice touching a migration MUST be verified on an isolated Postgres — `docker run` a postgres (mounting `db/init` for the role bootstrap) + `DATABASE_MIGRATION_URL=… pnpm --filter @opzava/adapters db:migrate` + the DB-gated integration test. CI will not catch a migration that fails to apply or is silently skipped (a migration must be registered in BOTH `manifest.json` AND drizzle's `meta/_journal.json` — omitting the latter silently skips it).
+
 ### 7. Review gate
 - **DeepSeek review is required** (`ocask`, `deepseek-v4-pro`). Security-focused for anything touching
   auth/capability/secrets; consolidated review otherwise.
