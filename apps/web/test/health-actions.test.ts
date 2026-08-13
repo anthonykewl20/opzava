@@ -42,6 +42,17 @@ describe("recheckDoctorScanAction", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/health");
   });
 
+  it("rejects a non-admin member without forcing a scan", async () => {
+    mocks.requireContext.mockResolvedValue({ roleKeys: ["member"] });
+    const { recheckDoctorScanAction } = await import("@/app/(app)/health/actions");
+
+    await expect(recheckDoctorScanAction({ status: "idle" }, new FormData())).resolves.toEqual({
+      status: "error",
+      message: "You must be an administrator to re-check health.",
+    });
+    expect(mocks.force).not.toHaveBeenCalled();
+  });
+
   it("returns an explicit failure when the scope is not configured", async () => {
     vi.stubEnv("OPZAVA_PLATFORM_ORGANIZATION_ID", "");
     const { recheckDoctorScanAction } = await import("@/app/(app)/health/actions");
