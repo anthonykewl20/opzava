@@ -143,6 +143,48 @@ const liveContext = {
 } as const;
 
 describe("Health page view model", () => {
+  it("groups redacted scanner findings without hiding suppressed or info evidence", () => {
+    const scan = {
+      availability: "available" as const,
+      inProgress: false,
+      latest: {
+        status: "succeeded" as const,
+        checksRun: 4,
+        checksSkipped: 0,
+        findings: [
+          { checkId: "warning", severity: "warning" as const, group: "Security", summary: "Warning", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: "Fix", suppressed: false, suppressionReason: null },
+          { checkId: "error", severity: "error" as const, group: "Security", summary: "Error", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
+          { checkId: "info", severity: "info" as const, group: "future", summary: "Info", detailState: "redacted_unavailable" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
+          { checkId: "suppressed", severity: "error" as const, group: "future", summary: "Suppressed", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: true, suppressionReason: "Not applicable" },
+        ],
+      },
+    };
+    const view = buildHealthPageViewModel(pageData(), liveContext, scan);
+    expect(view.scanFindings.groups.map((group) => group.name)).toEqual(["Security", "Other"]);
+    expect(view.scanFindings.groups[0]).toMatchObject({
+      worstSeverity: "error",
+      counts: { errors: 1, warnings: 1, info: 0, suppressed: 0 },
+    });
+    expect(view.scanFindings.groups[0]?.findings.map((finding) => finding.attention)).toEqual([true, true]);
+    expect(view.scanFindings.groups[1]).toMatchObject({
+      counts: { errors: 0, warnings: 0, info: 1, suppressed: 1 },
+    });
+    expect(view.scanFindings.groups[1]?.findings).toHaveLength(2);
+  });
+
+  it("does not turn missing scanner evidence into a healthy zero or affect live RPC state", () => {
+    const noScan = buildHealthPageViewModel(pageData(), liveContext, {
+      availability: "unknown",
+      latest: null,
+      inProgress: false,
+    });
+    expect(noScan.scanFindings).toMatchObject({
+      availability: "unavailable",
+      freshnessLabel: "no scan yet",
+      groups: [],
+    });
+    expect(noScan).toMatchObject({ availability: "live", counts: { total: 6 } });
+  });
   it("groups every component and derives truthful counts and exception-only attention rows", () => {
     const view = buildHealthPageViewModel(pageData(), liveContext);
 
