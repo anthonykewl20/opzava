@@ -221,7 +221,7 @@ function scanFindingsView(scan: DoctorScanLatest | null | undefined): HealthScan
     availability: "available",
     inProgress: scan.inProgress,
     runCheckedAt: null,
-    freshnessLabel: "last full scan completed",
+    freshnessLabel: "last full scan time unavailable",
     groups,
   };
 }
