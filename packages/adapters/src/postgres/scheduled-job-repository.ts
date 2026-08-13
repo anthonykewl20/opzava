@@ -83,7 +83,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
         )
         update public.platform_scheduled_job job set
           dispatch_lease_token = gen_random_uuid(),
-          dispatch_lease_expires_at = ${input.now} + (${DISPATCH_LEASE_SECONDS} * interval '1 second'),
+          dispatch_lease_expires_at = ${input.now}::timestamptz + (${DISPATCH_LEASE_SECONDS} * interval '1 second'),
           last_started_at = ${input.now}, updated_at = ${input.now}
         from due
         where job.job_key = due.job_key and job.organization_id = due.organization_id and job.scope = due.scope
@@ -98,7 +98,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
     return withTenant(input.organizationId, async (tx) => {
       const result = await tx.execute(sql`
         update public.platform_scheduled_job set
-          next_run_at = ${input.now} + (${input.cadenceSeconds} * interval '1 second'),
+          next_run_at = ${input.now}::timestamptz + (${input.cadenceSeconds} * interval '1 second'),
           dispatch_lease_token = null, dispatch_lease_expires_at = null,
           consecutive_failures = 0, last_completed_at = ${input.now}, last_failure_code = null,
           updated_at = ${input.now}
@@ -117,7 +117,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
     return withTenant(input.organizationId, async (tx) => {
       const result = await tx.execute(sql`
         update public.platform_scheduled_job set
-          next_run_at = ${input.now} + (${input.retryBackoffSeconds} * interval '1 second'),
+          next_run_at = ${input.now}::timestamptz + (${input.retryBackoffSeconds} * interval '1 second'),
           dispatch_lease_token = null, dispatch_lease_expires_at = null,
           consecutive_failures = least(consecutive_failures + 1, 2147483647), last_failure_code = ${input.failureCode},
           updated_at = ${input.now}
