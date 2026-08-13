@@ -84,7 +84,9 @@ export function forbidUnsafeMigrationCommand(args: ReadonlyArray<string>): void 
 }
 
 export async function verifyMigrationManifest(
-  options: VerifyMigrationManifestOptions
+  options: VerifyMigrationManifestOptions = {
+    migrationsDir: path.resolve("packages/identity-access/drizzle")
+  }
 ): Promise<MigrationManifest> {
   const manifestPath = options.manifestPath ?? path.join(options.migrationsDir, "manifest.json");
   const manifest = parseMigrationManifest(JSON.parse(await readFile(manifestPath, "utf8")));
