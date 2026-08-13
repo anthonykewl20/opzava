@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { formFailureState, initialFormActionState, type FormActionState } from "@/lib/action-state";
+import { admitsAdminControlCenter } from "@/lib/admin-registry";
 import { requireContext } from "@/lib/authed-action";
 import {
   defaultDoctorScanClient,
@@ -43,7 +44,10 @@ export async function recheckDoctorScanAction(
   void _previousState;
   void _formData;
   try {
-    await requireContext();
+    const context = await requireContext();
+    if (!admitsAdminControlCenter(context.roleKeys)) {
+      return formFailureState("You must be an administrator to re-check health.");
+    }
   } catch {
     return formFailureState("You must be signed in as an administrator to re-check health.");
   }
