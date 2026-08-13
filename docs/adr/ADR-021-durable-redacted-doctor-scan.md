@@ -205,9 +205,13 @@ cleanup margin. A client-side Docker request timeout alone is insufficient becau
 helper does not prove that the child ended
 (`apps/workers/src/provisioning/docker-gateway-runtime.ts:2231-2257`).
 
-**UNVERIFIED:** the exact in-container timeout binary and path available in the built
-`opzava/mainframe-gateway` image. PR B must prove this against the built image before selecting the
-command. No implementation may infer it from the host or from training knowledge.
+**VERIFIED (2026-08-13, #280 B2):** driven against the built
+`opzava/mainframe-gateway:2026.7.2-beta.3` image — `/usr/bin/timeout` is present, and
+`node /app/openclaw.mjs doctor --lint --all --severity-min info --json` exits 1 with a valid
+`{ ok, checksRun, checksSkipped, findings[] }` envelope that `parseDoctorLintOutput` accepts (53 run /
+0 skipped / 41 findings, all classified). The adapter therefore retains its configurable host-side
+hard deadline and ADR-envelope validation as defense-in-depth rather than relying on the in-container
+`timeout`. No implementation may infer the binary/path from the host or from training knowledge.
 
 ### Expose honest Health state
 
