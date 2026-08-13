@@ -11,6 +11,7 @@ import type { HealthAttentionItemView, HealthPageViewModel } from "@/lib/health/
 
 import { AllComponents } from "./all-components";
 import { HealthRing } from "./health-ring";
+import { ScannerFindings } from "./scanner-findings";
 import styles from "./health.module.css";
 import { useCountUp } from "./use-count-up";
 
@@ -91,7 +92,15 @@ function AttentionItem({ item }: { readonly item: HealthAttentionItemView }) {
 }
 
 function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
-  const emptyAndVerified = view.availability === "live" && view.attentionItems.length === 0;
+  const scanAttention = view.scanFindings.groups.reduce(
+    (total, group) => total + group.counts.errors + group.counts.warnings,
+    0,
+  );
+  const emptyAndVerified =
+    view.availability === "live" &&
+    view.attentionItems.length === 0 &&
+    view.scanFindings.availability === "available" &&
+    scanAttention === 0;
   return (
     <Card className={`${styles["tile"]!} ${styles["spanTwo"]!}`}>
       <CardHeader className={styles["attentionHeader"]!}>
@@ -103,8 +112,8 @@ function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
         </span>
         <h2>Needs your attention</h2>
         <span className={styles["attentionCount"]!}>
-          {view.availability === "live"
-            ? `${view.attentionItems.length} ${view.attentionItems.length === 1 ? "item" : "items"}`
+          {view.availability === "live" && view.scanFindings.availability === "available"
+            ? `${view.attentionItems.length} RPC · ${scanAttention} scanner`
             : "Current state unverified"}
         </span>
       </CardHeader>
@@ -121,8 +130,9 @@ function AttentionTile({ view }: { readonly view: HealthPageViewModel }) {
           </p>
         ) : (
           <p className={styles["quietState"]!}>
-            Current exceptions cannot be verified. No zero count is inferred from unavailable,
-            stale, or unknown evidence.
+            {scanAttention > 0
+              ? "Scanner findings need attention and are listed in their separate deep-scan section."
+              : "Current exceptions cannot be fully verified. RPC and deep-scan evidence keep separate states; no zero count is inferred from unavailable, stale, or unknown evidence."}
           </p>
         )}
       </CardContent>
@@ -223,17 +233,23 @@ export function HealthPage({ view }: { readonly view: HealthPageViewModel }) {
             everything healthy stays quiet.
           </p>
         </div>
-        <span
-          className={styles["freshness"]!}
-          data-availability={view.availability}
-          data-freshness-state={view.freshnessState}
-        >
+        <div className={styles["freshnessClocks"]!}>
           <span
-            className={view.isFreshLive ? styles["freshPulse"]! : styles["freshDot"]!}
-            aria-hidden="true"
-          />
-          {view.freshnessLabel}
-        </span>
+            className={styles["freshness"]!}
+            data-availability={view.availability}
+            data-freshness-state={view.freshnessState}
+          >
+            <span
+              className={view.isFreshLive ? styles["freshPulse"]! : styles["freshDot"]!}
+              aria-hidden="true"
+            />
+            {view.freshnessLabel} <em>RPC snapshot</em>
+          </span>
+          <span className={`${styles["freshness"]!} ${styles["scanFreshness"]!}`}>
+            <span className={styles["scanFreshDot"]!} aria-hidden="true" />
+            {view.scanFindings.freshnessLabel} <em>deep doctor-scan</em>
+          </span>
+        </div>
       </header>
 
       <div className={styles["bento"]!}>
@@ -255,6 +271,7 @@ export function HealthPage({ view }: { readonly view: HealthPageViewModel }) {
       </div>
 
       <AllComponents groups={view.groups} />
+      <ScannerFindings scan={view.scanFindings} />
 
       <p className={styles["footerNote"]!}>
         Reads and links only — this page never changes runtime state. Every value carries freshness;

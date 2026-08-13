@@ -475,6 +475,22 @@ export function buildHealthPageViewModel(
       : null;
   const overall = includeCurrentSnapshot ? (healthEnvelope.value?.overall ?? "unknown") : "unknown";
   const verdict = verdictCopy({ availability: healthEnvelope.state, counts, overall });
+  const scanner = scanFindingsView(scan);
+  const scannerAttention = scanner.groups.reduce(
+    (total, group) => total + group.counts.errors + group.counts.warnings,
+    0,
+  );
+  const composedVerdict =
+    healthEnvelope.state === "live" && scanner.availability === "available" && scannerAttention > 0
+      ? {
+          verdict:
+            scannerAttention === 1
+              ? "One scanner finding needs your attention"
+              : `${scannerAttention} scanner findings need your attention`,
+          description:
+            "RPC component evidence and deep-scan findings are reported separately below.",
+        }
+      : verdict;
   const lastKnownGood = health.lastKnownHealthy;
 
   return {
@@ -486,7 +502,7 @@ export function buildHealthPageViewModel(
       healthEnvelope.freshnessState === "within-budget" &&
       health.checkedAt !== null,
     overall,
-    ...verdict,
+    ...composedVerdict,
     counts,
     attentionItems: attentionItems(data, includeCurrentSnapshot),
     warnings: includeCurrentSnapshot
@@ -519,6 +535,6 @@ export function buildHealthPageViewModel(
             total: lastKnownGood.total,
             stale: true,
           },
-    scanFindings: scanFindingsView(scan),
+    scanFindings: scanner,
   };
 }
