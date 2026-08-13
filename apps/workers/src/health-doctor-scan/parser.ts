@@ -1,4 +1,5 @@
 import { lookupSafeSummary } from "./safe-summary-registry.js";
+import { lookupSuppression } from "./suppression-registry.js";
 import type { DoctorFinding, DoctorScanRun, DoctorSeverity } from "./types.js";
 
 export const MAX_DOCTOR_OUTPUT_BYTES = 256 * 1024;
@@ -39,6 +40,7 @@ function parseFinding(value: unknown): DoctorFinding | undefined {
     ? rawCheckId
     : "unknown";
   const safe = checkId === "unknown" ? undefined : lookupSafeSummary(checkId);
+  const suppression = checkId === "unknown" ? undefined : lookupSuppression(checkId);
 
   return {
     checkId,
@@ -51,8 +53,8 @@ function parseFinding(value: unknown): DoctorFinding | undefined {
     locationLabel: null,
     targetLabel: null,
     fixHint: null,
-    suppressed: false,
-    suppressionReason: null
+    suppressed: suppression !== undefined,
+    suppressionReason: suppression?.reason ?? null
   };
 }
 
