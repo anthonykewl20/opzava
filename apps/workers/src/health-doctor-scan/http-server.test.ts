@@ -74,7 +74,7 @@ describe("doctor scan internal HTTP routes", () => {
       availability: "available",
       inProgress: false,
       latest: {
-        status: "succeeded", checksRun: 1, checksSkipped: 0,
+        status: "succeeded", runCheckedAt: "2026-07-21T00:00:00.000Z", checksRun: 1, checksSkipped: 0,
         findings: [{
           checkId: "gateway.config", severity: "warning", group: "gateway",
           summary: "Safe summary", detailState: "redacted_unavailable", locationLabel: null,
@@ -89,6 +89,9 @@ describe("doctor scan internal HTTP routes", () => {
     expect(body).not.toContain("SECRET_SENTINEL");
     expect(body).not.toContain("stdout");
     expect(body).not.toContain("stderr");
+    expect(JSON.parse(body)).toMatchObject({
+      latest: { runCheckedAt: "2026-07-21T00:00:00.000Z" },
+    });
   });
 
   it("rejects a caller-selected tenant or scope", async () => {

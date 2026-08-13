@@ -21,6 +21,7 @@ export interface DoctorScanFindingRecord {
 
 export interface DoctorScanRunRecord {
   readonly status: "succeeded" | "unavailable";
+  readonly runCheckedAt: string | null;
   readonly checksRun: number;
   readonly checksSkipped: number;
   readonly findings: readonly DoctorScanFindingRecord[];
@@ -63,7 +64,7 @@ export interface PublishDoctorScanInput {
   readonly leaseToken: string;
   readonly startedAt: Date;
   readonly completedAt?: Date;
-  readonly run: DoctorScanRunRecord;
+  readonly run: Omit<DoctorScanRunRecord, "runCheckedAt">;
 }
 
 interface ExecuteDatabase {
@@ -89,7 +90,7 @@ export class PostgresDoctorScanRepository {
       input.organizationId,
       async (tx) => {
         const runResult = await tx.execute(sql`
-        select id, status, checks_run, checks_skipped, failure_code
+        select id, status, completed_at, checks_run, checks_skipped, failure_code
         from public.platform_doctor_scan_run
         where organization_id = ${input.organizationId}::uuid and scope = ${input.scope}
         order by completed_at desc, id desc
@@ -120,6 +121,12 @@ export class PostgresDoctorScanRepository {
         const failureCode = run["failure_code"];
         return {
           status: run["status"] as DoctorScanRunRecord["status"],
+          runCheckedAt:
+            run["completed_at"] instanceof Date
+              ? (run["completed_at"] as Date).toISOString()
+              : typeof run["completed_at"] === "string"
+                ? run["completed_at"]
+                : null,
           checksRun: Number(run["checks_run"]),
           checksSkipped: Number(run["checks_skipped"]),
           findings,
@@ -315,7 +322,10 @@ export class InMemoryDoctorScanRepository {
     const lease = this.leases.get(key);
     if (lease?.token !== input.leaseToken || lease.expiresAt <= now) return null;
     this.leases.set(key, { ...lease, expiresAt: now });
-    this.runs.set(key, [...(this.runs.get(key) ?? []), input.run]);
+    this.runs.set(key, [
+      ...(this.runs.get(key) ?? []),
+      { ...input.run, runCheckedAt: now.toISOString() },
+    ]);
     return randomUUID();
   }
 }

@@ -139,28 +139,36 @@ export interface HealthPageViewModel {
   readonly scanFindings: HealthScanFindingsView;
 }
 
-const scanGroupOrder = ["Security", "Configuration", "Storage", "Plugins", "Other"] as const;
-
-function scanGroupName(group: string): string {
-  const normalized = group.trim().toLowerCase();
-  if (normalized === "security") return "Security";
-  if (normalized === "configuration") return "Configuration";
-  if (
-    normalized === "storage" ||
-    normalized === "storage & state" ||
-    normalized === "storage-and-state"
-  ) {
-    return "Storage";
-  }
-  if (normalized === "plugins") return "Plugins";
-  return "Other";
-}
+const scanGroupOrder = [
+  "Authentication",
+  "Gateway",
+  "Configuration",
+  "Sessions",
+  "Storage",
+] as const;
 
 function severityRank(severity: ScanFindingSeverity): number {
   return severity === "error" ? 3 : severity === "warning" ? 2 : 1;
 }
 
-function scanFindingsView(scan: DoctorScanLatest | null | undefined): HealthScanFindingsView {
+function scanRunRelativeAge(value: string, evaluatedAt: string): string | null {
+  const valueMs = Date.parse(value);
+  const evaluatedAtMs = Date.parse(evaluatedAt);
+  if (!Number.isFinite(valueMs) || !Number.isFinite(evaluatedAtMs) || valueMs > evaluatedAtMs) {
+    return null;
+  }
+
+  const ageMs = evaluatedAtMs - valueMs;
+  if (ageMs < 60_000) return "just now";
+  if (ageMs < 3_600_000) return `${Math.floor(ageMs / 60_000)}m ago`;
+  if (ageMs < 86_400_000) return `${Math.floor(ageMs / 3_600_000)}h ago`;
+  return `${Math.floor(ageMs / 86_400_000)}d ago`;
+}
+
+function scanFindingsView(
+  scan: DoctorScanLatest | null | undefined,
+  evaluatedAt: string,
+): HealthScanFindingsView {
   if (scan === undefined) {
     return {
       availability: "not-configured",
@@ -182,7 +190,7 @@ function scanFindingsView(scan: DoctorScanLatest | null | undefined): HealthScan
 
   const grouped = new Map<string, ScanFindingView[]>();
   for (const finding of scan.latest.findings) {
-    const name = scanGroupName(finding.group);
+    const name = finding.group;
     const findings = grouped.get(name) ?? [];
     findings.push({
       ...finding,
@@ -211,17 +219,24 @@ function scanFindingsView(scan: DoctorScanLatest | null | undefined): HealthScan
         findings,
       };
     })
-    .sort(
-      (left, right) =>
-        scanGroupOrder.indexOf(left.name as (typeof scanGroupOrder)[number]) -
-        scanGroupOrder.indexOf(right.name as (typeof scanGroupOrder)[number]),
-    );
+    .sort((left, right) => {
+      const leftIndex = scanGroupOrder.indexOf(left.name as (typeof scanGroupOrder)[number]);
+      const rightIndex = scanGroupOrder.indexOf(right.name as (typeof scanGroupOrder)[number]);
+      if (leftIndex !== -1 && rightIndex !== -1) return leftIndex - rightIndex;
+      if (leftIndex !== -1) return -1;
+      if (rightIndex !== -1) return 1;
+      return left.name.localeCompare(right.name);
+    });
+
+  const runCheckedAt = scan.latest.runCheckedAt;
+  const runAge = runCheckedAt === null ? null : scanRunRelativeAge(runCheckedAt, evaluatedAt);
 
   return {
     availability: "available",
     inProgress: scan.inProgress,
-    runCheckedAt: null,
-    freshnessLabel: "last full scan time unavailable",
+    runCheckedAt,
+    freshnessLabel:
+      runAge === null ? "last full scan time unavailable" : `last full scan ${runAge}`,
     groups,
   };
 }
@@ -475,7 +490,7 @@ export function buildHealthPageViewModel(
       : null;
   const overall = includeCurrentSnapshot ? (healthEnvelope.value?.overall ?? "unknown") : "unknown";
   const verdict = verdictCopy({ availability: healthEnvelope.state, counts, overall });
-  const scanner = scanFindingsView(scan);
+  const scanner = scanFindingsView(scan, context.evaluatedAt);
   const scannerAttention = scanner.groups.reduce(
     (total, group) => total + group.counts.errors + group.counts.warnings,
     0,

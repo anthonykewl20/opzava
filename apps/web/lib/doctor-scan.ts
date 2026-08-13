@@ -67,6 +67,7 @@ const latestSchema = z.object({
   availability: z.enum(["available", "unknown"]),
   latest: z.object({
     status: z.enum(["succeeded", "unavailable"]),
+    runCheckedAt: z.string().nullable(),
     checksRun: z.number().int().nonnegative(),
     checksSkipped: z.number().int().nonnegative(),
     findings: z.array(findingSchema),
@@ -131,6 +132,7 @@ class InternalDoctorScanClient implements DoctorScanClient {
             ? null
             : {
                 status: latest.status,
+                runCheckedAt: latest.runCheckedAt,
                 checksRun: latest.checksRun,
                 checksSkipped: latest.checksSkipped,
                 findings: latest.findings,
