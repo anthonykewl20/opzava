@@ -77,6 +77,19 @@ describe("parseDoctorLintOutput redaction boundary", () => {
     }
   });
 
+  it("does not classify a prototype-colliding check id as safe-summary available", () => {
+    const run = parseDoctorLintOutput(output([{
+      checkId: "constructor", severity: "info", message: "SECRET"
+    }]));
+
+    expect(run.findings[0]).toMatchObject({
+      group: "Other",
+      detailState: "redacted_unavailable",
+      suppressed: false
+    });
+    expect(JSON.stringify(run)).not.toContain("SECRET");
+  });
+
   it("uses the exact safe fallback for unknown and unsafe check ids", () => {
     for (const checkId of ["plugin.future-check", "../../SECRET", "X".repeat(129)]) {
       const run = parseDoctorLintOutput(output([{ checkId, severity: "error", message: "SECRET" }]));
