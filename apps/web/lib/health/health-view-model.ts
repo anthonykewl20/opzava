@@ -8,6 +8,7 @@ import {
   type ReadinessProjectionContext,
 } from "@/lib/admin-overview/readiness-projections";
 import type { ConnectionsPageData } from "@/lib/connections";
+import type { DoctorScanLatest } from "@/lib/doctor-scan";
 import { overviewHealthGroupId } from "@/lib/connections-overview";
 import { scoredHealthComponents } from "@/lib/connections-state";
 
@@ -83,6 +84,42 @@ export interface HealthSessionsView {
   readonly href: string;
 }
 
+export type ScanFindingSeverity = "error" | "warning" | "info";
+
+export interface ScanFindingView {
+  readonly checkId: string;
+  readonly severity: ScanFindingSeverity;
+  readonly group: string;
+  readonly summary: string;
+  readonly detailState: "available" | "redacted_unavailable";
+  readonly locationLabel: string | null;
+  readonly targetLabel: string | null;
+  readonly fixHint: string | null;
+  readonly suppressed: boolean;
+  readonly suppressionReason: string | null;
+  readonly attention: boolean;
+}
+
+export interface ScanFindingGroupView {
+  readonly name: string;
+  readonly worstSeverity: ScanFindingSeverity;
+  readonly counts: {
+    readonly errors: number;
+    readonly warnings: number;
+    readonly info: number;
+    readonly suppressed: number;
+  };
+  readonly findings: readonly ScanFindingView[];
+}
+
+export interface HealthScanFindingsView {
+  readonly availability: "available" | "not-configured" | "unavailable";
+  readonly inProgress: boolean;
+  readonly runCheckedAt: string | null;
+  readonly freshnessLabel: string;
+  readonly groups: readonly ScanFindingGroupView[];
+}
+
 export interface HealthPageViewModel {
   readonly availability: AvailabilityState;
   readonly freshnessState: EvidenceEnvelope<unknown>["freshnessState"];
@@ -99,6 +136,94 @@ export interface HealthPageViewModel {
   readonly runtime: HealthRuntimeView;
   readonly sessions: HealthSessionsView;
   readonly lastKnownGood: HealthLastKnownGoodView | null;
+  readonly scanFindings: HealthScanFindingsView;
+}
+
+const scanGroupOrder = ["Security", "Configuration", "Storage", "Plugins", "Other"] as const;
+
+function scanGroupName(group: string): string {
+  const normalized = group.trim().toLowerCase();
+  if (normalized === "security") return "Security";
+  if (normalized === "configuration") return "Configuration";
+  if (
+    normalized === "storage" ||
+    normalized === "storage & state" ||
+    normalized === "storage-and-state"
+  ) {
+    return "Storage";
+  }
+  if (normalized === "plugins") return "Plugins";
+  return "Other";
+}
+
+function severityRank(severity: ScanFindingSeverity): number {
+  return severity === "error" ? 3 : severity === "warning" ? 2 : 1;
+}
+
+function scanFindingsView(scan: DoctorScanLatest | null | undefined): HealthScanFindingsView {
+  if (scan === undefined) {
+    return {
+      availability: "not-configured",
+      inProgress: false,
+      runCheckedAt: null,
+      freshnessLabel: "no scan yet",
+      groups: [],
+    };
+  }
+  if (scan === null || scan.availability !== "available" || scan.latest?.status !== "succeeded") {
+    return {
+      availability: "unavailable",
+      inProgress: scan?.inProgress ?? false,
+      runCheckedAt: null,
+      freshnessLabel: "no scan yet",
+      groups: [],
+    };
+  }
+
+  const grouped = new Map<string, ScanFindingView[]>();
+  for (const finding of scan.latest.findings) {
+    const name = scanGroupName(finding.group);
+    const findings = grouped.get(name) ?? [];
+    findings.push({
+      ...finding,
+      attention: !finding.suppressed && (finding.severity === "error" || finding.severity === "warning"),
+    });
+    grouped.set(name, findings);
+  }
+
+  const groups = [...grouped.entries()]
+    .map(([name, findings]) => {
+      const active = findings.filter((finding) => !finding.suppressed);
+      const worstSeverity = (active.length === 0 ? findings : active).reduce<ScanFindingSeverity>(
+        (worst, finding) =>
+          severityRank(finding.severity) > severityRank(worst) ? finding.severity : worst,
+        "info",
+      );
+      return {
+        name,
+        worstSeverity,
+        counts: {
+          errors: active.filter((finding) => finding.severity === "error").length,
+          warnings: active.filter((finding) => finding.severity === "warning").length,
+          info: active.filter((finding) => finding.severity === "info").length,
+          suppressed: findings.length - active.length,
+        },
+        findings,
+      };
+    })
+    .sort(
+      (left, right) =>
+        scanGroupOrder.indexOf(left.name as (typeof scanGroupOrder)[number]) -
+        scanGroupOrder.indexOf(right.name as (typeof scanGroupOrder)[number]),
+    );
+
+  return {
+    availability: "available",
+    inProgress: scan.inProgress,
+    runCheckedAt: null,
+    freshnessLabel: "last full scan completed",
+    groups,
+  };
 }
 
 const groupDefinitions = [
@@ -327,6 +452,7 @@ function gatewayView(
 export function buildHealthPageViewModel(
   data: ConnectionsPageData,
   context: ReadinessProjectionContext,
+  scan?: DoctorScanLatest | null,
 ): HealthPageViewModel {
   const healthEnvelope = projectHealthReadiness(data, context);
   const gatewayEnvelope = projectGatewayReadiness(data, context);
@@ -393,5 +519,6 @@ export function buildHealthPageViewModel(
             total: lastKnownGood.total,
             stale: true,
           },
+    scanFindings: scanFindingsView(scan),
   };
 }

@@ -1,10 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defaultDoctorScanClient } from "@/lib/doctor-scan";
+import { defaultDoctorScanClient, readDoctorScanScope } from "@/lib/doctor-scan";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("doctor scan worker client", () => {
+  it("reads and validates the worker-bound scan scope", () => {
+    const organizationId = "22222222-2222-4222-8222-222222222222";
+    expect(readDoctorScanScope({ OPZAVA_PLATFORM_ORGANIZATION_ID: organizationId })).toEqual({
+      ok: true,
+      value: { organizationId, scope: "platform-gateway" },
+    });
+    expect(
+      readDoctorScanScope({
+        OPZAVA_PLATFORM_ORGANIZATION_ID: organizationId,
+        DOCTOR_SCAN_SCOPE: "custom",
+      }),
+    ).toEqual({
+      ok: true,
+      value: { organizationId, scope: "custom" },
+    });
+    expect(readDoctorScanScope({})).toMatchObject({
+      ok: false,
+      error: { code: "web.doctorScanNotConfigured" },
+    });
+    expect(
+      readDoctorScanScope({ OPZAVA_PLATFORM_ORGANIZATION_ID: "not-a-uuid" }),
+    ).toMatchObject({ ok: false, error: { code: "web.doctorScanInvalidConfig" } });
+  });
   it("fails closed when the worker is not configured", async () => {
     const result = await defaultDoctorScanClient({}).readLatest({ organizationId: "org-1", scope: "platform-gateway" });
     expect(result).toMatchObject({ ok: false, error: { code: "web.doctorScanNotConfigured" } });

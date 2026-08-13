@@ -13,6 +13,32 @@ export interface DoctorScanScope {
   readonly scope: string;
 }
 
+const doctorScanScopeSchema = z.object({
+  organizationId: z.string().uuid(),
+  scope: z.string().trim().min(1),
+});
+
+export function readDoctorScanScope(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): Result<DoctorScanScope> {
+  const organizationId = source["OPZAVA_PLATFORM_ORGANIZATION_ID"]?.trim();
+  if (!organizationId) {
+    return err(
+      clientError(
+        "web.doctorScanNotConfigured",
+        "OPZAVA_PLATFORM_ORGANIZATION_ID is not configured.",
+      ),
+    );
+  }
+  const parsed = doctorScanScopeSchema.safeParse({
+    organizationId,
+    scope: source["DOCTOR_SCAN_SCOPE"]?.trim() || "platform-gateway",
+  });
+  return parsed.success
+    ? ok(parsed.data)
+    : err(clientError("web.doctorScanInvalidConfig", "Doctor scan scope is invalid."));
+}
+
 export interface DoctorScanClient {
   readLatest(input: DoctorScanScope): Promise<Result<DoctorScanLatest>>;
   ensureFresh(input: DoctorScanScope): Promise<Result<DoctorScanLatest>>;
