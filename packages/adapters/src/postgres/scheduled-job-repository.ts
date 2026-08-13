@@ -77,7 +77,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
           select job_key, organization_id, scope
           from public.platform_scheduled_job
           where organization_id = ${input.organizationId}::uuid and next_run_at <= ${input.now}
-            and (dispatch_lease_token is null or dispatch_lease_expires_at <= ${input.now})
+            and (dispatch_lease_token is null or dispatch_lease_expires_at <= now())
           order by next_run_at, job_key, scope
           for update skip locked limit ${input.batchLimit}
         )
@@ -104,7 +104,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
           updated_at = ${input.now}
         where job_key = ${input.jobKey} and organization_id = ${input.organizationId}::uuid
           and scope = ${input.scope} and dispatch_lease_token = ${input.leaseToken}::uuid
-          and dispatch_lease_expires_at > ${input.now}
+          and dispatch_lease_expires_at > now()
         returning job_key
       `);
       return rows(result).length === 1;
@@ -123,7 +123,7 @@ export class PostgresScheduledJobRepository implements ScheduledJobRepository {
           updated_at = ${input.now}
         where job_key = ${input.jobKey} and organization_id = ${input.organizationId}::uuid
           and scope = ${input.scope} and dispatch_lease_token = ${input.leaseToken}::uuid
-          and dispatch_lease_expires_at > ${input.now}
+          and dispatch_lease_expires_at > now()
         returning job_key
       `);
       return rows(result).length === 1;
