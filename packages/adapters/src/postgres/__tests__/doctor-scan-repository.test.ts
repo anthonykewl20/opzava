@@ -43,6 +43,7 @@ describe("doctor scan repository lease contract (in-memory)", () => {
     });
     expect(repository.readLatest({ organizationId, scope })).toEqual({
       ...run,
+      runCheckedAt: "1970-01-01T00:00:01.001Z",
       findings: [finding],
     });
   });

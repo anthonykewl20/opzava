@@ -108,6 +108,7 @@ function closedDoctorScanLatest(value: DoctorScanLatest): DoctorScanLatest {
         ? null
         : {
             status: latest.status,
+            runCheckedAt: latest.runCheckedAt,
             checksRun: latest.checksRun,
             checksSkipped: latest.checksSkipped,
             findings: latest.findings.map((finding) => ({

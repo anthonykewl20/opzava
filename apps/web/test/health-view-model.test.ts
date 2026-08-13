@@ -149,27 +149,55 @@ describe("Health page view model", () => {
       inProgress: false,
       latest: {
         status: "succeeded" as const,
+        runCheckedAt: "2026-07-20T23:52:30.000Z",
         checksRun: 4,
         checksSkipped: 0,
         findings: [
-          { checkId: "warning", severity: "warning" as const, group: "Security", summary: "Warning", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: "Fix", suppressed: false, suppressionReason: null },
-          { checkId: "error", severity: "error" as const, group: "Security", summary: "Error", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
-          { checkId: "info", severity: "info" as const, group: "future", summary: "Info", detailState: "redacted_unavailable" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
-          { checkId: "suppressed", severity: "error" as const, group: "future", summary: "Suppressed", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: true, suppressionReason: "Not applicable" },
+          { checkId: "warning", severity: "warning" as const, group: "Authentication", summary: "Warning", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: "Fix", suppressed: false, suppressionReason: null },
+          { checkId: "error", severity: "error" as const, group: "Authentication", summary: "Error", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
+          { checkId: "info", severity: "info" as const, group: "Zebra custom", summary: "Info", detailState: "redacted_unavailable" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
+          { checkId: "suppressed", severity: "error" as const, group: "Zebra custom", summary: "Suppressed", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: true, suppressionReason: "Not applicable" },
+          { checkId: "alpha", severity: "info" as const, group: "Alpha custom", summary: "Alpha", detailState: "available" as const, locationLabel: null, targetLabel: null, fixHint: null, suppressed: false, suppressionReason: null },
         ],
       },
     };
     const view = buildHealthPageViewModel(pageData(), liveContext, scan);
-    expect(view.scanFindings.groups.map((group) => group.name)).toEqual(["Security", "Other"]);
+    expect(view.scanFindings.groups.map((group) => group.name)).toEqual([
+      "Authentication",
+      "Alpha custom",
+      "Zebra custom",
+    ]);
+    expect(view.scanFindings).toMatchObject({
+      runCheckedAt: "2026-07-20T23:52:30.000Z",
+      freshnessLabel: "last full scan 8m ago",
+    });
     expect(view.scanFindings.groups[0]).toMatchObject({
       worstSeverity: "error",
       counts: { errors: 1, warnings: 1, info: 0, suppressed: 0 },
     });
     expect(view.scanFindings.groups[0]?.findings.map((finding) => finding.attention)).toEqual([true, true]);
-    expect(view.scanFindings.groups[1]).toMatchObject({
+    expect(view.scanFindings.groups[2]).toMatchObject({
       counts: { errors: 0, warnings: 0, info: 1, suppressed: 1 },
     });
-    expect(view.scanFindings.groups[1]?.findings).toHaveLength(2);
+    expect(view.scanFindings.groups[2]?.findings).toHaveLength(2);
+  });
+
+  it("keeps the honest fallback when a completed scan has no run timestamp", () => {
+    const view = buildHealthPageViewModel(pageData(), liveContext, {
+      availability: "available",
+      inProgress: false,
+      latest: {
+        status: "succeeded",
+        runCheckedAt: null,
+        checksRun: 0,
+        checksSkipped: 0,
+        findings: [],
+      },
+    });
+    expect(view.scanFindings).toMatchObject({
+      runCheckedAt: null,
+      freshnessLabel: "last full scan time unavailable",
+    });
   });
 
   it("does not turn missing scanner evidence into a healthy zero or affect live RPC state", () => {

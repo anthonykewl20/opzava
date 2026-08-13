@@ -115,7 +115,7 @@ export class OpenClawDoctorScanOrchestrator implements OpenClawDoctorScanPort {
     leaseToken: string,
     startedAt: Date,
   ): Promise<void> {
-    let run: DoctorScanRunRecord;
+    let run: Omit<DoctorScanRunRecord, "runCheckedAt">;
     try {
       const result = await this.runtime.runDoctorLintScan();
       run = result.ok
@@ -139,7 +139,13 @@ export class OpenClawDoctorScanOrchestrator implements OpenClawDoctorScanPort {
     }
   }
 
-  private unavailable(failureCode: string): DoctorScanRunRecord {
-    return { status: "unavailable", checksRun: 0, checksSkipped: 0, findings: [], failureCode };
+  private unavailable(failureCode: string): Omit<DoctorScanRunRecord, "runCheckedAt"> {
+    return {
+      status: "unavailable",
+      checksRun: 0,
+      checksSkipped: 0,
+      findings: [],
+      failureCode,
+    };
   }
 }

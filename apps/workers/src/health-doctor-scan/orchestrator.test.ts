@@ -196,8 +196,9 @@ describe("OpenClawDoctorScanOrchestrator", () => {
 
     await service.tick(scanScope);
     await settleDetached();
-    expect(repository.readLatest(scanScope)).toEqual({
+    expect(repository.readLatest(scanScope)).toMatchObject({
       status: "unavailable",
+      runCheckedAt: expect.any(String),
       checksRun: 0,
       checksSkipped: 0,
       findings: [],

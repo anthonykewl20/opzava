@@ -34,7 +34,17 @@ describe("doctor scan worker client", () => {
   });
 
   it("calls all typed routes and returns the worker shape", async () => {
-    const latest = { availability: "unknown" as const, latest: null, inProgress: true };
+    const latest = {
+      availability: "available" as const,
+      latest: {
+        status: "succeeded" as const,
+        runCheckedAt: "2026-07-21T00:00:00.000Z",
+        checksRun: 1,
+        checksSkipped: 0,
+        findings: [],
+      },
+      inProgress: true,
+    };
     const fetchMock = vi.fn(async (...args: [string, RequestInit]) => {
       void args;
       return new Response(JSON.stringify(latest), { status: 200, headers: { "content-type": "application/json" } });
