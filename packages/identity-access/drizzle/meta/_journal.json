@@ -148,6 +148,13 @@
       "when": 1786665600000,
       "tag": "0020_dev_board_command_spine",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786752000000,
+      "tag": "0021_dev_board_planning_lifecycle",
+      "breakpoints": true
     }
   ]
 }
