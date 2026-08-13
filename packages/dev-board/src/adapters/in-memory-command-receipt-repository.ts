@@ -1,10 +1,12 @@
+import type { TenantTransaction } from "@opzava/adapters";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import type {
   CommandReceiptLookup,
   CommandReceiptRecord,
   CommandReceiptRepository,
-  CommandReceiptResult
+  CommandReceiptResult,
+  FinalizeCommandReceiptInput
 } from "../application/command-receipt-store.js";
 import type { CommandEnvelope } from "../domain/command-envelope.js";
 
@@ -24,21 +26,70 @@ function idempotencyConflict(): DomainError {
   });
 }
 
+function invalidReceipt(): DomainError {
+  return new DomainError({
+    code: "dev_board.invalid_command_receipt",
+    message: "The command receipt record is invalid."
+  });
+}
+
+function receiptResult(receipt: CommandReceiptRecord): CommandReceiptResult {
+  return {
+    commandId: receipt.commandId,
+    state: receipt.state,
+    ...(receipt.outcomeCode === undefined ? {} : { outcomeCode: receipt.outcomeCode }),
+    ...(receipt.resultRef === undefined ? {} : { resultRef: receipt.resultRef }),
+    ...(receipt.resultSummary === undefined ? {} : { resultSummary: receipt.resultSummary }),
+    ...(receipt.resultingVersions === undefined
+      ? {}
+      : { resultingVersions: receipt.resultingVersions })
+  };
+}
+
 export class InMemoryCommandReceiptRepository implements CommandReceiptRepository {
   public constructor(private readonly receipts = new Map<string, CommandReceiptRecord>()) {}
 
   public async reserveOrReplay(
     envelope: CommandEnvelope
   ): Promise<Result<CommandReceiptResult>> {
+    return this.reserve(envelope);
+  }
+
+  public async reserveOrReplayTransaction(
+    _tx: TenantTransaction,
+    envelope: CommandEnvelope
+  ): Promise<Result<CommandReceiptResult>> {
+    return this.reserve(envelope);
+  }
+
+  public async finalizeTransaction(
+    _tx: TenantTransaction,
+    input: FinalizeCommandReceiptInput
+  ): Promise<Result<void>> {
+    const match = [...this.receipts.entries()].find(
+      ([, receipt]) =>
+        receipt.organizationId === input.organizationId && receipt.commandId === input.commandId
+    );
+    if (match === undefined || match[1].state !== "reserved") return err(invalidReceipt());
+
+    const [key, receipt] = match;
+    this.receipts.set(key, {
+      ...receipt,
+      state: input.outcome,
+      ...(input.outcomeCode === undefined ? {} : { outcomeCode: input.outcomeCode }),
+      ...(input.resultRef === undefined ? {} : { resultRef: input.resultRef }),
+      resultSummary: input.resultSummary ?? {},
+      resultingVersions: input.resultingVersions ?? []
+    });
+    return ok(undefined);
+  }
+
+  private reserve(envelope: CommandEnvelope): Result<CommandReceiptResult> {
     const key = receiptKey(envelope);
     const existing = this.receipts.get(key);
     if (existing !== undefined) {
       return existing.requestHash === envelope.requestHash
-        ? ok({
-            commandId: existing.commandId,
-            state: existing.state,
-            ...(existing.outcomeCode === undefined ? {} : { outcomeCode: existing.outcomeCode })
-          })
+        ? ok(receiptResult(existing))
         : err(idempotencyConflict());
     }
 
