@@ -1,6 +1,14 @@
 # WF-237 — Final Dev Board implementation ticket graph + reciprocal Q17 mapping
 
-**Status:** Synthesis artifact for Wayfinder TASK #237 (parent map #228). READ-ONLY research
+> **Post-audit correction — 2026-08-13:** Filled the mandatory `human-owner` (role: Platform lead
+> for non-Releases verticals; Release manager for Vertical H — DBF-049 assigns no individual, so
+> the graph carries the owning role) and `secret-refs` (named ref or `none`) fields on the 26 TBs
+> missing them; reconciled stale tracker state (#229/#228/#233/#234/#235 closed 2026-07-18;
+> #147–#157 closed `not_planned` 2026-07-18 per manifest §6); clarified the TB-01/TB-MG1
+> target-storage boundary. Owner roles, not named individuals. Independent re-audit pending.
+
+**Status:** Synthesis artifact for Wayfinder TASK #237 (parent map #228, resolved and closed
+2026-07-18). READ-ONLY research
 synthesis produced by the delegated GLM worker. **No git/GitHub writes; no ticket created or
 closed.** This document freezes the canonical tracer-bullet schema and publishes the audited
 Dev Board implementation graph and the reciprocal `#147–#157` mapping. It is planning authority
@@ -25,9 +33,9 @@ Decisions), `ADR-017` (authority/sync/execution + Releases + Runner amendments),
 six current-input memos `wf230…wf236`. Every claim below cites its source.
 
 **Named dependencies (not reopened here):**
-- `#229` (Review Gate) is **still open in a parallel session**; its contract is a **named
+- `#229` (Review Gate) **resolved and closed 2026-07-18**; its contract remains a **named
   dependency**, not a topic this graph re-derives. `AdmitDone` and the merge outbox stay
-  fail-closed until `#229` resolves and `TB-RV1` ships (`wf230:1538-1547`, `wf230:2104-2106`;
+  fail-closed until `TB-RV1` ships (`wf230:1538-1547`, `wf230:2104-2106`;
   `DBF-134`; `PRD-019:949`).
 - `#230/#231/#232/#233/#234/#235/#236` are resolved memos designated current input until `#237`
   consumes and freezes them (map `#228` "Current Wayfinder inputs"; manifest §5).
@@ -46,8 +54,8 @@ stays out of Todo (`PRD-019:27-34, 484-487`; `wf231:1418-1425`; `DBF-019, DBF-03
 | `title` | One-line outcome (what is true when this lands). |
 | `owner` / `seams` | Authoritative bounded owner + named module/port/records (`ADR-017` authority matrix; `wf230:182-204`; `wf231` ownership table). |
 | `classification` | Type, Work Areas, Priority, Severity (if applicable), Change Risk; policy-minimum risk (`DBF-057..066`; `PRD-019:52-59`). |
-| `human-owner` | Required named Human Owner (`DBF-049`). |
-| `secret-refs` | Named secret references or explicit `none`; never values (`DBF-121..125`). |
+| `human-owner:` | Required named Human Owner (`DBF-049`). |
+| `secret-refs:` | Named secret references or explicit `none`; never values (`DBF-121..125`). |
 | `outcome` / `scope` | Clear, falsifiable outcome + bounded scope (`DBF-033`; `PRD-019:27-28`). |
 | `deps` / `blocking-edges` | Explicit dependency state + blocker TB IDs (acyclic); unsafe-start prevention (`DBF-044..048`; `PRD-019:32, 47-48`). |
 | `sad-paths` | First-class sad-path + edge-case inventory, not afterthoughts (`PRD-019:29-30`; `#210` quality bar). |
@@ -131,6 +139,7 @@ adjacency list is in §3.
   reason (`wf230:1898-1902, 2058`).
 - **migration/rollback:** expand-contract target storage alongside legacy Task/Issue; legacy IDs
   preserved as aliases (`manifest §8`; `DBF-182-183`).
+  - **TB-01 ↔ TB-MG1 boundary:** TB-01 owns the *skeleton* — new DevTicket schema/command-store creation, the `ImportLegacyDevTicket`/`ReconcileHistoricalCompletion` command surface, UUID/card-number alias preservation, and legacy-characterization admission rules (legacy `todo` not executable without a new Ready Approval; legacy `done` = `completionGate=legacy_unverified`); TB-MG1 owns the *population* — deterministic backfill of every source row, dual-read reconciliation, and the end-state disposition gate ("every source row ends migrated/merged/frozen/archived/quarantined — Skipped is a cutover blocker") (`manifest §6/§9`; issue #305).
 - **coverage:** PRD-019 `1-7, 24-59, 137, 147-149, 153, 156-157, 160-163, 185` partial;
   DBF `001-048, 057-066, 173-177, 182-186`.
 
@@ -200,6 +209,8 @@ adjacency list is in §3.
 - **owner/seams:** Integration module webhook inbox; `wf230` Secret-Safe Ingress; dedupe key
   `(opaque_public_app_config_key, X-GitHub-Delivery)` (`wf231:408-480`).
 - **classification:** Feature; GitHub Integration, Security, Backend/API; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key + webhook secret (Secret Reference Inventory; values never in graph).
 - **deps:** `TB-GH1`.
 - **sad-paths:** invalid signature rejected before parse/route/persist (`wf231:1094`);
   malformed minimal envelope rejected (`wf231:1095`); actionless `create/delete/push/status`
@@ -211,12 +222,15 @@ adjacency list is in §3.
   RLS/worker (`wf231:1159-1189`).
 - **behavioral-contract:** nothing parses before HMAC; raw payloads never persist; workers only
   translate authenticated facts into the same command boundary (`wf231:430-450`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `84, 90-91`; DBF `080, 095-097`.
 
 #### `TB-GH3` — Create/link Mirror Outbox Intent + unknown-outcome recovery + `ResolveUnknownMirrorEffect`
 - **owner/seams:** Integration mirror outbox; `WorkItemMirrorPort`; `GitHubIssueBinding`
   (`wf231:481-560, 800-832`).
 - **classification:** Feature; GitHub Integration, Backend/API; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key (Secret Reference Inventory; value never in graph).
 - **deps:** `TB-GH1`, `TB-01`.
 - **sad-paths:** create response lost → `outcome_unknown`; zero matches never auto-reissue
   (`wf231:1107-1108`); duplicate exact App-created Issues → earliest canonical, cross-link/close
@@ -230,12 +244,15 @@ adjacency list is in §3.
   keeps waiting / abandons / approves one numbered reattempt (`wf231:1315-1318`).
 - **behavioral-contract:** identity-bearing effects require stable correlation + verified
   App/provider identity; absence is never inferred from zero scans.
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `2-7, 72-73`; DBF `081-083`.
 
 #### `TB-GH4` — Managed body/labels + comment/worklog identity + Mirror Shadows + `ResolveSyncConflict`
 - **owner/seams:** Integration canonical renderer/parser; managed-label deltas; per-field
   Mirror Shadows; `ResolveSyncConflict` (`wf231:561-735, 834-889`).
 - **classification:** Feature; GitHub Integration, Backend/API; P1; Risk Medium.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key (Secret Reference Inventory; value never in graph).
 - **deps:** `TB-GH3`.
 - **sad-paths:** GitHub body edit inside final no-CAS window → no lossless claim,
   `potential_body_overwrite` side-by-side recovery (`wf231:1122`); singleton label multiple
@@ -256,6 +273,8 @@ adjacency list is in §3.
 - **owner/seams:** `DevelopmentFactsPort`; provider observations; PR binding
   (`wf231:892-923`).
 - **classification:** Feature; GitHub Integration, Frontend; P2; Risk Medium.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-GH1`.
 - **sad-paths:** force-push/base-head drift → append fact, invalidate SHA evidence
   (`wf231:1143`); mergeability unknown → refresh, no remediation inference (`wf231:1144`);
@@ -264,12 +283,15 @@ adjacency list is in §3.
   (`PRD-019:149`; `wf231:1327`).
 - **behavioral-contract:** green/native approval is never independent Review; provider fact never
   owns Runner execution (`wf231:908-912`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `93, 144-145, 149`; DBF `093`.
 
 #### `TB-GH6` — OIDC Actions request translation + Needs Human Approval Request
 - **owner/seams:** Actions OIDC verifier; `Actions Request Receipt`; exactly-one downstream
   result (`wf231:924-977`).
 - **classification:** Feature; GitHub Integration, Security; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-GH2`, `TB-01`.
 - **sad-paths:** OIDC `jti`/nonce reuse → one atomic receipt, mismatch loses (`wf231:1149`);
   replay/claim drift → same-hash replay or reject (`wf231:1150`); uncorroborated deployment fact
@@ -280,12 +302,15 @@ adjacency list is in §3.
   Approval Request — each shows only its designated receipt (`wf231:1198-1204, 1321-1325`).
 - **behavioral-contract:** Actions may not approve its own request, claim a human identity, or
   widen authority via adapter config (`wf231:962-977`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `17, 77`; DBF `017`.
 
 #### `TB-GH7` — `#229`-governed merge + external-merge / Post-Merge Review  *(shared with `TB-RV1`)*
 - **owner/seams:** `CodeHostMergePort`; merge outbox — dispatches **only** a `#229`-authorized
   exact merge (`wf231:186-187, 912-923`).
 - **classification:** Feature; GitHub Integration, Security; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key (Secret Reference Inventory; value never in graph).
 - **deps:** `TB-RV1` (Review Gate must authorize the merge), `TB-GH5`.
 - **sad-paths:** external/early merge → retain Review/WIP, open conflict, require Post-Merge
   Review, never ordinary `AdmitDone` (`wf231:1145`; `wf230:1957`).
@@ -293,12 +318,15 @@ adjacency list is in §3.
   external merge requires Post-Merge Review and shows no false Done (`wf231:1326`).
 - **behavioral-contract:** merge outbox exists only after `#229` locks proof+authorization;
   GitHub's exact merged state must be observed/correlated before `AdmitDone` (`wf231:912-922`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `18-19, 149`; DBF `133`. **Shared ownership with `TB-RV1`.**
 
 #### `TB-GH8` — `#232`-governed merge-conflict remediation  *(shared with Vertical C)*
 - **owner/seams:** Integration observes PR conflict evidence → requests remediation; `#232`
   provisions fenced Runner attempt; `Authorized Git Ref Update` record (`wf231:978-1033`).
 - **classification:** Feature; Agent Runtime, GitHub Integration; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN7` (artifact ingress + exact-ref handoff), `TB-GH5`.
 - **sad-paths:** base/head drift before push → cancel/supersede; new remediation SHA invalidates
   stale evidence → returns through independent Review (`wf231:992-996`); bounded-attempt
@@ -307,12 +335,15 @@ adjacency list is in §3.
   rerun, fresh Review (`PRD-019:94`; `wf231` seam 8).
 - **behavioral-contract:** conflict agent never gets general GitHub write/merge authority; new
   SHA never inherits an earlier verdict (`wf231:996`; `ADR-017:331-342`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `94`; DBF `094`. **Shared ownership with `TB-RN7`.**
 
 #### `TB-GH9` — Reconciliation/health recovery + legacy OAuth/PAT/outbox cutover
 - **owner/seams:** `Reconciliation Epoch`; three-way per-field algorithm; legacy credential
   drain (`wf231:737-833, 1345-1375`).
 - **classification:** Feature; GitHub Integration, Backend/API; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key + webhook secret (Secret Reference Inventory; values never in graph).
 - **deps:** `TB-GH2`, `TB-GH3`, `TB-GH4`.
 - **sad-paths:** partial epoch cannot declare absence/health (`wf231:1154`); stale outbox
   finalizer → claim token/generation rejects (`wf231:1155`); `404` not deletion until repo
@@ -331,6 +362,8 @@ adjacency list is in §3.
 - **owner/seams:** `GitHub Disconnect Saga`; binding-generation uniqueness; outbound fence
   (`wf231:366-406, 1186-1211`).
 - **classification:** Feature; GitHub Integration, Security; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-GH1`, `TB-GH9`.
 - **sad-paths:** replayed disconnect → one saga; mismatch rejects; fenced generation admits no
   new mint/claim (`wf231:1135`); provider uninstall/revoke response lost →
@@ -347,6 +380,8 @@ adjacency list is in §3.
 - **owner/seams:** `Authorized Git Ref Update` compare-and-reconcile lifecycle; trusted Git
   transport broker (`wf231:1000-1029, 1395-1416`).
 - **classification:** Feature; GitHub Integration, Security; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** GitHub App private key (Secret Reference Inventory; value never in graph).
 - **deps:** `TB-RN7`, `TB-GH5`.
 - **sad-paths:** lost push + ref == intended new SHA → confirm existing record, no second run
   (`wf231:1151`); ref == old SHA → bounded unresolved, no blind repush (`wf231:1152`); ref ==
@@ -356,6 +391,7 @@ adjacency list is in §3.
   1339-1341`).
 - **behavioral-contract:** no reconciliation path launches a duplicate remediation run or blind
   push.
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `94`; DBF `094`. **Shared ownership with `TB-RN7`.**
 
 ### Vertical C — Runner execution (`wf232`)
@@ -386,6 +422,8 @@ adjacency list is in §3.
 - **owner/seams:** Runner Protocol canonical bytes/signatures; Server Command Trust Bundle; Fact
   Admission ACK snapshot/delivery (`wf232:1256-1551, 1552-1754`).
 - **classification:** Feature; Agent Runtime, Security; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN1`.
 - **sad-paths:** sequence gap → `pending_gap`, never applied; if unrecoverable → execution
   unknown, loss containment (`wf232:2210-2215, 2985`); lost ACK → fact remains journaled, latest
@@ -403,6 +441,8 @@ adjacency list is in §3.
 - **owner/seams:** Harness Supervisor; Harness Adapters (Codex Desktop/CLI, Claude Code);
   per-attempt worktree generation + branch namespace (`wf232:2473-2644`).
 - **classification:** Feature; Agent Runtime; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN2`.
 - **sad-paths:** symlink escape / `..` / NUL / nested repo / worktree outside root / branch
   collision → rejected + quarantined (`wf232:2481-2486`); PID-reuse defense; 11 crash/race
@@ -417,6 +457,8 @@ adjacency list is in §3.
 - **owner/seams:** Lease Enforcer module (outside daemon + harness); signed NTP-style time
   anchor (`wf232:2246-2451`).
 - **classification:** Feature; Agent Runtime, Security; P1; Risk Critical.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN2`.
 - **sad-paths:** daemon death / Enforcer death / DB fencing / socket loss alone never prove stop
   (`wf232:2460-2471`); DB fencing cannot stop a process with FS/network access (`wf232:2248-2250`);
@@ -449,6 +491,8 @@ adjacency list is in §3.
 - **owner/seams:** `request_reconciliation_observation`; Pre-Start Admission Loss vs Blocked
   selection; loss detector (`wf232:45-47, 2329-2339, 2925-2933`).
 - **classification:** Feature; Agent Runtime; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN4`, `TB-02`.
 - **sad-paths:** host powered off → preserve last checkpoint or `execution_unknown`, fence/revoke,
   branch-accurate Slack summary, no "safely stopped" inference from socket drop (`wf232:3000`);
@@ -464,6 +508,8 @@ adjacency list is in §3.
 - **owner/seams:** signed/scanned artifact ingress; `prepare_object_bundle_upload` →
   `prepare_exact_ref_publication`; trusted Git transport broker (consumer) (`wf232:2487-2587`).
 - **classification:** Feature; Agent Runtime, GitHub Integration, Security; P2; Risk Critical.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN3`, `TB-GH1`.
 - **sad-paths:** artifact admission expiry / digest mismatch / object-graph invalid → fail
   without handoff (`wf232:2577-2579, 3214-3216`); Runner never obtains raw write-capable token or
@@ -479,6 +525,8 @@ adjacency list is in §3.
 - **owner/seams:** Slack approval Adapter; Ask Admin command Adapter; MCP command Adapter; typed
   governed outcomes (`wf232:2074-2191, 2828-2871`).
 - **classification:** Feature; Agent Runtime, Backend/API; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** Slack signing secret (platform vault; value never in graph).
 - **deps:** `TB-RN2`, `TB-01`.
 - **sad-paths:** Slack free text/"approve" → not approval without server-owned action token
   (`wf232:2851-2853`); stale target/version/expired-replayed nonce → rejected; Ask Admin
@@ -498,6 +546,8 @@ adjacency list is in §3.
 - **owner/seams:** Sprint context (separate from DevTicket; DevTicket stores membership ref only)
   (`wf230:177-180`); Sprint Plan revision/binding carry-forward.
 - **classification:** Feature; Backend/API; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-02`, `TB-GH4` (Milestone/tracking-issue mirror), `TB-RN6` (Sprint lease under
   preset).
 - **sad-paths:** standalone material revision/dependency on nonterminal Sprint member → reject
@@ -511,12 +561,15 @@ adjacency list is in §3.
 - **behavioral-contract:** `autonomous_serial` serial order is preserved even when the Runner has
   separate ordinary capacity; Sprint history immutable; tracking issue closes only when all
   remaining Plan items Done (`ADR-017:513-528`; `DBF-148-149`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `118-137`; DBF `135-150, 190-191, 204`.
 
 #### `TB-SP2` — Incident projection + governed interruption + ordinary claiming + fresh-claim recovery
 - **owner/seams:** Incident projection (read-only); governed interruption command path
   (`wf233:9-65`).
 - **classification:** Feature; Backend/API, Security; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-02`, `TB-SP1`.
 - **sad-paths:** Incident never mutates lane/lease/claim directly (`wf233:117`); no silent
   preemption even for P0 (`wf233:119`); `BlockedEpisode` not auto-cleared on incident close
@@ -527,6 +580,7 @@ adjacency list is in §3.
 - **behavioral-contract:** Incident is projection only; governed, audited, command-path
   interruption; explicit claim-on-command ordinary work; stale lease never resumed
   (`wf233:115-122`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `61-64, 71`; DBF `067-071`. **Carries `wf233` OPEN #1-#6 to lock
   (§8).**
 
@@ -537,6 +591,8 @@ adjacency list is in §3.
   freeform `Review`); Ready→doc-version pin; `ResolveSyncConflict` extended to Docs Markdown
   (`wf234:31-86`).
 - **classification:** Feature; Documentation, Backend/API, Frontend; P2; Risk Medium.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-01` (revision envelope reuse — `wf234` O-4), `TB-GH4` (mirror conflict model —
   `wf234` O-5).
 - **sad-paths:** material doc revision after dependent Done → no retroactive un-Done, follow-up
@@ -550,6 +606,7 @@ adjacency list is in §3.
 - **behavioral-contract:** Review/Release Evidence are **not** Docs types (owned aggregates
   projected as summaries); Opzava is source-of-truth, GitHub is proof never authority
   (`wf234:38-39, 76-86`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `143-156`; DBF `164-172`. **Carries `wf234` O-1..O-6 to lock (§8).**
 
 ### Vertical F — Archive / retention / redaction (`wf235`)
@@ -562,6 +619,8 @@ adjacency list is in §3.
   rejected as a fingerprint/recovery oracle), Releases contamination model as template
   (`DBF-226`); idempotent terminal-disposition revocation (`wf235:39-100, 140-166`).
 - **classification:** Feature; Backend/API, Security; P2; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** AuditTombstone commitment key (platform vault; value never in graph).
 - **deps:** `TB-01`, `TB-GH10` (GitHub managed-comment tombstone path), `TB-RN5` (grant
   disposal).
 - **sad-paths:** expirable raw referenced by durable relied-upon ref at TTL → block expiry /
@@ -585,8 +644,10 @@ adjacency list is in §3.
 - **owner/seams:** `#229`-owned Review context; independent Reviewer; exclusive shared-Docker
   lease; `ReviewExitContainmentProof` / `ReviewContainmentProof`; governed merge authorization.
 - **classification:** Feature; Agent Runtime, Security; P0 (unblocks Done); Risk Critical.
-- **deps:** **`#229` contract (parallel session, still open — named dependency, NOT reopened
-  here)**, `TB-02`, `TB-RN4`.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
+- **deps:** **`#229` contract (resolved and closed 2026-07-18 — named dependency)**, `TB-02`,
+  `TB-RN4`.
 - **sad-paths:** Reviewer independence (implementer cannot be its Reviewer); stale/contaminated
   evidence rejected; Reviewer provisioning only after Handoff finalization; material Revision
   after finalization preserves handoff + requires exact `#229` proof (`wf230:1986, 2031`;
@@ -598,6 +659,7 @@ adjacency list is in §3.
 - **behavioral-contract:** until this lands, `AdmitDone` is fail-closed and no DevTicket may
   reach Done (`DBF-134`; `PRD-019:949`); Reviewer capacity + Review WIP=3 + one shared-Docker
   lease are independent resources (`DBF-205-206`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `18-19, 69, 112-117, 129-131`; DBF `126-134, 205-207`. **Shared
   ownership with `TB-GH7`.**
 
@@ -651,6 +713,8 @@ adjacency list is in §3.
 - **owner/seams:** Projection module (rebuildable); Card activity tabs Comments/History/Worklog/
   Agent Execution/Review Evidence (`DBF-151-160`; prototype commits `27aa4660`, `a4ecf553`).
 - **classification:** Feature; Frontend, UI/UX; P1; Risk Medium.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-01`, `TB-02`, `TB-GH5`.
 - **sad-paths:** invalid drop snaps back with precise reason (`DBF-031`); every drag has
   keyboard/menu equivalent (`DBF-032`); stale projection snap-back; degraded state not disguised
@@ -666,6 +730,8 @@ adjacency list is in §3.
 - **owner/seams:** Sprints Variant A (`8ebfecf5`); Docs first-class view; Development aggregate;
   Releases view.
 - **classification:** Feature; Frontend, UI/UX; P2; Risk Medium.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-SP1`, `TB-DC1`, `TB-GH5`, `TB-RL2`.
 - **sad-paths:** Sprint shown as distinct view not a second Board (`DBF-160`); Development ends
   at merge into `development`, Releases separate (`DBF-161-162`).
@@ -673,12 +739,15 @@ adjacency list is in §3.
   provider seams — lifecycle, simultaneous attention, per-service digest/health, current vs LKG,
   evidence, Incident link, publication pending, safe degraded/forbidden states (`wf236:773`).
 - **behavioral-contract:** global light/dark theme; no per-Card theme selector (`DBF-163`).
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `142-145`; DBF `160-163`.
 
 #### `TB-UI3` — Local Machines enrollment UI + Runners/Health/Environments projections + Slack surface + preview tunnel
 - **owner/seams:** Admin Runners/Environments/Health projections (projections only, never
   admission authority); preview tunnel UI.
 - **classification:** Feature; Frontend, UI/UX, Infrastructure; P1; Risk High.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-RN1`, `TB-RN8`.
 - **sad-paths:** PRD-020 Admin Overview projection cannot mutate admission state outside the
   command boundary (`DBF-207`; `wf232:3325-3332`); preview tunnel revoked on disconnect/lease
@@ -686,15 +755,19 @@ adjacency list is in §3.
 - **acceptance/e2e:** Admin enrolls local machine, selects Codex Desktop/CLI/Claude Code,
   observes revocable keys + health + Docker readiness (`PRD-019:96-98, 112-117`).
 - **behavioral-contract:** projection is read-only; admission is a Dev Board command.
+- **migration/rollback:** none — no legacy touch.
 - **coverage:** PRD-019 `96-98, 112-117, 176`; DBF `103-107, 207`. **Cross-link: feeds `#218`
   governed Card authority surface.**
 
 ### Vertical J — Migration / cutover / Q17 cleanup
 
 #### `TB-MG1` — Expand-contract target storage + deterministic backfill + dual-read reconciliation  *(shared with `TB-GH9`)*
+- **TB-01 ↔ TB-MG1 boundary:** TB-01 owns the *skeleton* — new DevTicket schema/command-store creation, the `ImportLegacyDevTicket`/`ReconcileHistoricalCompletion` command surface, UUID/card-number alias preservation, and legacy-characterization admission rules (legacy `todo` not executable without a new Ready Approval; legacy `done` = `completionGate=legacy_unverified`); TB-MG1 owns the *population* — deterministic backfill of every source row, dual-read reconciliation, and the end-state disposition gate ("every source row ends migrated/merged/frozen/archived/quarantined — Skipped is a cutover blocker") (`manifest §6/§9`; issue #305).
 - **owner/seams:** migration service; `ImportLegacyDevTicket` / `ReconcileHistoricalCompletion`
   (`wf230:1611-1616, 1891-1892`; manifest §6–§8).
 - **classification:** Maintenance; Data/Database, Backend/API; P1; Risk Critical.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-01`, `TB-GH9`.
 - **sad-paths:** every source row ends migrated/merged/frozen/archived/quarantined — "Skipped"
   is a cutover blocker (`manifest §6`); legacy `todo` never executable without new Ready
@@ -706,12 +779,16 @@ adjacency list is in §3.
   quarantined before cutover (`PRD-019:1126-1129`).
 - **behavioral-contract:** preserve Task UUIDs/card numbers/GitHub links/comments/evidence/
   worklogs; never bulk-promote or bless legacy evidence (`DBF-182-186`).
+- **migration/rollback:** expand-contract deterministic backfill + dual-read reconciliation;
+  rollback restores legacy reads, never dual-write (`manifest §6/§9`).
 - **coverage:** PRD-019 `157-160`; DBF `182-189`. **Shared ownership with `TB-GH9`.**
 
 #### `TB-MG2` — Cutover + route/tool/worker retirement + reciprocal `#147–#157` tracker cleanup
 - **owner/seams:** command/nav cutover; `/tasks`+`/issues` → `/dev-board` redirect; legacy
   write/tool/worker/OAuth-PAT retirement; reciprocal tracker cleanup.
 - **classification:** Maintenance; Infrastructure, Data/Database; P1; Risk Critical.
+- **human-owner:** Platform lead (DBF-049).
+- **secret-refs:** none.
 - **deps:** `TB-MG1`, `TB-UI1`, and all verticals producing target write authority.
 - **sad-paths:** redirect only after verified cutover flag/completed migration (`PRD-019:1130`);
   rollback restores legacy **reads**, never two write owners (`wf231:1372`).
@@ -719,6 +796,7 @@ adjacency list is in §3.
   explicit archived/quarantined explanation; cutover gates (manifest §9) all green.
 - **behavioral-contract:** no active plan instructs Q17 implementation; no indefinite dual-write
   (`manifest §10`; `DBF-184`).
+- **migration/rollback:** rollback restores legacy reads, never two write owners (`wf231:1372`).
 - **coverage:** PRD-019 `158-160`; DBF `185-189`. **CRITICAL GATE — see §6 + §9.**
 
 ---
@@ -778,8 +856,9 @@ Vertical J:
 ```
 
 **Frontier expansion as blockers resolve:** after `TB-01`, the next claimable set is
-`{ TB-GH1, TB-RN1, TB-DC1(partial) }`. `TB-RV1` is **not** executable until `#229` resolves;
-until then `AdmitDone`/merge/`TB-GH7`/`TB-RL1` all stay fail-closed. `TB-MG2` is terminal — it
+`{ TB-GH1, TB-RN1, TB-DC1(partial) }`. `#229` resolved and closed 2026-07-18; `TB-RV1` remains
+the implementation dependency, and until it ships `AdmitDone`/merge/`TB-GH7`/`TB-RL1` all stay
+fail-closed. `TB-MG2` is terminal — it
 runs only after the target is the sole write authority.
 
 ---
@@ -854,22 +933,15 @@ reconciliation `TB-GH9`/`TB-MG1`).
 
 ## 6. Reciprocal `#147–#157` old↔new mapping table
 
-> **CRITICAL GATE — HUMAN-APPROVAL-REQUIRED.** Per `CLAUDE.md` ("Q17 and GitHub issues
+> **Reconciled tracker gate.** Per `CLAUDE.md` ("Q17 and GitHub issues
 > `#147–#157` are superseded/quarantined historical evidence — never an executable brief...
 > Replacement tickets require explicit human approval before publishing") and the migration
 > manifest §5 ("Only that mapping and audit authorize closing these issues as `not planned`; they
 > must never be closed as 'implemented by Dev Board'"), this table is the **mapping + audit**. It
-> does **not** close any issue. Closing `#147–#157` as `not planned` requires **explicit human
-> approval** after this graph is independently audited and the reciprocal pointers are added to
-> every historical issue and every replacement TB. `#237` explicitly does **not** authorize
-> closure.
+> did **not** itself close any issue. The required disposition was subsequently completed.
 >
-> **Tracker-state drift to reconcile (surfaced, not acted on):** the `#237` readiness note
-> (`#237` comment `…4995321853`) records that `#147–#157` are currently `closed` with
-> `state_reason=completed` (closed 2026-07-15), which **contradicts** the manifest requirement
-> that they remain open until this mapping publishes and then close only as `not planned`. This
-> contradiction is preserved here for the owning human; no issue was reopened during this
-> synthesis (reopening requires explicit human approval per the same note).
+> **Reconciled:** `#147–#157` closed `not_planned` 2026-07-18 per manifest §6; the earlier
+> `completed` drift was corrected.
 
 | Old | Old slice (manifest §5) | Retired intent | Surviving intent → replacement TB(s) | Salvage |
 | --- | --- | --- | --- | --- |
@@ -912,12 +984,13 @@ Dev Board graph is the authority for Dev Board terms those slices consume.
 
 ## 8. Owner decisions to lock (consolidated OPEN items)
 
-These are **not** locked by `#237`. They are carried forward from the resolved memos with a
-recommended default. Each must be locked by the **owning TB** at implementation, with human
+These are **not** locked by `#237`. Their parent planning issues `#233`/`#234`/`#235` resolved and
+closed 2026-07-18; the items are carried by their named TBs with a recommended default. Each must
+be locked by the **owning TB** at implementation, with human
 sign-off where the readiness review requires. `#237` records and surfaces them; it does not
 decide them.
 
-### From `#233` (Sprint/Incident) — own by `TB-SP1`/`TB-SP2`
+### From resolved `#233` (Sprint/Incident) — owned by `TB-SP1`/`TB-SP2`
 1. **Incident-driven work-pressure bridge** — whether every P0/P1 incident auto-opens a
    `BlockedEpisode`. *Default:* incidents are bounded attention projections by default; Dev Board
    entry only via explicit governance commands (`wf233:85-88`).
@@ -941,7 +1014,7 @@ decide them.
    `RemediationAction` (`wf233:110-113`).
 - **Shared with `#230`/`#232`:** detailed timeout/pause/preemption policy (`wf230:1013-1015`).
 
-### From `#234` (Docs) — own by `TB-DC1`
+### From resolved `#234` (Docs) — owned by `TB-DC1`
 1. **Approval class** for Planning Brief / Postmortem / Sprint Report (`wf234` O-1). *Default:*
    Planning Brief + Postmortem require Human Owner approval; Sprint Report auto-finalized
    immutable snapshot. *Refinement (owner decision, not locked):* Review Gate and Releases Gate
@@ -966,7 +1039,7 @@ decide them.
 6. **Retention for generated planning artifacts** (O-6). *Default:* sanitized Planning Session
    Log durable; configurable TTL only on large raw/transient outputs.
 
-### From `#235` (Archive/retention/redaction) — own by `TB-AR1`
+### From resolved `#235` (Archive/retention/redaction) — owned by `TB-AR1`
 1. **Numeric retention durations/TTL windows** (OPEN-1) — runner telemetry; preview artifact/
    tunnel; sync diagnostic replay window; GitHub webhook raw-body. *Default:* operator-
    configurable with fail-safe ceiling; relied-upon facts promoted out of expirable class; durable
@@ -1018,14 +1091,11 @@ decide them.
 
 ## 9. Critical gates & non-claims
 
-1. **`#147–#157` closure is HUMAN-APPROVAL-REQUIRED.** This document is the mapping + audit only.
-   No issue is closed or reopened here. Closure as `not planned` (never `completed`/`implemented`)
-   requires explicit human approval after independent audit + reciprocal pointers added
-   (`CLAUDE.md`; manifest §5; `#237` body). The current `closed/completed` tracker state is a
-   **drift to reconcile**, surfaced in §6, not acted on.
-2. **`#229` (Review Gate) is a named dependency, not reopened.** It is open in a parallel
-   session. `TB-RV1` consumes its contract; `AdmitDone`/merge/`TB-GH7`/`TB-RL1` stay fail-closed
-   until `#229` resolves and `TB-RV1` ships.
+1. **`#147–#157` tracker disposition is reconciled.** `#147–#157` closed `not_planned`
+   2026-07-18 per manifest §6; the earlier `completed` drift was corrected. This document remains
+   the reciprocal mapping + audit (`CLAUDE.md`; manifest §5; `#237` body).
+2. **`#229` (Review Gate) resolved and closed 2026-07-18.** `TB-RV1` consumes its contract;
+   `AdmitDone`/merge/`TB-GH7`/`TB-RL1` stay fail-closed until `TB-RV1` ships.
 3. **Releases fail-closed.** No release behavior inferred from Done until `TB-RL1`/`TB-RL2` ship
    (`PRD-019:949-951`; `DBF-134`).
 4. **Schema freeze owner = `#237`; adopter = `#246`.** This document freezes
@@ -1042,23 +1112,26 @@ decide them.
 ## 10. How `#237` knows it is done (audit checklist)
 
 - [x] Canonical tracer-bullet schema defined and versioned (`§0`).
-- [x] 33 TBs published, each carrying every required schema field (`§2`).
+- [x] 33 TBs published; schema-completeness (`human-owner`, `secret-refs`,
+      `migration/rollback`) corrected 2026-08-13 post-audit (see correction note) (`§2`).
 - [x] Acyclic blocker graph with explicit edges + safe executable frontier (`§3`).
 - [x] Every PRD-019 story (`1-185`) covered exactly once or by explicit shared ownership (`§4`).
 - [x] Every DBF decision (`001-249`) covered (`§5`).
 - [x] Reciprocal `#147-#157` many-to-many mapping published, with `#151` hosted-MCP/OAuth retired
       vs governed-intent-survives split recorded (`§6`).
-- [x] Closure of `#147-#157` marked **HUMAN-APPROVAL-REQUIRED**; tracker-state drift surfaced,
-      not acted on (`§6`, `§9.1`).
+- [x] `#147-#157` tracker disposition reconciled as closed `not_planned` 2026-07-18; earlier
+      `completed` drift corrected (`§6`, `§9.1`).
 - [x] Active dependents `#210`/`#216`/`#218`/`#219`/`#220` cross-linked with the Dev Board terms
       they consume (`§7`).
-- [x] `#229` recorded as named dependency, not reopened (`§9.2`).
+- [x] `#229` recorded as resolved/closed 2026-07-18 and its contract retained as the named
+      dependency consumed by `TB-RV1` (`§9.2`).
 - [x] Consolidated "Owner decisions to lock" carrying open decisions from `#230`/`#232`/`#233`/
       `#234`/`#235`/`#236` (`§8`).
 - [x] Every claim cited to `PRD-019`, `ADR-017`, `DBF-*`, a `wf2xx` memo, `#228`, the manifest,
       `CLAUDE.md`, or a `#237` comment.
 
 **Remaining before `#237` may close** (per the 2026-07-18 readiness review, `#237` comment
-`…5010329157`): (a) `#229`, `#233`, `#234`, `#235` must resolve; (b) `#147-#157` closure
-migration to `not planned` under human approval; (c) an independent audit of this graph. This
-synthesis does not perform those steps — it produces the auditable artifact they consume.
+`…5010329157`): (a) resolved — `#229`, `#233`, `#234`, and `#235` closed/completed 2026-07-18;
+(b) resolved — `#147-#157` closed `not_planned` 2026-07-18 under human approval; (c) an
+independent re-audit of this corrected graph. This synthesis produces the auditable artifact that
+final gate consumes.
