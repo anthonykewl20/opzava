@@ -44,7 +44,7 @@ function HealthLegend({ view }: { readonly view: HealthPageViewModel }) {
 }
 
 function DisabledRecheck() {
-  const explanation = "Re-check runs through the gateway — coming soon";
+  const explanation = "Re-check wiring lands in a follow-up";
   return (
     <TooltipProvider>
       <Tooltip>
