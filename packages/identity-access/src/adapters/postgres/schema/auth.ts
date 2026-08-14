@@ -135,6 +135,26 @@ export const authVerifications = pgTable(
   (table) => [index("auth_verifications_identifier_idx").on(table.identifier)]
 );
 
+export const authPasswordResetTokens = pgTable(
+  "auth_password_reset_tokens",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    salt: text("salt").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    failedAttempts: integer("failed_attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("auth_password_reset_tokens_user_id_idx").on(table.userId),
+    index("auth_password_reset_tokens_expires_at_idx").on(table.expiresAt)
+  ]
+);
+
 export const betterAuthSchema = {
   user: authUsers,
   session: authSessions,
@@ -146,5 +166,6 @@ export const betterAuthSchema = {
   auth_accounts: authAccounts,
   auth_verifications: authVerifications,
   auth_two_factor: authTwoFactor,
-  auth_mfa_challenges: authMfaChallenges
+  auth_mfa_challenges: authMfaChallenges,
+  auth_password_reset_tokens: authPasswordResetTokens
 };

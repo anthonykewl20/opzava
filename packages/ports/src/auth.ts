@@ -4,6 +4,7 @@ import type { Result } from "@opzava/shared-kernel";
 export type SessionId = string & { readonly __sessionId: "SessionId" };
 export type SessionToken = string & { readonly __sessionToken: "SessionToken" };
 export type MfaChallengeId = string & { readonly __mfaChallengeId: "MfaChallengeId" };
+export type PasswordResetToken = string & { readonly __passwordResetToken: "PasswordResetToken" };
 
 export interface AuthMembership {
   readonly orgId: OrgId;
@@ -121,6 +122,34 @@ export interface MfaStatus {
   readonly recoveryCodesRemaining: number;
 }
 
+/** This outcome is deliberately identical whether or not the email exists. */
+export interface PasswordResetRequestOutcome {
+  readonly status: "reset-token-issued";
+  /**
+   * Present only for a server-side, freshly authenticated self-service request.
+   * A browser-facing request must never receive or render this value.
+   */
+  readonly resetToken?: PasswordResetToken;
+}
+
+export interface RequestPasswordResetInput {
+  readonly email: string;
+  /** Enables the controlled, out-of-band v1 delivery path for the account owner only. */
+  readonly authenticatedSelf?: { readonly userId: UserId; readonly sessionId: SessionId };
+}
+
+export interface ResetPasswordInput {
+  readonly token: PasswordResetToken;
+  readonly newPassword: string;
+}
+
+export interface ChangePasswordInput {
+  readonly userId: UserId;
+  readonly currentSessionId: SessionId;
+  readonly currentPassword: string;
+  readonly newPassword: string;
+}
+
 export interface AuthPort {
   signIn(input: SignInInput): Promise<Result<AuthSession | MfaChallenge>>;
   verifyMfaChallenge(input: MfaVerificationInput): Promise<Result<MfaVerificationResult>>;
@@ -128,6 +157,9 @@ export interface AuthPort {
   enableMfa(input: EnableMfaInput): Promise<Result<EnabledMfa>>;
   disableMfa(input: DisableMfaInput): Promise<Result<void>>;
   getMfaStatus(input: { readonly userId: UserId }): Promise<Result<MfaStatus>>;
+  requestPasswordReset(input: RequestPasswordResetInput): Promise<Result<PasswordResetRequestOutcome>>;
+  resetPassword(input: ResetPasswordInput): Promise<Result<void>>;
+  changePassword(input: ChangePasswordInput): Promise<Result<void>>;
   getSession(input: GetSessionInput): Promise<Result<AuthSession | null>>;
   revokeSession(input: RevokeSessionInput): Promise<Result<void>>;
   listSessions(input: ListSessionsInput): Promise<Result<readonly AuthSession[]>>;

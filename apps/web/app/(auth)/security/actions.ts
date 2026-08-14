@@ -15,6 +15,11 @@ export interface SecurityActionState {
   readonly recoveryCodes?: readonly string[];
 }
 
+export interface ChangePasswordActionState {
+  readonly status: "idle" | "success" | "error";
+  readonly message?: string;
+}
+
 const actionSchema = z.object({
   intent: z.enum(["start", "enable", "disable"]),
   password: z.string().min(1).optional(),
@@ -99,4 +104,33 @@ export async function securityAction(
   return result.ok
     ? { status: "disabled", message: "Two-factor authentication is off." }
     : { status: "error", message: "That code didn't match." };
+}
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(12, "Use at least 12 characters."),
+  confirmPassword: z.string()
+}).refine((value) => value.newPassword === value.confirmPassword, { path: ["confirmPassword"], message: "New passwords do not match." });
+
+export async function changePasswordAction(
+  _previousState: ChangePasswordActionState,
+  formData: FormData
+): Promise<ChangePasswordActionState> {
+  const parsed = changePasswordSchema.safeParse({
+    currentPassword: formString(formData, "currentPassword"),
+    newPassword: formString(formData, "newPassword"),
+    confirmPassword: formString(formData, "confirmPassword")
+  });
+  if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "Check the password fields and try again." };
+  const session = await getCurrentAuthSession(new Headers(await headers()));
+  if (session === null) return { status: "error", message: "Your session has ended. Sign in again." };
+  const result = await authPort.changePassword({
+    userId: session.identity.userId,
+    currentSessionId: session.sessionId,
+    currentPassword: parsed.data.currentPassword,
+    newPassword: parsed.data.newPassword
+  });
+  return result.ok
+    ? { status: "success", message: "Password changed. Other signed-in devices were signed out." }
+    : { status: "error", message: result.error.code === "auth.invalidCredentials" ? "That current password didn't match." : "We could not change your password. Try again." };
 }

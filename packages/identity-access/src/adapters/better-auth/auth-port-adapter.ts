@@ -6,7 +6,7 @@ import {
   type Result
 } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import type {
   AuthPort,
@@ -26,7 +26,7 @@ import type {
   EnableMfaInput
 } from "@opzava/ports";
 
-import { verifyPassword } from "./password-hasher.js";
+import { hashPassword, verifyPassword } from "./password-hasher.js";
 import {
   credentialProviderId,
   listActiveMembershipsForUser,
@@ -57,6 +57,8 @@ interface CredentialRow {
 }
 
 const sessionTtlMs = 7 * 24 * 60 * 60 * 1000;
+const resetTokenTtlMs = 30 * 60 * 1000;
+const minimumPasswordLength = 12;
 
 function rowsFromExecuteResult(result: unknown): ReadonlyArray<Record<string, unknown>> {
   if (Array.isArray(result)) {
@@ -88,6 +90,22 @@ function sessionError(cause: unknown): DomainError {
 
 function randomToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+function resetTokenDigest(salt: string, token: string): string {
+  return createHmac("sha256", salt).update(token).digest("hex");
+}
+
+function resetFailed(): DomainError {
+  return new DomainError({ code: "auth.resetInvalid", message: "This password reset link is invalid or has expired." });
+}
+
+function resetLocked(): DomainError {
+  return new DomainError({ code: "auth.resetUnavailable", message: "Password reset is temporarily unavailable. Try again in a few minutes." });
+}
+
+function passwordPolicyFailed(): DomainError {
+  return new DomainError({ code: "auth.passwordPolicyInvalid", message: `Passwords must be at least ${minimumPasswordLength} characters.` });
 }
 
 function rowToCredential(row: Record<string, unknown> | undefined): CredentialRow | null {
@@ -155,6 +173,16 @@ interface ChallengeRow {
   readonly ipAddressHash: string | null;
 }
 
+interface ResetTokenRow {
+  readonly id: string;
+  readonly userId: string;
+  readonly salt: string;
+  readonly tokenHash: string;
+  readonly expiresAt: Date;
+  readonly usedAt: Date | null;
+  readonly failedAttempts: number;
+}
+
 function hashBinding(value: string | undefined): string | null {
   return value === undefined || value === "" ? null : createHash("sha256").update(value).digest("hex");
 }
@@ -218,6 +246,17 @@ function dateFrom(value: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function rowToResetToken(row: Record<string, unknown> | undefined): ResetTokenRow | null {
+  if (row === undefined || typeof row["id"] !== "string" || typeof row["user_id"] !== "string" ||
+      typeof row["salt"] !== "string" || typeof row["token_hash"] !== "string") return null;
+  const expiresAt = dateFrom(row["expires_at"]);
+  if (expiresAt === null) return null;
+  return {
+    id: row["id"], userId: row["user_id"], salt: row["salt"], tokenHash: row["token_hash"], expiresAt,
+    usedAt: dateFrom(row["used_at"]), failedAttempts: Number(row["failed_attempts"])
+  };
 }
 
 export class BetterAuthPortAdapter implements AuthPort {
@@ -732,6 +771,154 @@ export class BetterAuthPortAdapter implements AuthPort {
       const hashes = twoFactor === null ? [] : parseHashes(twoFactor.backupCodes) ?? [];
       return ok({ enabled: twoFactor?.verified === true, recoveryCodesRemaining: twoFactor?.verified ? hashes.length : 0 });
     } catch (error) { return err(sessionError(error)); }
+  }
+
+  public async requestPasswordReset(input: import("@opzava/ports").RequestPasswordResetInput): Promise<Result<import("@opzava/ports").PasswordResetRequestOutcome>> {
+    try {
+      const email = normalizeEmail(input.email);
+      const result = await this.database.transaction(async (tx) => {
+        const userResult = await tx.execute(sql`
+          select id from public.auth_users where lower(email) = ${email} for update
+        `);
+        const userId = rowsFromExecuteResult(userResult)[0]?.["id"];
+        if (typeof userId !== "string") return { status: "reset-token-issued" as const };
+
+        // Public requests receive the same outcome but never issue a usable token.
+        // v1 has no mail transport; only an active session for this exact account can
+        // obtain a token from this server-side port for controlled out-of-band delivery.
+        if (input.authenticatedSelf === undefined || input.authenticatedSelf.userId !== userId) {
+          return { status: "reset-token-issued" as const };
+        }
+        const session = await tx.execute(sql`
+          select id from public.auth_sessions
+          where id = ${input.authenticatedSelf.sessionId} and user_id = ${userId}
+            and expires_at > now() and created_at > now() - interval '15 minutes'
+          for update
+        `);
+        if (rowsFromExecuteResult(session)[0] === undefined) return { status: "reset-token-issued" as const };
+
+        const id = randomUUID();
+        const token = `${id}.${randomToken()}`;
+        const salt = randomBytes(16).toString("hex");
+        // Canonical lock order is user -> session -> factor -> reset token. Existing
+        // unused tokens are consumed before the replacement is inserted.
+        await tx.execute(sql`update public.auth_password_reset_tokens set used_at = now() where user_id = ${userId} and used_at is null`);
+        await tx.execute(sql`
+          insert into public.auth_password_reset_tokens (id, user_id, salt, token_hash, expires_at)
+          values (${id}::uuid, ${userId}, ${salt}, ${resetTokenDigest(salt, token)}, ${new Date(Date.now() + resetTokenTtlMs)})
+        `);
+        return { status: "reset-token-issued" as const, resetToken: token as import("@opzava/ports").PasswordResetToken };
+      });
+      return ok(result);
+    } catch (error) { return err(sessionError(error)); }
+  }
+
+  public async resetPassword(input: import("@opzava/ports").ResetPasswordInput): Promise<Result<void>> {
+    try {
+      const separator = String(input.token).indexOf(".");
+      const id = separator <= 0 ? null : String(input.token).slice(0, separator);
+      if (id === null || !/^[0-9a-f-]{36}$/i.test(id)) return err(resetFailed());
+      const changed = await this.database.transaction(async (tx) => {
+        // Look up the parent to establish the canonical user lock before locking
+        // the token row. An opaque malformed token cannot be attributed or counted.
+        const parent = await tx.execute(sql`select user_id from public.auth_password_reset_tokens where id = ${id}::uuid`);
+        const userId = rowsFromExecuteResult(parent)[0]?.["user_id"];
+        if (typeof userId !== "string") return "invalid" as const;
+        const user = await tx.execute(sql`
+          select id, password_locked_until > now() as password_locked from public.auth_users where id = ${userId} for update
+        `);
+        const userRow = rowsFromExecuteResult(user)[0];
+        if (userRow === undefined) return "invalid" as const;
+        if (userRow["password_locked"] === true) return "locked" as const;
+        const tokenResult = await tx.execute(sql`
+          select id::text, user_id, salt, token_hash, expires_at, used_at, failed_attempts
+          from public.auth_password_reset_tokens where id = ${id}::uuid
+          for update
+        `);
+        const token = rowToResetToken(rowsFromExecuteResult(tokenResult)[0]);
+        const active = token !== null && token.usedAt === null && token.expiresAt.getTime() > Date.now();
+        const matches = active && (() => { const actual = Buffer.from(resetTokenDigest(token.salt, String(input.token))); const expected = Buffer.from(token.tokenHash); return actual.length === expected.length && timingSafeEqual(actual, expected); })();
+        if (!matches) {
+          // A token guess is isolated to that token. It must never contribute to
+          // the account-wide password throttle used by sign-in and re-auth.
+          if (active) {
+            await tx.execute(sql`
+              update public.auth_password_reset_tokens
+              set failed_attempts = failed_attempts + 1,
+                  used_at = case when failed_attempts + 1 >= 5 then now() else used_at end
+              where id = ${id}::uuid and used_at is null and expires_at > now()
+            `);
+          }
+          return "invalid" as const;
+        }
+        // Deliberately validate policy only after the token is authenticated:
+        // valid reset attempts share the account password throttle, while token
+        // guesses above do not create an account-lock denial of service.
+        if (input.newPassword.length < minimumPasswordLength) {
+          await tx.execute(sql`
+            update public.auth_users set password_failed_count = password_failed_count + 1,
+              password_locked_until = case when password_failed_count + 1 >= 5 then now() + interval '5 minutes' else password_locked_until end
+            where id = ${userId}
+          `);
+          return "password-policy" as const;
+        }
+        // Canonical account-security mutation ordering is user -> session ->
+        // factor -> reset token. Locking the session before factor prevents the
+        // factor's enrollment-session FK from creating a lock cycle on deletion.
+        await tx.execute(sql`select id from public.auth_sessions where user_id = ${userId} for update`);
+        await tx.execute(sql`select user_id from public.auth_two_factor where user_id = ${userId} for update`);
+        const newHash = await hashPassword(input.newPassword);
+        const passwordUpdated = await tx.execute(sql`
+          update public.auth_accounts set password = ${newHash}
+          where user_id = ${userId} and provider_id = ${credentialProviderId}
+        `);
+        // Do not consume a token or revoke sessions if this is an SSO-only or
+        // otherwise credential-less account. MFA enrollment and recovery codes
+        // intentionally remain intact across a password reset.
+        if ((passwordUpdated as { readonly rowCount?: number }).rowCount !== 1) return "invalid" as const;
+        await tx.execute(sql`delete from public.auth_sessions where user_id = ${userId}`);
+        await tx.execute(sql`delete from public.auth_mfa_challenges where user_id = ${userId}`);
+        const consumed = await tx.execute(sql`update public.auth_password_reset_tokens set used_at = now() where id = ${id}::uuid and used_at is null`);
+        if ((consumed as { readonly rowCount?: number }).rowCount !== 1) return "invalid" as const;
+        await tx.execute(sql`update public.auth_users set password_failed_count = 0, password_locked_until = null where id = ${userId}`);
+        return "reset" as const;
+      });
+      return changed === "reset" ? ok(undefined) : err(changed === "locked" ? resetLocked() : changed === "password-policy" ? passwordPolicyFailed() : resetFailed());
+    } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+
+  public async changePassword(input: import("@opzava/ports").ChangePasswordInput): Promise<Result<void>> {
+    try {
+      if (input.newPassword.length < minimumPasswordLength) return err(passwordPolicyFailed());
+      const firstAttempt = await this.verifyPasswordAttempt({ userId: String(input.userId), password: input.currentPassword });
+      if (firstAttempt.kind === "locked") return err(mfaChallengeUnavailable());
+      if (firstAttempt.kind !== "authenticated") return err(invalidCredentials());
+      const changed = await this.database.transaction(async (tx) => {
+        const user = await tx.execute(sql`select id from public.auth_users where id = ${input.userId} for update`);
+        if (rowsFromExecuteResult(user)[0] === undefined) return false;
+        const session = await tx.execute(sql`
+          select id, user_id, expires_at > now() as active from public.auth_sessions where id = ${input.currentSessionId} for update
+        `);
+        const sessionRow = rowsFromExecuteResult(session)[0];
+        if (sessionRow?.["user_id"] !== String(input.userId) || sessionRow?.["active"] !== true) return false;
+        await tx.execute(sql`select user_id from public.auth_two_factor where user_id = ${input.userId} for update`);
+        const account = await tx.execute(sql`
+          select password from public.auth_accounts where user_id = ${input.userId} and provider_id = ${credentialProviderId} for update
+        `);
+        const password = rowsFromExecuteResult(account)[0]?.["password"];
+        if (typeof password !== "string" || !await verifyPassword({ hash: password, password: input.currentPassword })) return false;
+        const passwordUpdated = await tx.execute(sql`
+          update public.auth_accounts set password = ${await hashPassword(input.newPassword)}
+          where user_id = ${input.userId} and provider_id = ${credentialProviderId}
+        `);
+        if ((passwordUpdated as { readonly rowCount?: number }).rowCount !== 1) return false;
+        await tx.execute(sql`delete from public.auth_sessions where user_id = ${input.userId} and id <> ${input.currentSessionId}`);
+        await tx.execute(sql`update public.auth_password_reset_tokens set used_at = now() where user_id = ${input.userId} and used_at is null`);
+        await tx.execute(sql`update public.auth_users set password_failed_count = 0, password_locked_until = null where id = ${input.userId}`);
+        return true;
+      });
+      return changed ? ok(undefined) : err(new DomainError({ code: "auth.changePasswordFailed", message: "Your password could not be changed. Sign in again and try once more." }));
+    } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
   }
 
   public async getSession(input: {

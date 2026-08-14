@@ -234,6 +234,7 @@ export default async function LoginPage() {
           <p className="auth-foot">
             First time here? <a href="/setup">Set up Opzava</a>
           </p>
+          <p className="auth-foot"><a href="/forgot-password">Forgot your password?</a></p>
         </div>
       </section>
     </main>

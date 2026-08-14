@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 
-import { securityAction, type SecurityActionState } from "@/app/(auth)/security/actions";
+import { changePasswordAction, securityAction, type ChangePasswordActionState, type SecurityActionState } from "@/app/(auth)/security/actions";
 
 const initialState: SecurityActionState = { status: "idle" };
 
@@ -49,7 +49,12 @@ export function SecurityForm({ enabled, remaining }: { readonly enabled: boolean
     </section>;
   }
 
-  return <section className="card" aria-labelledby="security-heading">
+  return <>
+    <section className="card" aria-labelledby="password-heading">
+      <div className="card-header"><h2 className="card-title" id="password-heading">Change password</h2></div>
+      <div className="card-content"><ChangePasswordForm /></div>
+    </section>
+    <section className="card" aria-labelledby="security-heading">
     <div className="card-header"><h1 className="card-title" id="security-heading">Security & account</h1></div>
     <div className="card-content">
       {state.message !== undefined ? <div className="sb-alert sb-alert--destructive" role="alert">{state.message}</div> : null}
@@ -74,5 +79,21 @@ export function SecurityForm({ enabled, remaining }: { readonly enabled: boolean
         <button className="btn" type="submit" disabled={pending}>Turn off two-factor</button>
       </form> : null}
     </div>
-  </section>;
+    </section>
+  </>;
+}
+
+function ChangePasswordForm() {
+  const [state, formAction, pending] = useActionState(changePasswordAction, { status: "idle" } satisfies ChangePasswordActionState);
+  return <form action={formAction}>
+    {state.message === undefined ? null : <div className={state.status === "success" ? "sb-alert" : "sb-alert sb-alert--destructive"} role="alert">{state.message}</div>}
+    <p>Use your current password to set a new one. Other signed-in devices will be signed out.</p>
+    <label className="label" htmlFor="current-password">Current password</label>
+    <input className="input" id="current-password" name="currentPassword" type="password" autoComplete="current-password" required />
+    <label className="label" htmlFor="new-password">New password</label>
+    <input className="input" id="new-password" name="newPassword" type="password" autoComplete="new-password" minLength={12} required />
+    <label className="label" htmlFor="confirm-password">Confirm new password</label>
+    <input className="input" id="confirm-password" name="confirmPassword" type="password" autoComplete="new-password" minLength={12} required />
+    <button className="btn btn-primary" type="submit" disabled={pending}>Change password</button>
+  </form>;
 }
