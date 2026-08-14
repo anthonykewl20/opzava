@@ -174,7 +174,6 @@ function actionDependencies(
         conversationId: "conversation-1",
         turns: [],
       }),
-    enqueueIssueCloseForTask: async () => ok(null),
     listTasks: async () =>
       ok([
         task({ id: "11111111-1111-4111-8111-111111111111", status: "in_progress", position: 2 }),
@@ -182,7 +181,15 @@ function actionDependencies(
       ]),
     markCommentsRead: async () => ok([comment({ readByUserIds: ["user-1"] })]),
     issueDoneConfirmNonce: async () => ok("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-    markTaskDone: async () => ok(task({ status: "done", position: 8 })),
+    markTaskDoneAndEnqueueIssueClose: async () =>
+      ok({
+        task: task({ status: "done", position: 8 }),
+        linkedIssueCloseIntent: {
+          kind: "no_linked_issue",
+          taskId: "11111111-1111-4111-8111-111111111111",
+          cardNumber: 1042,
+        },
+      }),
     toggleStep: async () => ok(step({ done: true })),
     updateTask: async () => ok(task()),
     addTaskEvidenceFile: async (input) =>
@@ -634,7 +641,9 @@ describe("Task card load and actions", () => {
   });
 
   it("marks a card done at the next done position and records linked-issue close intent", async () => {
-    let capturedInput: Parameters<TaskCardActionDependencies["markTaskDone"]>[0] | null = null;
+    let capturedInput:
+      | Parameters<TaskCardActionDependencies["markTaskDoneAndEnqueueIssueClose"]>[0]
+      | null = null;
     let issuedForTaskId: string | null = null;
     const approvedReviewTaskIds = new Set(["11111111-1111-4111-8111-111111111111"]);
     const issuedConfirmations = new Map<
@@ -650,7 +659,7 @@ describe("Task card load and actions", () => {
           issuedConfirmations.set(nonce, { taskId, userId: sessionContext.user.id });
           return ok(nonce);
         },
-        markTaskDone: async (input) => {
+        markTaskDoneAndEnqueueIssueClose: async (input) => {
           const issued = issuedConfirmations.get(input.humanCommand.confirmNonce);
           if (
             !approvedReviewTaskIds.has(input.taskId) ||
@@ -667,13 +676,39 @@ describe("Task card load and actions", () => {
             );
           }
           capturedInput = input;
-          return ok(
-            task({
+          return ok({
+            task: task({
               status: "done",
               position: input.position,
               provenanceExternalRef: "github:opzava/opzava#42",
             }),
-          );
+            linkedIssueCloseIntent: {
+              kind: "deferred_to_slice_2_5e",
+              taskId: input.taskId,
+              cardNumber: 1042,
+              targetRef: "github:opzava/opzava#42",
+              outbox: {
+                id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                organizationId: input.orgId,
+                workspaceId: input.workspaceId,
+                taskId: input.taskId,
+                repository: "opzava/opzava",
+                issueNumber: 42,
+                issueUrl: "https://github.com/opzava/opzava/issues/42",
+                dedupeKey: "test-close",
+                state: "pending",
+                closeReason: "completed",
+                attempts: 0,
+                nextAttemptAt: "2026-08-14T00:00:00.000Z",
+                lastError: null,
+                claimedAt: null,
+                claimToken: null,
+                createdAt: "2026-08-14T00:00:00.000Z",
+                updatedAt: "2026-08-14T00:00:00.000Z",
+                closedAt: null,
+              },
+            },
+          });
         },
       }),
     );
@@ -696,7 +731,7 @@ describe("Task card load and actions", () => {
       taskId: "11111111-1111-4111-8111-111111111111",
       cardNumber: 1042,
       targetRef: "github:opzava/opzava#42",
-      outbox: null,
+      outbox: expect.objectContaining({ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }),
     });
   });
 
@@ -854,7 +889,7 @@ describe("Task card load and actions", () => {
   );
 
   it("fails the card Done command when no valid confirmation can be issued", async () => {
-    let markTaskDoneCalled = false;
+    let markTaskDoneAndEnqueueIssueCloseCalled = false;
     const result = await markTaskDoneForCard(
       { taskId: "11111111-1111-4111-8111-111111111111" },
       actionDependencies({
@@ -865,9 +900,16 @@ describe("Task card load and actions", () => {
               message: "Marking a task Done requires the confirmed human Done action.",
             }),
           ),
-        markTaskDone: async () => {
-          markTaskDoneCalled = true;
-          return ok(task({ status: "done" }));
+        markTaskDoneAndEnqueueIssueClose: async () => {
+          markTaskDoneAndEnqueueIssueCloseCalled = true;
+          return ok({
+            task: task({ status: "done" }),
+            linkedIssueCloseIntent: {
+              kind: "no_linked_issue",
+              taskId: "11111111-1111-4111-8111-111111111111",
+              cardNumber: 1042,
+            },
+          });
         },
       }),
     );
@@ -876,7 +918,27 @@ describe("Task card load and actions", () => {
       ok: false,
       error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
-    expect(markTaskDoneCalled).toBe(false);
+    expect(markTaskDoneAndEnqueueIssueCloseCalled).toBe(false);
+  });
+
+  it("propagates an issue-close intent failure from the composed Done seam", async () => {
+    const result = await markTaskDoneForCard(
+      { taskId: "11111111-1111-4111-8111-111111111111" },
+      actionDependencies({
+        markTaskDoneAndEnqueueIssueClose: async () =>
+          err(
+            new DomainError({
+              code: "projectManagement.issueCloseIntentFailed",
+              message: "Issue close outbox intent could not be recorded.",
+            }),
+          ),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.issueCloseIntentFailed" },
+    });
   });
 
   it("preserves the current assignee when editing card details", async () => {

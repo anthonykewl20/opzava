@@ -73,6 +73,11 @@ export {
   NoopTaskTerminalAttemptAuditAdapter,
   InMemoryTaskTerminalAttemptAuditAdapter,
 } from "./tasks.js";
+export type {
+  LinkedIssueCloseIntent,
+  MarkTaskDoneAndEnqueueIssueCloseDependencies,
+} from "./task-done-close.js";
+export { markTaskDoneAndEnqueueIssueClose } from "./task-done-close.js";
 export { RoleKeyTaskAuthorizationPort, defaultTaskAuthorizationPort } from "./authorization.js";
 export type {
   CreateTrackedIssueInput,

@@ -4,9 +4,8 @@ import type {
   AddTaskEvidenceLinkInput,
   ApproveQualityReviewInput,
   CardDetailDto,
-  EnqueueIssueCloseInput,
   EnsureTaskQualityReviewInput,
-  IssueCloseOutboxDto,
+  LinkedIssueCloseIntent,
   TaskEvidenceDto,
   TaskQualityReviewDto,
   TaskCommentDto,
@@ -22,12 +21,10 @@ import {
   addTaskEvidenceLink,
   approveQualityReview,
   ensureTaskQualityReview,
-  enqueueIssueCloseForTask,
   getCardDetail,
-  issueRefFromTask,
   listTasks,
   markCommentsRead,
-  markTaskDone,
+  markTaskDoneAndEnqueueIssueClose,
   taskPriorities,
   toggleQualityCheck,
   toggleStep,
@@ -65,19 +62,7 @@ export interface TaskCardPageData {
   readonly assistantRuns: readonly TaskCardAssistantRunView[];
 }
 
-export type LinkedIssueCloseIntent =
-  | {
-      readonly kind: "no_linked_issue";
-      readonly taskId: string;
-      readonly cardNumber: number;
-    }
-  | {
-      readonly kind: "deferred_to_slice_2_5e";
-      readonly taskId: string;
-      readonly cardNumber: number;
-      readonly targetRef: string;
-      readonly outbox: IssueCloseOutboxDto | null;
-    };
+export type { LinkedIssueCloseIntent };
 
 export interface MarkDoneResult {
   readonly task: TaskDto;
@@ -180,7 +165,7 @@ export interface TaskCardActionDependencies {
   readonly getOrCreateAskAdminHistory: typeof getOrCreateAskAdminHistory;
   readonly listTasks: typeof listTasks;
   readonly markCommentsRead: typeof markCommentsRead;
-  readonly markTaskDone: typeof markTaskDone;
+  readonly markTaskDoneAndEnqueueIssueClose: typeof markTaskDoneAndEnqueueIssueClose;
   readonly issueDoneConfirmNonce: typeof issueDoneConfirmNonce;
   readonly toggleStep: typeof toggleStep;
   readonly updateTask: typeof updateTask;
@@ -192,7 +177,6 @@ export interface TaskCardActionDependencies {
   readonly approveQualityReview: typeof approveQualityReview;
   readonly objectStorePort?: ObjectStorePort;
   readonly errorCapture?: ErrorCapturePort;
-  readonly enqueueIssueCloseForTask?: typeof enqueueIssueCloseForTask;
   readonly revalidateTaskPaths?: (task: { readonly cardNumber?: number }) => void;
 }
 
@@ -212,7 +196,7 @@ export const defaultTaskCardActionDependencies: Omit<
   getOrCreateAskAdminHistory,
   listTasks,
   markCommentsRead,
-  markTaskDone,
+  markTaskDoneAndEnqueueIssueClose,
   issueDoneConfirmNonce,
   toggleStep,
   updateTask,
@@ -222,7 +206,6 @@ export const defaultTaskCardActionDependencies: Omit<
   addQualityCheck,
   toggleQualityCheck,
   approveQualityReview,
-  enqueueIssueCloseForTask,
 };
 
 const taskPrioritySet = new Set<string>(taskPriorities);
@@ -502,39 +485,6 @@ export async function loadTaskCardPageData(
   });
 }
 
-export async function markLinkedIssueForClose(
-  task: TaskDto,
-  context: AppSessionContext,
-  dependencies: Pick<TaskCardActionDependencies, "enqueueIssueCloseForTask">,
-): Promise<LinkedIssueCloseIntent> {
-  const targetRef = task.provenanceExternalRef;
-  const issueRef = issueRefFromTask(task);
-
-  if (targetRef === null || issueRef === null) {
-    return {
-      kind: "no_linked_issue",
-      taskId: task.id,
-      cardNumber: task.cardNumber,
-    };
-  }
-
-  const enqueue = dependencies.enqueueIssueCloseForTask ?? enqueueIssueCloseForTask;
-  const queued = await enqueue({
-    orgId: context.orgId,
-    workspaceId: context.workspaceId,
-    actor: actorFromSessionContext(context),
-    task,
-  } satisfies EnqueueIssueCloseInput);
-
-  return {
-    kind: "deferred_to_slice_2_5e",
-    taskId: task.id,
-    cardNumber: task.cardNumber,
-    targetRef,
-    outbox: queued.ok ? queued.value : null,
-  };
-}
-
 export async function toggleTaskStepForCard(
   input: ToggleTaskStepCommand,
   dependencies: TaskCardActionDependencies,
@@ -590,7 +540,7 @@ export async function markTaskDoneForCard(
     return err(nonce.error);
   }
 
-  const result = await dependencies.markTaskDone({
+  const result = await dependencies.markTaskDoneAndEnqueueIssueClose({
     orgId: context.value.orgId,
     workspaceId: context.value.workspaceId,
     actor,
@@ -602,15 +552,8 @@ export async function markTaskDoneForCard(
     return err(result.error);
   }
 
-  dependencies.revalidateTaskPaths?.({ cardNumber: result.value.cardNumber });
-  return ok({
-    task: result.value,
-    linkedIssueCloseIntent: await markLinkedIssueForClose(
-      result.value,
-      context.value,
-      dependencies,
-    ),
-  });
+  dependencies.revalidateTaskPaths?.({ cardNumber: result.value.task.cardNumber });
+  return ok(result.value);
 }
 
 export async function updateTaskCardDetails(

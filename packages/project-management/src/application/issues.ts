@@ -95,6 +95,26 @@ export interface IssueApplicationDependencies {
   readonly now?: () => Date;
 }
 
+export interface EnqueueIssueCloseForTaskTxDependencies {
+  readonly authorizationPort?: AuthorizationPort;
+  /** Test-only fault seam for proving caller-owned transaction rollback. */
+  readonly failIssueCloseEnqueue?: () => never;
+}
+
+/**
+ * Makes a composed caller's intended domain error survive withTenant's database-error mapping.
+ * The DomainError intentionally lives on a non-cause property: mapDatabaseError walks causes.
+ */
+export class IssueCloseIntentRollbackError extends Error {
+  public readonly domainError: DomainError;
+
+  public constructor(domainError: DomainError) {
+    super(domainError.message);
+    this.name = "IssueCloseIntentRollbackError";
+    this.domainError = domainError;
+  }
+}
+
 type QueryRow = Record<string, unknown>;
 
 function issueError(code: string, message: string, cause?: unknown): DomainError {
@@ -819,65 +839,116 @@ export async function enqueueIssueCloseForTask(
     return err(authorized.error);
   }
 
-  const dedupeKey = `${input.orgId}:${input.workspaceId}:${input.task.id}:${repository.value}#${issueRef.number}:close`;
-
   try {
-    return await withTenant(input.orgId, async (tx) => {
-      const result = await tx.execute(sql`
-        insert into public.issue_close_outbox (
-          organization_id,
-          workspace_id,
-          task_id,
-          repository,
-          issue_number,
-          issue_url,
-          dedupe_key,
-          state,
-          close_reason
-        )
-        values (
-          ${input.orgId},
-          ${input.workspaceId},
-          ${input.task.id},
-          ${repository.value},
-          ${issueRef.number},
-          ${issueRef.url},
-          ${dedupeKey},
-          'pending',
-          'completed'
-        )
-        on conflict (dedupe_key)
-        do update set updated_at = now()
-        returning
-          id,
-          organization_id,
-          workspace_id,
-          task_id,
-          repository,
-          issue_number,
-          issue_url,
-          dedupe_key,
-          state,
-          close_reason,
-          attempts,
-          next_attempt_at,
-          last_error,
-          claimed_at,
-          claim_token,
-          created_at,
-          updated_at,
-          closed_at
-      `);
-
-      const row = rowsFromExecuteResult(result)[0];
-      return row === undefined ? ok(null) : ok(rowToIssueCloseOutbox(row));
-    });
+    return ok(
+      await withTenant(input.orgId, (tx) =>
+        enqueueIssueCloseForTaskTx(tx, input, { authorizationPort }),
+      ),
+    );
   } catch (error) {
     return err(
       issueError(
         "projectManagement.issueCloseEnqueueFailed",
         "Issue close outbox entry could not be recorded.",
         mapDatabaseError(error),
+      ),
+    );
+  }
+}
+
+/**
+ * Records an issue-close intent in a transaction owned by the caller. Failures deliberately throw:
+ * withTenant commits returned values, so returning Result.err here would commit a preceding Done
+ * transition without its required outbox intent.
+ */
+export async function enqueueIssueCloseForTaskTx(
+  tx: TenantTransaction,
+  input: EnqueueIssueCloseInput,
+  dependencies: EnqueueIssueCloseForTaskTxDependencies = {},
+): Promise<IssueCloseOutboxDto | null> {
+  try {
+    const issueRef = issueRefFromTask(input.task);
+    if (issueRef === null) {
+      return null;
+    }
+
+    const repository = normalizeRepository(issueRef.repository);
+    if (!repository.ok) {
+      throw repository.error;
+    }
+
+    const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+    const authorized = await authorizeIssue(input, "update", authorizationPort);
+    if (!authorized.ok) {
+      throw authorized.error;
+    }
+
+    const dedupeKey = `${input.orgId}:${input.workspaceId}:${input.task.id}:${repository.value}#${issueRef.number}:close`;
+    dependencies.failIssueCloseEnqueue?.();
+
+    const result = await tx.execute(sql`
+      insert into public.issue_close_outbox (
+        organization_id,
+        workspace_id,
+        task_id,
+        repository,
+        issue_number,
+        issue_url,
+        dedupe_key,
+        state,
+        close_reason
+      )
+      values (
+        ${input.orgId},
+        ${input.workspaceId},
+        ${input.task.id},
+        ${repository.value},
+        ${issueRef.number},
+        ${issueRef.url},
+        ${dedupeKey},
+        'pending',
+        'completed'
+      )
+      on conflict (dedupe_key)
+      do update set updated_at = now()
+      returning
+        id,
+        organization_id,
+        workspace_id,
+        task_id,
+        repository,
+        issue_number,
+        issue_url,
+        dedupe_key,
+        state,
+        close_reason,
+        attempts,
+        next_attempt_at,
+        last_error,
+        claimed_at,
+        claim_token,
+        created_at,
+        updated_at,
+        closed_at
+    `);
+
+    const row = rowsFromExecuteResult(result)[0];
+    if (row === undefined) {
+      throw issueError(
+        "projectManagement.issueCloseIntentFailed",
+        "Issue close outbox intent could not be recorded.",
+      );
+    }
+    return rowToIssueCloseOutbox(row);
+  } catch (error) {
+    if (error instanceof IssueCloseIntentRollbackError) {
+      throw error;
+    }
+    throw new IssueCloseIntentRollbackError(
+      issueError(
+        "projectManagement.issueCloseIntentFailed",
+        "Issue close outbox intent could not be recorded.",
+        error,
       ),
     );
   }
