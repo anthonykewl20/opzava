@@ -68,8 +68,10 @@ export interface MfaChallenge {
 
 export interface MfaVerificationInput {
   readonly challengeId: MfaChallengeId;
-  readonly code?: string;
-  readonly passkeyResponseJson?: string;
+  readonly code: string;
+  readonly method: "totp" | "recovery-code";
+  readonly userAgent?: string;
+  readonly ipAddress?: string;
 }
 
 export interface MfaVerificationResult {
@@ -77,8 +79,55 @@ export interface MfaVerificationResult {
   readonly verifiedAt: Date;
 }
 
+export interface StartMfaEnrollmentInput {
+  readonly userId: UserId;
+  readonly email: string;
+  /** Re-authentication is required before MFA material may be disclosed. */
+  readonly password: string;
+  /** The active session that owns this pending enrollment. */
+  readonly currentSessionId: SessionId;
+}
+
+export interface MfaEnrollment {
+  /** Opaque server-issued generation; only the current pending enrollment can be enabled. */
+  readonly generation: string;
+  readonly otpauthUri: string;
+  /** Show once while enrollment is pending; never persist client-side. */
+  readonly secret: string;
+}
+
+export interface EnableMfaInput {
+  readonly userId: UserId;
+  readonly code: string;
+  /** The authenticated session that created this enrollment; all other sessions are revoked on enable. */
+  readonly currentSessionId: SessionId;
+  /** Opaque generation returned by startMfaEnrollment. */
+  readonly generation: string;
+}
+
+export interface EnabledMfa {
+  /** Show once; recovery-code hashes are the only persisted representation. */
+  readonly recoveryCodes: readonly string[];
+}
+
+export interface DisableMfaInput {
+  readonly userId: UserId;
+  readonly code: string;
+  readonly method: "totp" | "recovery-code";
+}
+
+export interface MfaStatus {
+  readonly enabled: boolean;
+  readonly recoveryCodesRemaining: number;
+}
+
 export interface AuthPort {
   signIn(input: SignInInput): Promise<Result<AuthSession | MfaChallenge>>;
+  verifyMfaChallenge(input: MfaVerificationInput): Promise<Result<MfaVerificationResult>>;
+  startMfaEnrollment(input: StartMfaEnrollmentInput): Promise<Result<MfaEnrollment>>;
+  enableMfa(input: EnableMfaInput): Promise<Result<EnabledMfa>>;
+  disableMfa(input: DisableMfaInput): Promise<Result<void>>;
+  getMfaStatus(input: { readonly userId: UserId }): Promise<Result<MfaStatus>>;
   getSession(input: GetSessionInput): Promise<Result<AuthSession | null>>;
   revokeSession(input: RevokeSessionInput): Promise<Result<void>>;
   listSessions(input: ListSessionsInput): Promise<Result<readonly AuthSession[]>>;

@@ -20,10 +20,56 @@ export const authUsers = pgTable(
     email: text("email").notNull(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
+    twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+    passwordFailedCount: integer("password_failed_count").notNull().default(0),
+    passwordLockedUntil: timestamp("password_locked_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [uniqueIndex("auth_users_email_unique").on(sql`lower(${table.email})`)]
+);
+
+export const authTwoFactor = pgTable(
+  "auth_two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    verified: boolean("verified").notNull().default(false),
+    failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    enrollmentGeneration: text("enrollment_generation"),
+    enrollmentSessionId: text("enrollment_session_id").references(() => authSessions.id, {
+      onDelete: "set null"
+    })
+  },
+  (table) => [uniqueIndex("auth_two_factor_user_id_unique").on(table.userId)]
+);
+
+export const authMfaChallenges = pgTable(
+  "auth_mfa_challenges",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    activeOrganizationId: uuid("active_organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    membershipVersion: integer("membership_version").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    userAgentHash: text("user_agent_hash"),
+    ipAddressHash: text("ip_address_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("auth_mfa_challenges_user_id_idx").on(table.userId),
+    index("auth_mfa_challenges_expires_at_idx").on(table.expiresAt)
+  ]
 );
 
 export const authSessions = pgTable(
@@ -94,8 +140,11 @@ export const betterAuthSchema = {
   session: authSessions,
   account: authAccounts,
   verification: authVerifications,
+  twoFactor: authTwoFactor,
   auth_users: authUsers,
   auth_sessions: authSessions,
   auth_accounts: authAccounts,
-  auth_verifications: authVerifications
+  auth_verifications: authVerifications,
+  auth_two_factor: authTwoFactor,
+  auth_mfa_challenges: authMfaChallenges
 };

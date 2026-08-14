@@ -15,7 +15,7 @@ The server/client split is disciplined: server actions live under `app/(app)/*/a
 - **Seams:** The external Seam is the Next.js routing hook, and the internal coupling is to `getAppSessionContext` plus `isFirstOwnerSetupComplete` (`apps/web/proxy.ts:3`).
 - **Deepening opportunity:** none - already correctly shallow for framework bootstrap.
 
-### Auth session and cookies - `apps/web/lib/session.ts`, `apps/web/lib/auth-cookie.ts`, `apps/web/lib/auth-client.ts`, `apps/web/lib/env.ts`
+### Auth session and cookies - `apps/web/lib/session.ts`, `apps/web/lib/auth-cookie.ts`, `apps/web/lib/env.ts`
 - **Interface (the seam):** The Interface is `AppSessionContext`, `isFirstOwnerSetupComplete`, `getCurrentAuthSession`, `getAppSessionContext`, `setSessionCookie`, `clearSessionCookies`, and `parseAppEnv` (`apps/web/lib/session.ts:7`, `apps/web/lib/session.ts:49`, `apps/web/lib/session.ts:59`, `apps/web/lib/session.ts:155`, `apps/web/lib/auth-cookie.ts:15`, `apps/web/lib/auth-cookie.ts:27`, `apps/web/lib/env.ts:26`).
 - **Behind the seam (implementation):** The Implementation resolves a verified AuthPort session into tenant, organization, workspace, user, and role rows, and explicitly fails closed with no raw-cookie fallback (`apps/web/lib/session.ts:72`, `apps/web/lib/session.ts:138`, `apps/web/lib/session.ts:161`).
 - **Depth:** deep - deleting it would spread session verification, tenant lookup, workspace selection, role extraction, cookie setting, and env parsing across route Modules (`apps/web/lib/session.ts:75`, `apps/web/lib/session.ts:123`, `apps/web/lib/auth-cookie.ts:18`, `apps/web/lib/env.ts:5`).
@@ -27,6 +27,7 @@ The server/client split is disciplined: server actions live under `app/(app)/*/a
 - **Adapters:** None in this Module; the code consumes identity-access Interfaces directly from package Modules (`apps/web/app/(auth)/setup/actions.ts:3`, `apps/web/app/(auth)/login/actions.ts:3`).
 - **Depth:** moderate - the form UI is shallow, but the actions hide validation, session persistence, and redirect rules behind a small action Interface (`apps/web/components/auth/login-form.tsx:43`, `apps/web/app/(auth)/login/actions.ts:52`).
 - **Seams:** Server/client discipline is clear because the actions are server Modules and the forms are client Modules (`apps/web/app/(auth)/login/actions.ts:1`, `apps/web/components/auth/login-form.tsx:1`).
+- **MFA mockup deviation:** MFA enrollment adds an account-password re-authentication field before displaying the setup URI/key. The approved mockup does not show this step; it is required to prevent a password-only stolen session from minting persistent MFA enrollment material (`apps/web/app/(auth)/security/actions.ts:44`, `apps/web/components/auth/security-form.tsx:56`).
 
 ### Shell navigation and command palette - `apps/web/app/(app)/layout.tsx`, `apps/web/components/shell/*`, `apps/web/lib/shell-state.ts`
 - **Interface (the seam):** The Interface is `AdminNav`, `CommandPalette`, `TopbarRouteSearchOrBreadcrumb`, `SidebarToggle`, `ThemeToggle`, `NotificationBell`, `UserMenu`, `AskOpzavaAgentStatus`, `AdminShellState`, `CommandPaletteItem`, and `ShellHealthState` (`apps/web/app/(app)/layout.tsx:4`, `apps/web/app/(app)/layout.tsx:6`, `apps/web/app/(app)/layout.tsx:10`, `apps/web/app/(app)/layout.tsx:11`, `apps/web/app/(app)/layout.tsx:12`, `apps/web/app/(app)/layout.tsx:13`, `apps/web/lib/shell-state.ts:18`, `apps/web/lib/shell-state.ts:36`, `apps/web/lib/shell-state.ts:45`).
@@ -94,7 +95,8 @@ The server/client split is disciplined: server actions live under `app/(app)/*/a
 - **Adapters:** `S3ObjectStoreAdapter` is the web Adapter for `ObjectStorePort` here, with one Adapter in web and therefore a hypothetical Seam by the adapter-count rule (`apps/web/lib/object-store.ts:1`, `apps/web/lib/object-store.ts:2`, `apps/web/lib/object-store.ts:38`).
 - **Seams:** These are internal helper Seams used by connections setup-token flows, evidence upload/download, and Ask Opzava broker configuration (`apps/web/components/connections/setup-token-connect.tsx:12`, `apps/web/app/(app)/tasks/[cardId]/actions.ts:31`, `apps/web/app/api/tasks/ask-admin/turn/route.ts:32`).
 
-### Auth and health routes - `apps/web/app/api/auth/[...all]/route.ts`, `apps/web/app/healthz/route.ts`
+### Health route - `apps/web/app/healthz/route.ts`
+- **Auth boundary:** Authentication is an AuthPort-only server surface; there is no browser Better Auth client or `/api/auth` route.
 - **Deepening opportunity:** none - already correctly shallow.
 
 ## Cross-cutting notes

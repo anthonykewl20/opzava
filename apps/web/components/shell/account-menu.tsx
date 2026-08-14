@@ -203,7 +203,10 @@ export function AccountMenu({
             <div className="am-em">{user.email}</div>
           </div>
         </div>
-        {/* DESCOPE(profile-settings): P8 profile, settings, tool-summary, and help entries need backed routes and live counts before returning to this menu. */}
+        <a className="am-item" role="menuitem" href="/security">
+          <span className="am-g" aria-hidden="true">⌁</span>
+          Security
+        </a>
         <button className="am-item" role="menuitem" type="button" onClick={toggleAppearance}>
           <span className="am-g" aria-hidden="true">
             ◐
