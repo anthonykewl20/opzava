@@ -14,7 +14,7 @@ function envelope(overrides: Partial<CommandEnvelope> = {}): CommandEnvelope {
     workspaceId: randomUUID(),
     commandName: "CreateDevTicket",
     targetAggregateId: randomUUID(),
-    actorRef: { kind: "human", stableId: "owner-1", role: "owner" },
+    actorRef: { kind: "user", stableId: "owner-1", role: "human_owner" },
     sourceRef: { kind: "admin_ui", ref: "session-1" },
     authorizationVersion: 1,
     correlationId: randomUUID(),

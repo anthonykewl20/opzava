@@ -2,6 +2,7 @@ import type { TenantTransaction } from "@opzava/adapters";
 import type { Result } from "@opzava/shared-kernel";
 
 import type { DevTicketLane, OriginKind, ReadyState } from "../domain/dev-ticket.js";
+import type { ChangeRisk, DevTicketType, Priority, Severity, WorkArea } from "../domain/classification.js";
 import type { BlockingAssessment, ProposalLifecycleState } from "../domain/proposal.js";
 
 export interface ProposalRow {
@@ -29,6 +30,14 @@ export interface DevTicketRow {
   readonly lane: DevTicketLane;
   readonly archivedAt: Date | null;
   readonly humanOwnerUserId: string;
+  readonly devTicketType: DevTicketType | null;
+  readonly workAreas: readonly WorkArea[];
+  readonly priority: Priority | null;
+  readonly severity: Severity | null;
+  readonly declaredChangeRisk: ChangeRisk | null;
+  readonly minimumChangeRisk: ChangeRisk | null;
+  readonly changeRiskPolicyVersion: string | null;
+  readonly changeRiskPolicyHash: string | null;
   readonly readyContractVersion: number;
   readonly readyContractContent: Readonly<Record<string, unknown>>;
   readonly readyContractContentHash: string;
@@ -114,6 +123,13 @@ export interface UpdateDevTicketForReadyApprovalInput {
   readonly readyApprovedByUserId: string;
   readonly readyApprovalCommandId: string;
 }
+export interface UpdateDevTicketClassificationInput {
+  readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number;
+  readonly humanOwnerUserId: string; readonly devTicketType: DevTicketType; readonly workAreas: readonly WorkArea[];
+  readonly priority: Priority; readonly severity: Severity | null; readonly declaredChangeRisk: ChangeRisk;
+  readonly minimumChangeRisk: ChangeRisk; readonly changeRiskPolicyVersion: string; readonly changeRiskPolicyHash: string;
+  readonly readyContractContent: Readonly<Record<string, unknown>>; readonly readyContractContentHash: string;
+}
 
 export interface InsertDependencyEdgeInput {
   readonly id: string;
@@ -160,6 +176,10 @@ export interface DevBoardPlanningStore {
     tx: TenantTransaction,
     input: UpdateDevTicketForReadyApprovalInput,
   ): Promise<DevTicketRow | null>;
+  updateDevTicketClassification(tx: TenantTransaction, input: UpdateDevTicketClassificationInput): Promise<DevTicketRow | null>;
+  isActiveMember(tx: TenantTransaction, organizationId: string, userId: string): Promise<boolean>;
+  hasOrganizationRole(tx: TenantTransaction, organizationId: string, userId: string, roleKey: "owner" | "admin"): Promise<boolean>;
+  hasActiveDependencies(tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<boolean>;
   bumpDevTicketVersion(
     tx: TenantTransaction,
     input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },

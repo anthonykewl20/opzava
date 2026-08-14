@@ -17,12 +17,14 @@ import {
   removeDependency,
   rejectProposal,
   reorderTodo,
+  setDevTicketClassification,
   start,
   submitForReview,
   submitProposal,
   type DevBoardPlanningCommandDependencies,
 } from "../application/dev-board-planning-commands.js";
 import { computeReadyContractContentHash } from "../domain/dev-ticket.js";
+import { evaluateChangeRisk } from "../domain/change-risk-policy.js";
 import type { CommandEnvelope } from "../domain/command-envelope.js";
 
 const enabled = Boolean(process.env["DATABASE_URL"] && process.env["DATABASE_MIGRATION_URL"]);
@@ -42,6 +44,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
   const otherOrganizationId = randomUUID();
   const workspaceId = randomUUID();
   const ownerId = `owner-${randomUUID()}`;
+  const auxiliaryUserIds: string[] = [];
   const appPool = enabled ? createPostgresPool(process.env["DATABASE_URL"]) : undefined;
   const adminPool = enabled ? createPostgresPool(process.env["DATABASE_MIGRATION_URL"]) : undefined;
   const database = appPool === undefined ? undefined : createPostgresDatabase(appPool);
@@ -68,7 +71,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       workspaceId,
       commandName,
       targetAggregateId,
-      actorRef: { kind: "human", stableId: ownerId, role: "owner" },
+      actorRef: { kind: "user", stableId: ownerId, role: "human_owner" },
       sourceRef: { kind: "admin_ui", ref: "session-1" },
       authorizationVersion: 1,
       correlationId: randomUUID(),
@@ -113,22 +116,72 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     `))[0], database!);
     return state === undefined ? 1 : Number(state["version"]);
   }
+  async function ticketVersionAndEventCount(ticketId: string): Promise<Readonly<Record<string, unknown>>> {
+    return withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, count(e.id) as event_count
+      from public.dev_board_dev_ticket t
+      left join public.dev_board_activity_event e on e.aggregate_id = t.id
+      where t.id = ${ticketId}::uuid
+      group by t.version
+    `))[0]!, database!);
+  }
+  async function seedMember(
+    membershipOrganizationId: string,
+    status: "active" | "invited" | "suspended" | "removed",
+  ): Promise<string> {
+    const userId = `member-${randomUUID()}`;
+    auxiliaryUserIds.push(userId);
+    await adminPool!.query("insert into public.auth_users (id, name, email) values ($1, $2, $3)", [
+      userId, "Matrix member", `${userId}@example.test`,
+    ]);
+    await withTenant(membershipOrganizationId, (tx) => tx.execute(sql`
+      insert into public.memberships (organization_id, user_id, status)
+      values (${membershipOrganizationId}::uuid, ${userId}, ${status})
+    `), database!);
+    return userId;
+  }
+  async function grantOrganizationRole(userId: string, role: "admin" | "owner"): Promise<void> {
+    await withTenant(organizationId, (tx) => tx.execute(sql`
+      insert into public.role_grants (
+        organization_id, subject_type, subject_id, role_key, scope_type, scope_id, granted_by_user_id
+      ) values (${organizationId}::uuid, 'user', ${userId}, ${role}, 'organization', ${organizationId}::uuid, ${ownerId})
+    `), database!);
+  }
+  async function createDecisionProposal(summary: string): Promise<string> {
+    const proposalId = randomUUID();
+    expect((await draftProposal(envelope("DraftProposal", proposalId), {
+      discoverySummary: summary, blockingAssessment: "non_blocking",
+    }, deps!)).ok).toBe(true);
+    expect((await submitProposal(envelope("SubmitProposal", proposalId, [
+      { recordKind: "proposal", recordId: proposalId, version: 1 },
+    ]), { proposalId }, deps!)).ok).toBe(true);
+    return proposalId;
+  }
   async function approveTicket(
     summary: string,
     testWorkspaceId: CommandEnvelope["workspaceId"] = workspaceId,
   ): Promise<string> {
     const ticketId = await createBacklogTicket(summary, testWorkspaceId);
+    const content = await classifyTicket(ticketId, summary, testWorkspaceId);
     const result = await approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
-      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: ticketId,
-      readyContractContent: { outcome: summary },
-      expectedContractVersion: 1,
-      expectedContractContentHash: computeReadyContractContentHash({ outcome: summary }),
+      readyContractContent: content,
+      expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(content),
       expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
     }, deps!);
     expect(result).toMatchObject({ ok: true });
     return ticketId;
+  }
+  async function classifyTicket(ticketId: string, outcome: string, testWorkspaceId: CommandEnvelope["workspaceId"] = workspaceId, hasActiveDependencies = false, expectedVersion = 1): Promise<Readonly<Record<string, unknown>>> {
+    const result = await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: expectedVersion }], { workspaceId: testWorkspaceId }), {
+      devTicketId: ticketId, type: "feature", workAreas: ["backend_api"], priority: "p1", declaredChangeRisk: hasActiveDependencies ? "medium" : "low",
+    }, deps!);
+    expect(result).toMatchObject({ ok: true });
+    const policy = evaluateChangeRisk({ type: "feature", workAreas: ["backend_api"], hasActiveDependencies });
+    return { outcome, humanOwnerUserId: ownerId, classification: { type: "feature", workAreas: ["backend_api"], priority: "p1", declaredChangeRisk: hasActiveDependencies ? "medium" : "low" }, changeRiskPolicy: policy };
   }
   async function seedTodoRanks(
     testWorkspaceId: CommandEnvelope["workspaceId"],
@@ -163,6 +216,12 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       throw new Error(
         `RLS integration test must run as non-owner opzava_app; got ${JSON.stringify(role)}`,
       );
+    const classificationConstraint = rows(await database!.execute(sql`
+      select convalidated
+      from pg_constraint
+      where conname = 'dev_board_dev_ticket_ready_classification_check'
+    `))[0];
+    expect(classificationConstraint?.["convalidated"]).toBe(true);
     await adminPool!.query(
       "insert into public.organizations (id, slug, name, lifecycle_state) values ($1, $2, $3, 'active'), ($4, $5, $6, 'active')",
       [
@@ -187,6 +246,16 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       "insert into public.memberships (organization_id, user_id, status) values ($1, $2, 'active')",
       [organizationId, ownerId],
     );
+    await adminPool!.query(
+      "insert into public.role_grants (organization_id, subject_type, subject_id, role_key, scope_type, scope_id, granted_by_user_id) values ($1, 'user', $2, 'admin', 'organization', $1, $2)",
+      [organizationId, ownerId],
+    );
+    const helpersWithoutTenant = rows(await database!.execute(sql`
+      select app.is_active_member(${organizationId}::uuid, ${ownerId}) as active_member,
+        app.has_organization_role(${organizationId}::uuid, ${ownerId}, 'admin') as has_role
+    `))[0];
+    expect(helpersWithoutTenant?.["active_member"]).toBe(false);
+    expect(helpersWithoutTenant?.["has_role"]).toBe(false);
   });
   afterAll(async () => {
     if (adminPool === undefined || appPool === undefined) return;
@@ -229,10 +298,13 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       "delete from public.dev_board_command_receipt where organization_id = $1",
       [organizationId],
     );
-    await adminPool.query("delete from public.memberships where organization_id = $1", [
-      organizationId,
+    await adminPool.query("delete from public.role_grants where organization_id = $1 or organization_id = $2", [
+      organizationId, otherOrganizationId,
     ]);
-    await adminPool.query("delete from public.auth_users where id = $1", [ownerId]);
+    await adminPool.query("delete from public.memberships where organization_id = $1 or organization_id = $2", [
+      organizationId, otherOrganizationId,
+    ]);
+    await adminPool.query("delete from public.auth_users where id = any($1::text[])", [[ownerId, ...auxiliaryUserIds]]);
     await adminPool.query("delete from public.workspaces where organization_id = $1", [
       organizationId,
     ]);
@@ -270,16 +342,17 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(accepted).toMatchObject({ ok: true });
     if (!accepted.ok) return;
     const ticketId = accepted.value.devTicketId!;
-    const approvedContent = { outcome: "Ship", scope: "only Dev Board" };
+    const classifiedContent = await classifyTicket(ticketId, "Ship", testWorkspaceId);
+    const approvedContent = { ...classifiedContent, scope: "only Dev Board" };
     const approved = await approveReadyToTodo(
       envelope("ApproveReadyToTodo", ticketId, [
-        { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+        { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
       ], { workspaceId: testWorkspaceId }),
       {
         devTicketId: ticketId,
         readyContractContent: approvedContent,
-        expectedContractVersion: 1,
-        expectedContractContentHash: computeReadyContractContentHash({ outcome: "Ship" }),
+        expectedContractVersion: 2,
+        expectedContractContentHash: computeReadyContractContentHash(classifiedContent),
         expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
       },
       deps!,
@@ -296,9 +369,9 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       database!,
     );
     expect(Number(state!["proposal_version"])).toBe(3);
-    expect(Number(state!["ticket_version"])).toBe(2);
+    expect(Number(state!["ticket_version"])).toBe(3);
     expect(state!["lane"]).toBe("todo");
-    expect(Number(state!["ready_approval_contract_version"])).toBe(2);
+    expect(Number(state!["ready_approval_contract_version"])).toBe(3);
     expect(state!["ready_approval_content_hash"]).toBe(
       computeReadyContractContentHash(approvedContent),
     );
@@ -309,7 +382,8 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       { aggregate_id: proposalId, aggregate_version: 2, event_name: "ProposalSubmitted" },
       { aggregate_id: proposalId, aggregate_version: 3, event_name: "ProposalAccepted" },
       { aggregate_id: ticketId, aggregate_version: 1, event_name: "DevTicketCreated" },
-      { aggregate_id: ticketId, aggregate_version: 2, event_name: "ReadyApproved" },
+      { aggregate_id: ticketId, aggregate_version: 2, event_name: "DevTicketClassificationChanged" },
+      { aggregate_id: ticketId, aggregate_version: 3, event_name: "ReadyApproved" },
     ]));
   });
   it("rejects a stale proposal version without aggregate or ledger writes", async () => {
@@ -574,14 +648,15 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(accepted).toMatchObject({ ok: true });
     if (!accepted.ok) return;
     const devTicketId = accepted.value.devTicketId!;
+    await classifyTicket(devTicketId, "Draft");
     const result = await approveReadyToTodo(
       envelope("ApproveReadyToTodo", devTicketId, [
-        { recordKind: "dev_ticket", recordId: devTicketId, version: 1 },
+        { recordKind: "dev_ticket", recordId: devTicketId, version: 2 },
       ]),
       {
         devTicketId,
         readyContractContent: { outcome: "Approved" },
-        expectedContractVersion: 1,
+        expectedContractVersion: 2,
         expectedContractContentHash: "0".repeat(64),
         expectedTodoQueueVersion: await currentTodoQueueVersion(),
       },
@@ -604,7 +679,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     );
     expect(ticket!["lane"]).toBe("backlog");
     expect(ticket!["ready_state"]).toBe("draft");
-    expect(Number(ticket!["version"])).toBe(1);
+    expect(Number(ticket!["version"])).toBe(2);
   });
   it("merges a decision-ready Proposal into an active DevTicket without creating another ticket", async () => {
     const acceptedProposalId = randomUUID();
@@ -697,7 +772,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const request = envelope("AcceptProposal", proposalId, [{ recordKind: "proposal", recordId: proposalId, version: 2 }]);
     const result = await acceptProposal(request, { proposalId, humanOwnerUserId: `not-a-member-${randomUUID()}` }, deps!);
     expect(result).toMatchObject({ ok: false });
-    if (!result.ok) expect(result.error.code).toBe("dev_board.constraint_reference_invalid");
+    if (!result.ok) expect(result.error.code).toBe("dev_board.human_owner_not_active_member");
     const replay = await acceptProposal({ ...request, commandId: randomUUID() }, { proposalId, humanOwnerUserId: `not-a-member-${randomUUID()}` }, deps!);
     expect(replay).toMatchObject({ ok: false });
     if (!replay.ok && !result.ok) expect(replay.error.message).toBe(result.error.message);
@@ -731,19 +806,20 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       envelope(name, target, versions, { workspaceId: testWorkspaceId });
     const dependent = await createBacklogTicket("Todo dependent added dependency", testWorkspaceId);
     const blocker = await createBacklogTicket("Todo dependency blocker", testWorkspaceId);
-    const approvalContent = { outcome: "Todo dependent added dependency", scope: "dependency invalidation" };
+    const classifiedContent = await classifyTicket(dependent, "Todo dependent added dependency", testWorkspaceId);
+    const approvalContent = { ...classifiedContent, scope: "dependency invalidation" };
     expect((await approveReadyToTodo(testEnvelope("ApproveReadyToTodo", dependent, [
-      { recordKind: "dev_ticket", recordId: dependent, version: 1 },
+      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
     ]), {
       devTicketId: dependent,
       readyContractContent: approvalContent,
-      expectedContractVersion: 1,
-      expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent added dependency" }),
+      expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash({ ...classifiedContent }),
       expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
     }, deps!)).ok).toBe(true);
 
     const command = testEnvelope("AddDependency", dependent, [
-      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+      { recordKind: "dev_ticket", recordId: dependent, version: 3 },
       { recordKind: "dev_ticket", recordId: blocker, version: 1 },
       { recordKind: "lane_queue", recordId: "todo", version: await currentTodoQueueVersion(testWorkspaceId) },
     ]);
@@ -763,7 +839,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
             and e.payload @> '{"readyInvalidated":true,"laneChanged":{"from":"todo","to":"backlog"}}'::jsonb) as invalidation_event_count
       from public.dev_board_dev_ticket t where t.id = ${dependent}::uuid
     `))[0], database!);
-    expect(Number(state!["version"])).toBe(3);
+    expect(Number(state!["version"])).toBe(4);
     expect(state!["lane"]).toBe("backlog");
     expect(state!["ready_state"]).toBe("draft");
     expect(state!["ready_approval_contract_version"]).toBeNull();
@@ -787,14 +863,15 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     }, deps!);
     expect(added).toMatchObject({ ok: true });
     if (!added.ok) return;
-    const approvalContent = { outcome: "Todo dependent removed dependency", scope: "dependency invalidation" };
+    const classifiedContent = await classifyTicket(dependent, "Todo dependent removed dependency", testWorkspaceId, true, 2);
+    const approvalContent = { ...classifiedContent, scope: "dependency invalidation" };
     expect((await approveReadyToTodo(testEnvelope("ApproveReadyToTodo", dependent, [
-      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+      { recordKind: "dev_ticket", recordId: dependent, version: 3 },
     ]), {
       devTicketId: dependent,
       readyContractContent: approvalContent,
-      expectedContractVersion: 1,
-      expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent removed dependency" }),
+      expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash({ ...classifiedContent }),
       expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
     }, deps!)).ok).toBe(true);
 
@@ -817,7 +894,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
             and e.payload @> '{"readyInvalidated":true,"laneChanged":{"from":"todo","to":"backlog"}}'::jsonb) as invalidation_event_count
       from public.dev_board_dev_ticket t where t.id = ${dependent}::uuid
     `))[0], database!);
-    expect(Number(state!["version"])).toBe(4);
+    expect(Number(state!["version"])).toBe(5);
     expect(state!["lane"]).toBe("backlog");
     expect(state!["ready_state"]).toBe("draft");
     expect(state!["ready_approval_contract_version"]).toBeNull();
@@ -901,14 +978,15 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       { recordKind: "dev_ticket", recordId: b, version: 2 },
     ]), { dependentDevTicketId: dependent, blockerDevTicketId: b, reason: "Blocks completion." }, deps!);
     expect(addLocked).toMatchObject({ ok: true });
-    const lockedApprovalContent = { outcome: "locked dependent", scope: "can remain Todo while locked" };
+    const lockedClassifiedContent = await classifyTicket(dependent, "locked dependent", workspaceId, true, 2);
+    const lockedApprovalContent = { ...lockedClassifiedContent, scope: "can remain Todo while locked" };
     const approvedWhileLocked = await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
-      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+      { recordKind: "dev_ticket", recordId: dependent, version: 3 },
     ]), {
       devTicketId: dependent,
       readyContractContent: lockedApprovalContent,
-      expectedContractVersion: 1,
-      expectedContractContentHash: computeReadyContractContentHash({ outcome: "locked dependent" }),
+      expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(lockedClassifiedContent),
       expectedTodoQueueVersion: await currentTodoQueueVersion(),
     }, deps!);
     expect(approvedWhileLocked).toMatchObject({ ok: true });
@@ -938,13 +1016,13 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const moved = await approveTicket("before moved", testWorkspaceId);
     const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
     const result = await reorderTodo(envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: moved,
       sourceQueue: { lane: "todo", version: queueVersion },
       targetQueue: { lane: "todo", version: queueVersion },
-      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 2 },
+      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 3 },
     }, deps!);
     expect(result).toMatchObject({ ok: true });
     const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
@@ -956,14 +1034,14 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     `))[0], database!);
     expect(BigInt(String(state!["moved_rank"]))).toBe(BigInt(String(state!["first_rank"])) - 1_000_000n);
     expect(Number(state!["queue_version"])).toBe(queueVersion + 1);
-    expect(Number(state!["event_version"])).toBe(3);
+    expect(Number(state!["event_version"])).toBe(4);
   });
   it("accepts empty_band for the only Todo member", async () => {
     const testWorkspaceId = await createWorkspace("Todo empty band workspace");
     const moved = await approveTicket("only Todo", testWorkspaceId);
     const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
     expect(await reorderTodo(envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: moved,
@@ -991,7 +1069,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       select dev_ticket_id, rank from public.dev_board_lane_queue where workspace_id = ${testWorkspaceId}::uuid order by rank, dev_ticket_id
     `)), database!);
     const rejected = await reorderTodo(envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: moved,
@@ -1018,11 +1096,11 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     ]);
     const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
     const result = await reorderTodo(envelope("ReorderTodo", moved!, [
-      { recordKind: "dev_ticket", recordId: moved!, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved!, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: moved!, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
-      anchor: { kind: "after", neighborDevTicketId: left!, neighborVersion: 2 },
+      anchor: { kind: "after", neighborDevTicketId: left!, neighborVersion: 3 },
     }, deps!);
     expect(result).toMatchObject({ ok: true });
     const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
@@ -1046,19 +1124,19 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const movedAfter = await approveTicket("boundary after", testWorkspaceId);
     let queueVersion = await currentTodoQueueVersion(testWorkspaceId);
     expect(await reorderTodo(envelope("ReorderTodo", movedBefore, [
-      { recordKind: "dev_ticket", recordId: movedBefore, version: 2 },
+      { recordKind: "dev_ticket", recordId: movedBefore, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: movedBefore, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
-      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 2 },
+      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 3 },
     }, deps!)).toMatchObject({ ok: true });
     queueVersion += 1;
     expect(await reorderTodo(envelope("ReorderTodo", movedAfter, [
-      { recordKind: "dev_ticket", recordId: movedAfter, version: 2 },
+      { recordKind: "dev_ticket", recordId: movedAfter, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId }), {
       devTicketId: movedAfter, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
-      anchor: { kind: "after", neighborDevTicketId: last, neighborVersion: 2 },
+      anchor: { kind: "after", neighborDevTicketId: last, neighborVersion: 3 },
     }, deps!)).toMatchObject({ ok: true });
     const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
       select dev_ticket_id, rank from public.dev_board_lane_queue
@@ -1075,12 +1153,12 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const currentVersion = await currentTodoQueueVersion(testWorkspaceId);
     const staleVersion = currentVersion - 1;
     const request = envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: staleVersion },
     ], { workspaceId: testWorkspaceId });
     const staleInput = {
       devTicketId: moved, sourceQueue: { lane: "todo" as const, version: staleVersion }, targetQueue: { lane: "todo" as const, version: staleVersion },
-      anchor: { kind: "after" as const, neighborDevTicketId: neighbor, neighborVersion: 2 },
+      anchor: { kind: "after" as const, neighborDevTicketId: neighbor, neighborVersion: 3 },
     };
     const rejected = await reorderTodo(request, staleInput, deps!);
     expect(rejected).toMatchObject({ ok: false });
@@ -1096,9 +1174,9 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     `))[0], database!);
     expect(Number(afterRejected!["queue_version"])).toBe(currentVersion);
     expect(Number(afterRejected!["event_count"])).toBe(0);
-    expect(Number(afterRejected!["ticket_version"])).toBe(2);
+    expect(Number(afterRejected!["ticket_version"])).toBe(3);
     expect(await reorderTodo(envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: currentVersion },
     ], { workspaceId: testWorkspaceId }), {
       ...staleInput,
@@ -1136,14 +1214,14 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const last = await approveTicket("queue last", testWorkspaceId);
     const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
     const request = envelope("ReorderTodo", moved, [
-      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "dev_ticket", recordId: moved, version: 3 },
       { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
     ], { workspaceId: testWorkspaceId });
     const input = {
       devTicketId: moved,
       sourceQueue: { lane: "todo" as const, version: queueVersion },
       targetQueue: { lane: "todo" as const, version: queueVersion },
-      anchor: { kind: "after" as const, neighborDevTicketId: first, neighborVersion: 2 },
+      anchor: { kind: "after" as const, neighborDevTicketId: first, neighborVersion: 3 },
     };
     const result = await reorderTodo(request, input, deps!);
     expect(result).toMatchObject({ ok: true, value: { resultingVersions: expect.arrayContaining([
@@ -1168,6 +1246,474 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered'
     `))[0], database!);
     expect(Number(events!["count"])).toBe(1);
+  });
+  it("rejects classification changes after Todo without writes and replays the terminal receipt", async () => {
+    const testWorkspaceId = await createWorkspace("Todo classification revision");
+    const ticketId = await approveTicket("Todo classification revision", testWorkspaceId);
+    const request = envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 3 },
+    ], { workspaceId: testWorkspaceId });
+    const input = { devTicketId: ticketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low" };
+    const before = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, count(e.id) as events from public.dev_board_dev_ticket t
+      left join public.dev_board_activity_event e on e.aggregate_id = t.id
+      where t.id = ${ticketId}::uuid group by t.version
+    `))[0], database!);
+    const rejected = await setDevTicketClassification(request, input, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.classification_revision_required");
+    const replay = await setDevTicketClassification({ ...request, commandId: randomUUID() }, input, deps!);
+    expect(replay).toMatchObject({ ok: false });
+    if (!replay.ok && !rejected.ok) expect(replay.error.message).toBe(rejected.error.message);
+    const after = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, count(e.id) as events from public.dev_board_dev_ticket t
+      left join public.dev_board_activity_event e on e.aggregate_id = t.id
+      where t.id = ${ticketId}::uuid group by t.version
+    `))[0], database!);
+    expect(after).toEqual(before);
+  });
+  it("rejects declared Change Risk below the policy floor during classification without writes", async () => {
+    const ticketId = await createBacklogTicket("Bug risk floor");
+    const request = envelope("SetDevTicketClassification", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 1 }]);
+    const rejected = await setDevTicketClassification(request, {
+      devTicketId: ticketId, type: "bug", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low",
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.change_risk_below_policy_minimum");
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, count(e.id) as event_count from public.dev_board_dev_ticket t
+      left join public.dev_board_activity_event e on e.aggregate_id = t.id
+      where t.id = ${ticketId}::uuid group by t.version
+    `))[0], database!);
+    expect(Number(state!["version"])).toBe(1);
+    expect(Number(state!["event_count"])).toBe(1);
+  });
+  it("recomputes the Change Risk floor at Ready approval and requires a fresh classification", async () => {
+    const testWorkspaceId = await createWorkspace("Risk drift authority");
+    const ticketId = await createBacklogTicket("Risk drift dependent", testWorkspaceId);
+    const blockerId = await createBacklogTicket("Risk drift blocker", testWorkspaceId);
+    const oldContent = await classifyTicket(ticketId, "Risk drift dependent", testWorkspaceId);
+    expect((await addDependency(envelope("AddDependency", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+      { recordKind: "dev_ticket", recordId: blockerId, version: 1 },
+    ], { workspaceId: testWorkspaceId }), {
+      dependentDevTicketId: ticketId, blockerDevTicketId: blockerId, reason: "The blocker raises delivery risk.",
+    }, deps!)).ok).toBe(true);
+    const rejectedRequest = envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 3 },
+    ], { workspaceId: testWorkspaceId });
+    const rejected = await approveReadyToTodo(rejectedRequest, {
+      devTicketId: ticketId, readyContractContent: oldContent, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(oldContent),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.change_risk_below_policy_minimum");
+    const afterRejection = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, t.lane,
+        (select count(*) from public.dev_board_activity_event where command_id = ${rejectedRequest.commandId}::uuid) as rejected_event_count
+      from public.dev_board_dev_ticket t where t.id = ${ticketId}::uuid
+    `))[0], database!);
+    expect(Number(afterRejection!["version"])).toBe(3);
+    expect(afterRejection!["lane"]).toBe("backlog");
+    expect(Number(afterRejection!["rejected_event_count"])).toBe(0);
+    const freshContent = await classifyTicket(ticketId, "Risk drift dependent", testWorkspaceId, true, 3);
+    const approved = await approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 4 },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: ticketId, readyContractContent: freshContent, expectedContractVersion: 3,
+      expectedContractContentHash: computeReadyContractContentHash(freshContent),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
+    }, deps!);
+    expect(approved).toMatchObject({ ok: true });
+  });
+  it("rejects Ready contracts missing or tampering with the persisted classification", async () => {
+    const ticketId = await createBacklogTicket("Ready contract classification binding");
+    const content = await classifyTicket(ticketId, "Ready contract classification binding");
+    const request = async (readyContractContent: Readonly<Record<string, unknown>>) => approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+    ]), {
+      devTicketId: ticketId, readyContractContent, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(content), expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    const missing = await request({ outcome: "No classification blocks" });
+    expect(missing).toMatchObject({ ok: false });
+    if (!missing.ok) expect(missing.error.code).toBe("dev_board.ready_contract_missing_classification");
+    const tampered = await request({ ...content, classification: { ...(content["classification"] as Record<string, unknown>), priority: "p0" } });
+    expect(tampered).toMatchObject({ ok: false });
+    if (!tampered.ok) expect(tampered.error.code).toBe("dev_board.ready_contract_missing_classification");
+  });
+  it("requires a trusted user owner or organization role for Ready approval", async () => {
+    const ticketId = await createBacklogTicket("Ready authorization role");
+    const content = await classifyTicket(ticketId, "Ready authorization role");
+    const approverId = await seedMember(organizationId, "active");
+    const approval = async (actorRef: CommandEnvelope["actorRef"]) => approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+    ], { actorRef }), {
+      devTicketId: ticketId, readyContractContent: content, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(content), expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    const fakeAdmin = await approval({ kind: "user", role: "admin", stableId: approverId });
+    expect(fakeAdmin).toMatchObject({ ok: false });
+    if (!fakeAdmin.ok) expect(fakeAdmin.error.code).toBe("dev_board.ready_approval_human_authorization_required");
+    await grantOrganizationRole(approverId, "admin");
+    expect(await approval({ kind: "user", role: "admin", stableId: approverId })).toMatchObject({ ok: true });
+  });
+  it("rejects an agent that asserts the Human Owner user id for Ready approval", async () => {
+    const ticketId = await createBacklogTicket("Agent owner impersonation");
+    const content = await classifyTicket(ticketId, "Agent owner impersonation");
+    const rejected = await approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+    ], { actorRef: { kind: "agent", role: "agent", stableId: ownerId } }), {
+      devTicketId: ticketId, readyContractContent: content, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(content), expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.ready_approval_human_authorization_required");
+  });
+  it("terminally rejects invalid actor kinds and roles and replays their original rejection", async () => {
+    const invalidActors = [
+      { kind: "human", role: "human_owner", stableId: ownerId },
+      { kind: "user", role: "owner", stableId: ownerId },
+    ] as const;
+    for (const actorRef of invalidActors) {
+      const proposalId = randomUUID();
+      const request = envelope("DraftProposal", proposalId, [], { actorRef: actorRef as never });
+      const rejected = await draftProposal(request, { discoverySummary: "Invalid actor", blockingAssessment: "non_blocking" }, deps!);
+      expect(rejected).toMatchObject({ ok: false });
+      if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.invalid_actor_ref");
+      const replay = await draftProposal({ ...request, commandId: randomUUID() }, {
+        discoverySummary: "Invalid actor", blockingAssessment: "non_blocking",
+      }, deps!);
+      expect(replay).toMatchObject({ ok: false });
+      if (!replay.ok && !rejected.ok) expect(replay.error.message).toBe(rejected.error.message);
+    }
+  });
+  it("requires owner candidates to be active members of the target organization", async () => {
+    for (const status of ["invited", "suspended", "removed"] as const) {
+      const candidateId = await seedMember(organizationId, status);
+      const proposalId = await createDecisionProposal(`Accept ${status} owner`);
+      const rejectedAccept = await acceptProposal(envelope("AcceptProposal", proposalId, [
+        { recordKind: "proposal", recordId: proposalId, version: 2 },
+      ]), { proposalId, humanOwnerUserId: candidateId }, deps!);
+      expect(rejectedAccept).toMatchObject({ ok: false });
+      if (!rejectedAccept.ok) expect(rejectedAccept.error.code).toBe("dev_board.human_owner_not_active_member");
+      const ticketId = await createBacklogTicket(`Classify ${status} owner`);
+      const rejectedClassification = await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+        { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+      ]), {
+        devTicketId: ticketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low",
+        humanOwnerUserId: candidateId,
+      }, deps!);
+      expect(rejectedClassification).toMatchObject({ ok: false });
+      if (!rejectedClassification.ok) expect(rejectedClassification.error.code).toBe("dev_board.human_owner_not_active_member");
+    }
+    const activeId = await seedMember(organizationId, "active");
+    const activeProposalId = await createDecisionProposal("Accept active owner");
+    expect(await acceptProposal(envelope("AcceptProposal", activeProposalId, [
+      { recordKind: "proposal", recordId: activeProposalId, version: 2 },
+    ]), { proposalId: activeProposalId, humanOwnerUserId: activeId }, deps!)).toMatchObject({ ok: true });
+    const activeTicketId = await createBacklogTicket("Classify active owner");
+    expect(await setDevTicketClassification(envelope("SetDevTicketClassification", activeTicketId, [
+      { recordKind: "dev_ticket", recordId: activeTicketId, version: 1 },
+    ]), {
+      devTicketId: activeTicketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low",
+      humanOwnerUserId: activeId,
+    }, deps!)).toMatchObject({ ok: true });
+    const crossOrganizationId = await seedMember(otherOrganizationId, "active");
+    const crossProposalId = await createDecisionProposal("Cross organization owner");
+    const crossAccept = await acceptProposal(envelope("AcceptProposal", crossProposalId, [
+      { recordKind: "proposal", recordId: crossProposalId, version: 2 },
+    ]), { proposalId: crossProposalId, humanOwnerUserId: crossOrganizationId }, deps!);
+    expect(crossAccept).toMatchObject({ ok: false });
+    if (!crossAccept.ok) expect(crossAccept.error.code).toBe("dev_board.human_owner_not_active_member");
+    const crossTicketId = await createBacklogTicket("Cross organization classification owner");
+    const crossClassification = await setDevTicketClassification(envelope("SetDevTicketClassification", crossTicketId, [
+      { recordKind: "dev_ticket", recordId: crossTicketId, version: 1 },
+    ]), {
+      devTicketId: crossTicketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low",
+      humanOwnerUserId: crossOrganizationId,
+    }, deps!);
+    expect(crossClassification).toMatchObject({ ok: false });
+    if (!crossClassification.ok) expect(crossClassification.error.code).toBe("dev_board.human_owner_not_active_member");
+  });
+  it("rejects severity on a non-Bug classification", async () => {
+    const ticketId = await createBacklogTicket("Feature severity invalid");
+    const rejected = await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ]), {
+      devTicketId: ticketId, type: "feature", workAreas: ["documentation"], priority: "p1", severity: "s1", declaredChangeRisk: "low",
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.classification_invalid");
+  });
+  it("pins unchanged classification as a terminal zero-write rejection", async () => {
+    const ticketId = await createBacklogTicket("Classification unchanged");
+    const input = { devTicketId: ticketId, type: "feature", workAreas: ["backend_api"], priority: "p1", declaredChangeRisk: "low" };
+    expect((await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ]), input, deps!)).ok).toBe(true);
+    const request = envelope("SetDevTicketClassification", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 2 }]);
+    const rejected = await setDevTicketClassification(request, input, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.classification_unchanged");
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, count(e.id) as classification_events from public.dev_board_dev_ticket t
+      left join public.dev_board_activity_event e on e.aggregate_id = t.id and e.event_name = 'DevTicketClassificationChanged'
+      where t.id = ${ticketId}::uuid group by t.version
+    `))[0], database!);
+    expect(Number(state!["version"])).toBe(2);
+    expect(Number(state!["classification_events"])).toBe(1);
+  });
+  it("writes sorted work areas, materiality reasons, and one classification event atomically", async () => {
+    const ticketId = await createBacklogTicket("Classification atomicity");
+    expect((await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ]), {
+      devTicketId: ticketId, type: "feature", workAreas: ["backend_api"], priority: "p1", declaredChangeRisk: "low",
+    }, deps!)).ok).toBe(true);
+    expect((await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+    ]), {
+      devTicketId: ticketId, type: "feature", workAreas: ["frontend", "documentation"], priority: "p2", declaredChangeRisk: "low",
+    }, deps!)).ok).toBe(true);
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select jsonb_agg(work_area order by work_area) from public.dev_board_dev_ticket_work_area where dev_ticket_id = ${ticketId}::uuid) as work_areas,
+        (select content->'reasonCodes' from public.dev_board_planning_decision_entry where aggregate_id = ${ticketId}::uuid and entry_kind = 'ClassificationMaterialityAssessed' order by created_at desc limit 1) as reason_codes,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${ticketId}::uuid and aggregate_version = 3 and event_name = 'DevTicketClassificationChanged') as new_version_events
+    `))[0], database!);
+    expect(state!["work_areas"]).toEqual(["documentation", "frontend"]);
+    expect(state!["reason_codes"]).toEqual(["priority_changed", "work_areas_changed"]);
+    expect(Number(state!["new_version_events"])).toBe(1);
+  });
+  it("rejects each incomplete Ready classification without ticket or event writes", async () => {
+    const absentTicketId = await createBacklogTicket("Classification completeness absent");
+    const absentContent = { outcome: "Classification completeness absent" };
+    const absentBefore = await ticketVersionAndEventCount(absentTicketId);
+    const absent = await approveReadyToTodo(envelope("ApproveReadyToTodo", absentTicketId, [
+      { recordKind: "dev_ticket", recordId: absentTicketId, version: 1 },
+    ]), {
+      devTicketId: absentTicketId, readyContractContent: absentContent, expectedContractVersion: 1,
+      expectedContractContentHash: computeReadyContractContentHash(absentContent),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    expect(absent).toMatchObject({ ok: false });
+    if (!absent.ok) expect(absent.error.code).toBe("dev_board.classification_type_required");
+    expect(await ticketVersionAndEventCount(absentTicketId)).toEqual(absentBefore);
+
+    const workAreaTicketId = await createBacklogTicket("Classification completeness work areas");
+    const workAreaContent = await classifyTicket(workAreaTicketId, "Classification completeness work areas");
+    // Deliberate state simulation: commands set classifications atomically, so remove the
+    // persisted work-area row to exercise the otherwise unreachable incomplete legacy state.
+    await withTenant(organizationId, (tx) => tx.execute(sql`
+      delete from public.dev_board_dev_ticket_work_area
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and dev_ticket_id = ${workAreaTicketId}::uuid
+    `), database!);
+    const workAreaBefore = await ticketVersionAndEventCount(workAreaTicketId);
+    const workAreas = await approveReadyToTodo(envelope("ApproveReadyToTodo", workAreaTicketId, [
+      { recordKind: "dev_ticket", recordId: workAreaTicketId, version: 2 },
+    ]), {
+      devTicketId: workAreaTicketId, readyContractContent: workAreaContent, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(workAreaContent),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    expect(workAreas).toMatchObject({ ok: false });
+    if (!workAreas.ok) expect(workAreas.error.code).toBe("dev_board.classification_work_areas_required");
+    expect(await ticketVersionAndEventCount(workAreaTicketId)).toEqual(workAreaBefore);
+
+    const priorityTicketId = await createBacklogTicket("Classification completeness priority");
+    const priorityContent = await classifyTicket(priorityTicketId, "Classification completeness priority");
+    // Deliberate state simulation: null the persisted priority after a normal full command.
+    await withTenant(organizationId, (tx) => tx.execute(sql`
+      update public.dev_board_dev_ticket set priority = null
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and id = ${priorityTicketId}::uuid
+    `), database!);
+    const priorityBefore = await ticketVersionAndEventCount(priorityTicketId);
+    const priority = await approveReadyToTodo(envelope("ApproveReadyToTodo", priorityTicketId, [
+      { recordKind: "dev_ticket", recordId: priorityTicketId, version: 2 },
+    ]), {
+      devTicketId: priorityTicketId, readyContractContent: priorityContent, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(priorityContent),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    expect(priority).toMatchObject({ ok: false });
+    if (!priority.ok) expect(priority.error.code).toBe("dev_board.classification_priority_required");
+    expect(await ticketVersionAndEventCount(priorityTicketId)).toEqual(priorityBefore);
+  });
+  it("rejects a deliberately tampered persisted Change Risk policy stamp without writes", async () => {
+    const ticketId = await createBacklogTicket("Policy stamp drift");
+    const input = {
+      devTicketId: ticketId, type: "bug", workAreas: ["documentation"], priority: "p1",
+      declaredChangeRisk: "medium",
+    } as const;
+    expect((await setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ]), input, deps!)).ok).toBe(true);
+    const policy = evaluateChangeRisk({ type: input.type, workAreas: input.workAreas, hasActiveDependencies: false });
+    const content = {
+      outcome: "Policy stamp drift", humanOwnerUserId: ownerId,
+      classification: { type: input.type, workAreas: input.workAreas, priority: input.priority, declaredChangeRisk: input.declaredChangeRisk },
+      changeRiskPolicy: policy,
+    };
+    // Deliberate state simulation: a direct write lowers the stored policy floor.
+    await withTenant(organizationId, (tx) => tx.execute(sql`
+      update public.dev_board_dev_ticket set minimum_change_risk = 'low'
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and id = ${ticketId}::uuid
+    `), database!);
+    const before = await ticketVersionAndEventCount(ticketId);
+    const rejected = await approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+    ]), {
+      devTicketId: ticketId, readyContractContent: content, expectedContractVersion: 2,
+      expectedContractContentHash: computeReadyContractContentHash(content),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(),
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.change_risk_policy_drift");
+    expect(await ticketVersionAndEventCount(ticketId)).toEqual(before);
+  });
+  it("serializes owner membership validation across two database connections", async () => {
+    const ticketId = await createBacklogTicket("Membership lock serialization");
+    const candidateId = await seedMember(organizationId, "active");
+    const locker = await adminPool!.connect();
+    try {
+      await locker.query("begin");
+      await locker.query("update public.memberships set status = 'suspended' where organization_id = $1 and user_id = $2", [organizationId, candidateId]);
+      const pending = setDevTicketClassification(envelope("SetDevTicketClassification", ticketId, [
+        { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+      ]), {
+        devTicketId: ticketId, type: "feature", workAreas: ["documentation"], priority: "p1",
+        declaredChangeRisk: "low", humanOwnerUserId: candidateId,
+      }, deps!);
+      const observed = await Promise.race([
+        pending.then(() => "settled"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 75)),
+      ]);
+      expect(observed).toBe("blocked");
+      await locker.query("commit");
+      const rejected = await pending;
+      expect(rejected).toMatchObject({ ok: false });
+      if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.human_owner_not_active_member");
+    } finally {
+      await locker.query("rollback").catch(() => {});
+      locker.release();
+    }
+  });
+  it("replays a successful classification without another version bump or event", async () => {
+    const ticketId = await createBacklogTicket("Classification accepted replay");
+    const request = envelope("SetDevTicketClassification", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ]);
+    const input = { devTicketId: ticketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low" } as const;
+    const accepted = await setDevTicketClassification(request, input, deps!);
+    expect(accepted).toMatchObject({ ok: true });
+    const replay = await setDevTicketClassification({ ...request, commandId: randomUUID() }, input, deps!);
+    expect(replay).toMatchObject({ ok: true, value: { commandId: request.commandId } });
+    const state = await ticketVersionAndEventCount(ticketId);
+    expect(Number(state["version"])).toBe(2);
+    expect(Number(state["event_count"])).toBe(2);
+    const classificationEvents = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select count(*) as count from public.dev_board_activity_event
+      where aggregate_id = ${ticketId}::uuid and event_name = 'DevTicketClassificationChanged'
+    `))[0], database!);
+    expect(Number(classificationEvents!["count"])).toBe(1);
+  });
+  it("rolls back a work-area replacement constraint failure to the risky-mutation savepoint", async () => {
+    const ticketId = await createBacklogTicket("Classification work-area savepoint");
+    const content = { outcome: "Classification work-area savepoint" };
+    const result = await withTenant(organizationId, (tx) => deps!.planningStore.executeRiskyMutation(tx, () =>
+      deps!.planningStore.updateDevTicketClassification(tx, {
+        organizationId, workspaceId, devTicketId: ticketId, expectedVersion: 1,
+        humanOwnerUserId: ownerId, devTicketType: "feature",
+        // Deliberate adapter-level state simulation: command normalization removes duplicates,
+        // so this reaches the replacement loop's unique violation directly.
+        workAreas: ["documentation", "documentation"] as never,
+        priority: "p1", severity: null, declaredChangeRisk: "low", minimumChangeRisk: "low",
+        changeRiskPolicyVersion: "1", changeRiskPolicyHash: "a".repeat(64),
+        readyContractContent: content, readyContractContentHash: computeReadyContractContentHash(content),
+      }),
+    ), database!);
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) expect(result.error.code).toBe("dev_board.constraint_conflict");
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, t.dev_ticket_type,
+        (select count(*) from public.dev_board_dev_ticket_work_area where dev_ticket_id = t.id) as work_area_count
+      from public.dev_board_dev_ticket t where t.id = ${ticketId}::uuid
+    `))[0], database!);
+    expect(Number(state!["version"])).toBe(1);
+    expect(state!["dev_ticket_type"]).toBeNull();
+    expect(Number(state!["work_area_count"])).toBe(0);
+  });
+  it("replays Ready contract and authorization rejections without ticket or event writes", async () => {
+    const ticketId = await createBacklogTicket("Terminal Ready rejections");
+    const content = await classifyTicket(ticketId, "Terminal Ready rejections");
+    const before = await ticketVersionAndEventCount(ticketId);
+    const retryReady = async (
+      readyContractContent: Readonly<Record<string, unknown>>,
+      actorRef: CommandEnvelope["actorRef"],
+      expectedCode: string,
+    ) => {
+      const request = envelope("ApproveReadyToTodo", ticketId, [
+        { recordKind: "dev_ticket", recordId: ticketId, version: 2 },
+      ], { actorRef });
+      const input = {
+        devTicketId: ticketId, readyContractContent, expectedContractVersion: 2,
+        expectedContractContentHash: computeReadyContractContentHash(content),
+        expectedTodoQueueVersion: await currentTodoQueueVersion(),
+      };
+      const rejected = await approveReadyToTodo(request, input, deps!);
+      expect(rejected).toMatchObject({ ok: false });
+      if (!rejected.ok) expect(rejected.error.code).toBe(expectedCode);
+      const replay = await approveReadyToTodo({ ...request, commandId: randomUUID() }, input, deps!);
+      expect(replay).toMatchObject({ ok: false });
+      if (!replay.ok && !rejected.ok) expect(replay.error.message).toBe(rejected.error.message);
+      expect(await ticketVersionAndEventCount(ticketId)).toEqual(before);
+    };
+    // These two inputs deliberately model absent and modified contract classification bindings.
+    await retryReady({ outcome: "Missing classification" }, envelope("unused", ticketId).actorRef, "dev_board.ready_contract_missing_classification");
+    await retryReady({ ...content, classification: { ...(content["classification"] as Record<string, unknown>), priority: "p0" } }, envelope("unused", ticketId).actorRef, "dev_board.ready_contract_missing_classification");
+    const ungrantedAdminId = await seedMember(organizationId, "active");
+    await retryReady(content, { kind: "user", role: "admin", stableId: ungrantedAdminId }, "dev_board.ready_approval_human_authorization_required");
+    await retryReady(content, { kind: "agent", role: "agent", stableId: ownerId }, "dev_board.ready_approval_human_authorization_required");
+  });
+  it("replays inactive-owner and invalid-actor rejections without ticket or event writes", async () => {
+    const inactiveOwnerId = await seedMember(organizationId, "suspended");
+    const ownerTicketId = await createBacklogTicket("Inactive owner replay");
+    const ownerRequest = envelope("SetDevTicketClassification", ownerTicketId, [
+      { recordKind: "dev_ticket", recordId: ownerTicketId, version: 1 },
+    ]);
+    const ownerInput = {
+      devTicketId: ownerTicketId, type: "feature", workAreas: ["documentation"], priority: "p1",
+      declaredChangeRisk: "low", humanOwnerUserId: inactiveOwnerId,
+    } as const;
+    const ownerBefore = await ticketVersionAndEventCount(ownerTicketId);
+    const rejectedOwner = await setDevTicketClassification(ownerRequest, ownerInput, deps!);
+    expect(rejectedOwner).toMatchObject({ ok: false });
+    if (!rejectedOwner.ok) expect(rejectedOwner.error.code).toBe("dev_board.human_owner_not_active_member");
+    const ownerReplay = await setDevTicketClassification({ ...ownerRequest, commandId: randomUUID() }, ownerInput, deps!);
+    expect(ownerReplay).toMatchObject({ ok: false });
+    if (!ownerReplay.ok && !rejectedOwner.ok) expect(ownerReplay.error.message).toBe(rejectedOwner.error.message);
+    expect(await ticketVersionAndEventCount(ownerTicketId)).toEqual(ownerBefore);
+
+    const invalidActorTicketId = await createBacklogTicket("Invalid actor replay");
+    const invalidActorRequest = envelope("SetDevTicketClassification", invalidActorTicketId, [
+      { recordKind: "dev_ticket", recordId: invalidActorTicketId, version: 1 },
+    ], { actorRef: { kind: "user", role: "owner", stableId: ownerId } as never });
+    const invalidActorInput = {
+      devTicketId: invalidActorTicketId, type: "feature", workAreas: ["documentation"], priority: "p1", declaredChangeRisk: "low",
+    } as const;
+    const invalidActorBefore = await ticketVersionAndEventCount(invalidActorTicketId);
+    const rejectedActor = await setDevTicketClassification(invalidActorRequest, invalidActorInput, deps!);
+    expect(rejectedActor).toMatchObject({ ok: false });
+    if (!rejectedActor.ok) expect(rejectedActor.error.code).toBe("dev_board.invalid_actor_ref");
+    const actorReplay = await setDevTicketClassification({ ...invalidActorRequest, commandId: randomUUID() }, invalidActorInput, deps!);
+    expect(actorReplay).toMatchObject({ ok: false });
+    if (!actorReplay.ok && !rejectedActor.ok) expect(actorReplay.error.message).toBe(rejectedActor.error.message);
+    expect(await ticketVersionAndEventCount(invalidActorTicketId)).toEqual(invalidActorBefore);
   });
 });
 

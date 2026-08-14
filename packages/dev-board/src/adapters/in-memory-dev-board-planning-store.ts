@@ -12,6 +12,7 @@ import type {
   LaneQueueHeaderRow,
   ProposalRow,
   TodoQueueMembershipRow,
+  UpdateDevTicketClassificationInput,
   UpdateDevTicketForReadyApprovalInput,
   UpdateProposalInput,
 } from "../application/dev-board-planning-store.js";
@@ -26,6 +27,12 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
   public readonly dependencyEdges = new Map<string, DependencyEdgeRow>();
   public readonly todoQueueHeaders = new Map<string, LaneQueueHeaderRow>();
   public readonly todoQueueMemberships = new Map<string, TodoQueueMembershipRow>();
+  /** Deterministic authorization fixtures; production authorization is always DB-derived. */
+  public readonly activeMembers = new Set<string>();
+  public readonly organizationRoles = new Set<string>();
+
+  public grantActiveMembership(organizationId: string, userId: string): void { this.activeMembers.add(`${organizationId}:${userId}`); }
+  public grantOrganizationRole(organizationId: string, userId: string, role: "owner" | "admin"): void { this.organizationRoles.add(`${organizationId}:${userId}:${role}`); }
 
   public async executeRiskyMutation<T>(
     _tx: TenantTransaction,
@@ -149,6 +156,8 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       lane: "backlog",
       archivedAt: null,
       humanOwnerUserId: input.humanOwnerUserId,
+      devTicketType: null, workAreas: [], priority: null, severity: null, declaredChangeRisk: null,
+      minimumChangeRisk: null, changeRiskPolicyVersion: null, changeRiskPolicyHash: null,
       readyContractVersion: 1,
       readyContractContent: input.readyContractContent,
       readyContractContentHash: input.readyContractContentHash,
@@ -185,6 +194,26 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     };
     this.devTickets.set(mapKey, row);
     return row;
+  }
+
+  public async updateDevTicketClassification(_tx: TenantTransaction, input: UpdateDevTicketClassificationInput): Promise<DevTicketRow | null> {
+    const mapKey = key(input.organizationId, input.workspaceId, input.devTicketId);
+    const current = this.devTickets.get(mapKey);
+    if (current === undefined || current.version !== input.expectedVersion) return null;
+    const row: DevTicketRow = { ...current, version: current.version + 1, humanOwnerUserId: input.humanOwnerUserId,
+      devTicketType: input.devTicketType, workAreas: [...input.workAreas], priority: input.priority, severity: input.severity,
+      declaredChangeRisk: input.declaredChangeRisk, minimumChangeRisk: input.minimumChangeRisk,
+      changeRiskPolicyVersion: input.changeRiskPolicyVersion, changeRiskPolicyHash: input.changeRiskPolicyHash,
+      readyContractVersion: current.readyContractVersion + 1, readyContractContent: input.readyContractContent,
+      readyContractContentHash: input.readyContractContentHash };
+    this.devTickets.set(mapKey, row);
+    return row;
+  }
+
+  public async isActiveMember(_tx: TenantTransaction, organizationId: string, userId: string): Promise<boolean> { return this.activeMembers.has(`${organizationId}:${userId}`); }
+  public async hasOrganizationRole(_tx: TenantTransaction, organizationId: string, userId: string, roleKey: "owner" | "admin"): Promise<boolean> { return this.organizationRoles.has(`${organizationId}:${userId}:${roleKey}`); }
+  public async hasActiveDependencies(_tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<boolean> {
+    return [...this.dependencyEdges.values()].some((edge) => edge.organizationId === organizationId && edge.workspaceId === workspaceId && edge.dependentDevTicketId === devTicketId && edge.lifecycleState === "active");
   }
 
   public async bumpDevTicketVersion(
