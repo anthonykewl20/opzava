@@ -16,6 +16,7 @@ import {
   mergeProposal,
   removeDependency,
   rejectProposal,
+  reorderTodo,
   start,
   submitForReview,
   submitProposal,
@@ -75,20 +76,78 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       ...overrides,
     };
   }
-  async function createBacklogTicket(summary: string): Promise<string> {
+  async function createWorkspace(label: string) {
+    const id = randomUUID();
+    await adminPool!.query(
+      "insert into public.workspaces (id, organization_id, slug, name) values ($1, $2, $3, $4)",
+      [id, organizationId, `dev-board-${id}`, label],
+    );
+    return id;
+  }
+  async function createBacklogTicket(
+    summary: string,
+    testWorkspaceId: CommandEnvelope["workspaceId"] = workspaceId,
+  ): Promise<string> {
     const proposalId = randomUUID();
-    expect((await draftProposal(envelope("DraftProposal", proposalId), {
+    const command = (commandName: string, targetAggregateId: string, expectedVersions: CommandEnvelope["expectedVersions"] = []) =>
+      envelope(commandName, targetAggregateId, expectedVersions, { workspaceId: testWorkspaceId });
+    expect((await draftProposal(command("DraftProposal", proposalId), {
       discoverySummary: summary, blockingAssessment: "non_blocking",
     }, deps!)).ok).toBe(true);
-    expect((await submitProposal(envelope("SubmitProposal", proposalId, [
+    expect((await submitProposal(command("SubmitProposal", proposalId, [
       { recordKind: "proposal", recordId: proposalId, version: 1 },
     ]), { proposalId }, deps!)).ok).toBe(true);
-    const accepted = await acceptProposal(envelope("AcceptProposal", proposalId, [
+    const accepted = await acceptProposal(command("AcceptProposal", proposalId, [
       { recordKind: "proposal", recordId: proposalId, version: 2 },
     ]), { proposalId, humanOwnerUserId: ownerId, initialContractContent: { outcome: summary } }, deps!);
     expect(accepted).toMatchObject({ ok: true });
     if (!accepted.ok) throw accepted.error;
     return accepted.value.devTicketId!;
+  }
+  async function currentTodoQueueVersion(
+    testWorkspaceId: CommandEnvelope["workspaceId"] = workspaceId,
+  ): Promise<number> {
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select version from public.dev_board_lane_queue_version
+      where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and lane = 'todo'
+    `))[0], database!);
+    return state === undefined ? 1 : Number(state["version"]);
+  }
+  async function approveTicket(
+    summary: string,
+    testWorkspaceId: CommandEnvelope["workspaceId"] = workspaceId,
+  ): Promise<string> {
+    const ticketId = await createBacklogTicket(summary, testWorkspaceId);
+    const result = await approveReadyToTodo(envelope("ApproveReadyToTodo", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: ticketId,
+      readyContractContent: { outcome: summary },
+      expectedContractVersion: 1,
+      expectedContractContentHash: computeReadyContractContentHash({ outcome: summary }),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
+    }, deps!);
+    expect(result).toMatchObject({ ok: true });
+    return ticketId;
+  }
+  async function seedTodoRanks(
+    testWorkspaceId: CommandEnvelope["workspaceId"],
+    summariesAndRanks: readonly (readonly [string, bigint])[],
+  ): Promise<readonly string[]> {
+    const ticketIds: string[] = [];
+    for (const [summary] of summariesAndRanks) {
+      ticketIds.push(await approveTicket(summary, testWorkspaceId));
+    }
+    await withTenant(organizationId, async (tx) => {
+      for (const [index, ticketId] of ticketIds.entries()) {
+        const [, rank] = summariesAndRanks[index]!;
+        const updated = await deps!.planningStore.updateTodoQueueMembershipRank(tx, {
+          organizationId, workspaceId: testWorkspaceId, devTicketId: ticketId, rank,
+        });
+        expect(updated).toBe(true);
+      }
+    }, database!);
+    return ticketIds;
   }
   beforeAll(async () => {
     const role = rows(
@@ -138,6 +197,13 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const client = await adminPool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("select set_config('app.current_org', $1, true)", [organizationId]);
+      await client.query("delete from public.dev_board_lane_queue where organization_id = $1", [
+        organizationId,
+      ]);
+      await client.query("delete from public.dev_board_lane_queue_version where organization_id = $1", [
+        organizationId,
+      ]);
       await client.query("delete from public.dev_board_dev_ticket where organization_id = $1", [
         organizationId,
       ]);
@@ -178,8 +244,9 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     await adminPool.end();
   });
   it("runs Draft through Ready approval with state versions mirrored in activity", async () => {
+    const testWorkspaceId = await createWorkspace("Ready approval isolated workspace");
     const proposalId = randomUUID();
-    const drafted = envelope("DraftProposal", proposalId);
+    const drafted = envelope("DraftProposal", proposalId, [], { workspaceId: testWorkspaceId });
     expect(
       (
         await draftProposal(
@@ -191,12 +258,12 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     ).toBe(true);
     const submitted = envelope("SubmitProposal", proposalId, [
       { recordKind: "proposal", recordId: proposalId, version: 1 },
-    ]);
+    ], { workspaceId: testWorkspaceId });
     expect((await submitProposal(submitted, { proposalId }, deps!)).ok).toBe(true);
     const accepted = await acceptProposal(
       envelope("AcceptProposal", proposalId, [
         { recordKind: "proposal", recordId: proposalId, version: 2 },
-      ]),
+      ], { workspaceId: testWorkspaceId }),
       { proposalId, humanOwnerUserId: ownerId, initialContractContent: { outcome: "Ship" } },
       deps!,
     );
@@ -207,12 +274,13 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     const approved = await approveReadyToTodo(
       envelope("ApproveReadyToTodo", ticketId, [
         { recordKind: "dev_ticket", recordId: ticketId, version: 1 },
-      ]),
+      ], { workspaceId: testWorkspaceId }),
       {
         devTicketId: ticketId,
         readyContractContent: approvedContent,
         expectedContractVersion: 1,
         expectedContractContentHash: computeReadyContractContentHash({ outcome: "Ship" }),
+        expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
       },
       deps!,
     );
@@ -515,6 +583,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
         readyContractContent: { outcome: "Approved" },
         expectedContractVersion: 1,
         expectedContractContentHash: "0".repeat(64),
+        expectedTodoQueueVersion: await currentTodoQueueVersion(),
       },
       deps!,
     );
@@ -657,21 +726,26 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(rows(result)).toHaveLength(0);
   });
   it("invalidates Todo Ready approval and records one DependencyAdded activity event", async () => {
-    const dependent = await createBacklogTicket("Todo dependent added dependency");
-    const blocker = await createBacklogTicket("Todo dependency blocker");
+    const testWorkspaceId = await createWorkspace("Dependency add Todo workspace");
+    const testEnvelope = (name: string, target: string, versions: CommandEnvelope["expectedVersions"] = []) =>
+      envelope(name, target, versions, { workspaceId: testWorkspaceId });
+    const dependent = await createBacklogTicket("Todo dependent added dependency", testWorkspaceId);
+    const blocker = await createBacklogTicket("Todo dependency blocker", testWorkspaceId);
     const approvalContent = { outcome: "Todo dependent added dependency", scope: "dependency invalidation" };
-    expect((await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
+    expect((await approveReadyToTodo(testEnvelope("ApproveReadyToTodo", dependent, [
       { recordKind: "dev_ticket", recordId: dependent, version: 1 },
     ]), {
       devTicketId: dependent,
       readyContractContent: approvalContent,
       expectedContractVersion: 1,
       expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent added dependency" }),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
     }, deps!)).ok).toBe(true);
 
-    const command = envelope("AddDependency", dependent, [
+    const command = testEnvelope("AddDependency", dependent, [
       { recordKind: "dev_ticket", recordId: dependent, version: 2 },
       { recordKind: "dev_ticket", recordId: blocker, version: 1 },
+      { recordKind: "lane_queue", recordId: "todo", version: await currentTodoQueueVersion(testWorkspaceId) },
     ]);
     expect((await addDependency(command, {
       dependentDevTicketId: dependent, blockerDevTicketId: blocker, reason: "This work now requires the blocker.",
@@ -679,7 +753,8 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
 
     const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
       select t.version, t.lane, t.ready_state, t.ready_approval_contract_version,
-        t.ready_approved_by_user_id, t.ready_approval_content_hash, t.todo_rank,
+        t.ready_approved_by_user_id, t.ready_approval_content_hash,
+        (select count(*) from public.dev_board_lane_queue q where q.dev_ticket_id = t.id) as queue_memberships,
         (select count(*) from public.dev_board_activity_event e
           where e.aggregate_id = t.id and e.aggregate_version = t.version) as new_version_event_count,
         (select count(*) from public.dev_board_activity_event e
@@ -694,14 +769,17 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(state!["ready_approval_contract_version"]).toBeNull();
     expect(state!["ready_approved_by_user_id"]).toBeNull();
     expect(state!["ready_approval_content_hash"]).toBeNull();
-    expect(state!["todo_rank"]).toBeNull();
+    expect(Number(state!["queue_memberships"])).toBe(0);
     expect(Number(state!["new_version_event_count"])).toBe(1);
     expect(Number(state!["invalidation_event_count"])).toBe(1);
   });
   it("invalidates Todo Ready approval and records one DependencyRemoved activity event", async () => {
-    const dependent = await createBacklogTicket("Todo dependent removed dependency");
-    const blocker = await createBacklogTicket("Todo removal blocker");
-    const added = await addDependency(envelope("AddDependency", dependent, [
+    const testWorkspaceId = await createWorkspace("Dependency remove Todo workspace");
+    const testEnvelope = (name: string, target: string, versions: CommandEnvelope["expectedVersions"] = []) =>
+      envelope(name, target, versions, { workspaceId: testWorkspaceId });
+    const dependent = await createBacklogTicket("Todo dependent removed dependency", testWorkspaceId);
+    const blocker = await createBacklogTicket("Todo removal blocker", testWorkspaceId);
+    const added = await addDependency(testEnvelope("AddDependency", dependent, [
       { recordKind: "dev_ticket", recordId: dependent, version: 1 },
       { recordKind: "dev_ticket", recordId: blocker, version: 1 },
     ]), {
@@ -710,23 +788,27 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(added).toMatchObject({ ok: true });
     if (!added.ok) return;
     const approvalContent = { outcome: "Todo dependent removed dependency", scope: "dependency invalidation" };
-    expect((await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
+    expect((await approveReadyToTodo(testEnvelope("ApproveReadyToTodo", dependent, [
       { recordKind: "dev_ticket", recordId: dependent, version: 2 },
     ]), {
       devTicketId: dependent,
       readyContractContent: approvalContent,
       expectedContractVersion: 1,
       expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent removed dependency" }),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(testWorkspaceId),
     }, deps!)).ok).toBe(true);
 
-    const command = envelope("RemoveDependency", added.value.dependencyEdgeId!);
+    const command = testEnvelope("RemoveDependency", added.value.dependencyEdgeId!, [
+      { recordKind: "lane_queue", recordId: "todo", version: await currentTodoQueueVersion(testWorkspaceId) },
+    ]);
     expect((await removeDependency(command, {
       edgeId: added.value.dependencyEdgeId!, expectedEdgeVersion: 1, reason: "The dependency is no longer required.",
     }, deps!)).ok).toBe(true);
 
     const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
       select t.version, t.lane, t.ready_state, t.ready_approval_contract_version,
-        t.ready_approved_by_user_id, t.ready_approval_content_hash, t.todo_rank,
+        t.ready_approved_by_user_id, t.ready_approval_content_hash,
+        (select count(*) from public.dev_board_lane_queue q where q.dev_ticket_id = t.id) as queue_memberships,
         (select count(*) from public.dev_board_activity_event e
           where e.aggregate_id = t.id and e.aggregate_version = t.version) as new_version_event_count,
         (select count(*) from public.dev_board_activity_event e
@@ -741,7 +823,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(state!["ready_approval_contract_version"]).toBeNull();
     expect(state!["ready_approved_by_user_id"]).toBeNull();
     expect(state!["ready_approval_content_hash"]).toBeNull();
-    expect(state!["todo_rank"]).toBeNull();
+    expect(Number(state!["queue_memberships"])).toBe(0);
     expect(Number(state!["new_version_event_count"])).toBe(1);
     expect(Number(state!["invalidation_event_count"])).toBe(1);
   });
@@ -827,6 +909,7 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       readyContractContent: lockedApprovalContent,
       expectedContractVersion: 1,
       expectedContractContentHash: computeReadyContractContentHash({ outcome: "locked dependent" }),
+      expectedTodoQueueVersion: await currentTodoQueueVersion(),
     }, deps!);
     expect(approvedWhileLocked).toMatchObject({ ok: true });
     const lockedStatus = await withTenant(organizationId, (tx) => deps!.planningStore.dependencyLockStatus(tx, organizationId, workspaceId, dependent), database!);
@@ -847,6 +930,244 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(Number(state!["cycle_edges"])).toBe(0);
     expect(Number(state!["added_events"])).toBe(2);
     expect(Number(state!["planning_entries"])).toBe(3);
+  });
+  it("places before the first Todo member with one ticket and queue-version bump", async () => {
+    const testWorkspaceId = await createWorkspace("Todo before anchor workspace");
+    const first = await approveTicket("before first", testWorkspaceId);
+    await approveTicket("before second", testWorkspaceId);
+    const moved = await approveTicket("before moved", testWorkspaceId);
+    const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    const result = await reorderTodo(envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: moved,
+      sourceQueue: { lane: "todo", version: queueVersion },
+      targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 2 },
+    }, deps!);
+    expect(result).toMatchObject({ ok: true });
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select rank from public.dev_board_lane_queue where dev_ticket_id = ${first}::uuid) as first_rank,
+        (select rank from public.dev_board_lane_queue where dev_ticket_id = ${moved}::uuid) as moved_rank,
+        (select version from public.dev_board_lane_queue_version where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and lane = 'todo') as queue_version,
+        (select aggregate_version from public.dev_board_activity_event where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered') as event_version
+    `))[0], database!);
+    expect(BigInt(String(state!["moved_rank"]))).toBe(BigInt(String(state!["first_rank"])) - 1_000_000n);
+    expect(Number(state!["queue_version"])).toBe(queueVersion + 1);
+    expect(Number(state!["event_version"])).toBe(3);
+  });
+  it("accepts empty_band for the only Todo member", async () => {
+    const testWorkspaceId = await createWorkspace("Todo empty band workspace");
+    const moved = await approveTicket("only Todo", testWorkspaceId);
+    const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    expect(await reorderTodo(envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: moved,
+      sourceQueue: { lane: "todo", version: queueVersion },
+      targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "empty_band" },
+    }, deps!)).toMatchObject({ ok: true });
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select q.rank, h.version as queue_version,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered') as event_count
+      from public.dev_board_lane_queue q join public.dev_board_lane_queue_version h
+        on (h.organization_id, h.workspace_id, h.lane) = (q.organization_id, q.workspace_id, q.lane)
+      where q.dev_ticket_id = ${moved}::uuid
+    `))[0], database!);
+    expect(BigInt(String(state!["rank"]))).toBe(2_000_000n);
+    expect(Number(state!["queue_version"])).toBe(queueVersion + 1);
+    expect(Number(state!["event_count"])).toBe(1);
+  });
+  it("rejects empty_band when another Todo member exists without queue writes", async () => {
+    const testWorkspaceId = await createWorkspace("Todo nonempty band workspace");
+    const moved = await approveTicket("nonempty moved", testWorkspaceId);
+    await approveTicket("nonempty neighbor", testWorkspaceId);
+    const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    const before = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select dev_ticket_id, rank from public.dev_board_lane_queue where workspace_id = ${testWorkspaceId}::uuid order by rank, dev_ticket_id
+    `)), database!);
+    const rejected = await reorderTodo(envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: moved,
+      sourceQueue: { lane: "todo", version: queueVersion },
+      targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "empty_band" },
+    }, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.todo_anchor_invalid");
+    const after = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select jsonb_agg(jsonb_build_object('id', dev_ticket_id, 'rank', rank) order by rank, dev_ticket_id) from public.dev_board_lane_queue where workspace_id = ${testWorkspaceId}::uuid) as memberships,
+        (select version from public.dev_board_lane_queue_version where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and lane = 'todo') as queue_version,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered') as event_count
+    `))[0], database!);
+    expect(after!["memberships"]).toEqual(before.map((row) => ({ id: row["dev_ticket_id"], rank: Number(row["rank"]) })));
+    expect(Number(after!["queue_version"])).toBe(queueVersion);
+    expect(Number(after!["event_count"])).toBe(0);
+  });
+  it("rebalances the whole Todo band after midpoint exhaustion with one activity event", async () => {
+    const testWorkspaceId = await createWorkspace("Todo rebalance workspace");
+    const [left, right, moved] = await seedTodoRanks(testWorkspaceId, [
+      ["rebalance left", 3_000_000n], ["rebalance right", 3_000_001n], ["rebalance moved", 4_000_000n],
+    ]);
+    const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    const result = await reorderTodo(envelope("ReorderTodo", moved!, [
+      { recordKind: "dev_ticket", recordId: moved!, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: moved!, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "after", neighborDevTicketId: left!, neighborVersion: 2 },
+    }, deps!);
+    expect(result).toMatchObject({ ok: true });
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select q.dev_ticket_id, q.rank,
+        (select payload from public.dev_board_activity_event where aggregate_id = ${moved!}::uuid and event_name = 'TodoReordered') as payload,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${moved!}::uuid and event_name = 'TodoReordered') as event_count,
+        (select version from public.dev_board_lane_queue_version where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and lane = 'todo') as queue_version
+      from public.dev_board_lane_queue q where q.workspace_id = ${testWorkspaceId}::uuid order by q.rank, q.dev_ticket_id
+    `)), database!);
+    expect(state.map((row) => String(row["dev_ticket_id"]))).toEqual([left, moved, right]);
+    expect(state.map((row) => BigInt(String(row["rank"])))).toEqual([2_000_000n, 3_000_000n, 4_000_000n]);
+    expect(state[0]!["payload"]).toMatchObject({ rebalancedDevTicketIds: [left, moved, right] });
+    expect(Number(state[0]!["event_count"])).toBe(1);
+    expect(Number(state[0]!["queue_version"])).toBe(queueVersion + 1);
+  });
+  it("uses stride math at both Todo queue boundaries", async () => {
+    const testWorkspaceId = await createWorkspace("Todo boundary workspace");
+    const first = await approveTicket("boundary first", testWorkspaceId);
+    const movedBefore = await approveTicket("boundary before", testWorkspaceId);
+    const last = await approveTicket("boundary last", testWorkspaceId);
+    const movedAfter = await approveTicket("boundary after", testWorkspaceId);
+    let queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    expect(await reorderTodo(envelope("ReorderTodo", movedBefore, [
+      { recordKind: "dev_ticket", recordId: movedBefore, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: movedBefore, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "before", neighborDevTicketId: first, neighborVersion: 2 },
+    }, deps!)).toMatchObject({ ok: true });
+    queueVersion += 1;
+    expect(await reorderTodo(envelope("ReorderTodo", movedAfter, [
+      { recordKind: "dev_ticket", recordId: movedAfter, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      devTicketId: movedAfter, sourceQueue: { lane: "todo", version: queueVersion }, targetQueue: { lane: "todo", version: queueVersion },
+      anchor: { kind: "after", neighborDevTicketId: last, neighborVersion: 2 },
+    }, deps!)).toMatchObject({ ok: true });
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select dev_ticket_id, rank from public.dev_board_lane_queue
+      where workspace_id = ${testWorkspaceId}::uuid and dev_ticket_id in (${first}::uuid, ${movedBefore}::uuid, ${last}::uuid, ${movedAfter}::uuid)
+    `)), database!);
+    const ranks = new Map(state.map((row) => [String(row["dev_ticket_id"]), BigInt(String(row["rank"]))]));
+    expect(ranks.get(movedBefore)).toBe(ranks.get(first)! - 1_000_000n);
+    expect(ranks.get(movedAfter)).toBe(ranks.get(last)! + 1_000_000n);
+  });
+  it("replays a rejected stale reorder and accepts a new key only at the current queue version", async () => {
+    const testWorkspaceId = await createWorkspace("Todo rejected replay workspace");
+    const moved = await approveTicket("rejected replay moved", testWorkspaceId);
+    const neighbor = await approveTicket("rejected replay neighbor", testWorkspaceId);
+    const currentVersion = await currentTodoQueueVersion(testWorkspaceId);
+    const staleVersion = currentVersion - 1;
+    const request = envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: staleVersion },
+    ], { workspaceId: testWorkspaceId });
+    const staleInput = {
+      devTicketId: moved, sourceQueue: { lane: "todo" as const, version: staleVersion }, targetQueue: { lane: "todo" as const, version: staleVersion },
+      anchor: { kind: "after" as const, neighborDevTicketId: neighbor, neighborVersion: 2 },
+    };
+    const rejected = await reorderTodo(request, staleInput, deps!);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) expect(rejected.error.code).toBe("dev_board.lane_queue_version_drift");
+    const replay = await reorderTodo({ ...request, commandId: randomUUID() }, staleInput, deps!);
+    expect(replay).toMatchObject({ ok: false });
+    if (!replay.ok && !rejected.ok) expect(replay.error.message).toBe(rejected.error.message);
+    const afterRejected = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select version from public.dev_board_lane_queue_version where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and lane = 'todo') as queue_version,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered') as event_count,
+        (select version from public.dev_board_dev_ticket where id = ${moved}::uuid) as ticket_version
+    `))[0], database!);
+    expect(Number(afterRejected!["queue_version"])).toBe(currentVersion);
+    expect(Number(afterRejected!["event_count"])).toBe(0);
+    expect(Number(afterRejected!["ticket_version"])).toBe(2);
+    expect(await reorderTodo(envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: currentVersion },
+    ], { workspaceId: testWorkspaceId }), {
+      ...staleInput,
+      sourceQueue: { lane: "todo", version: currentVersion },
+      targetQueue: { lane: "todo", version: currentVersion },
+    }, deps!)).toMatchObject({ ok: true });
+  });
+  it("enforces Todo membership integrity in the deferred trigger with tenant context", async () => {
+    const testWorkspaceId = await createWorkspace("Todo trigger workspace");
+    const ticketId = await approveTicket("trigger enforcement", testWorkspaceId);
+    await expect(withTenant(organizationId, async (tx) => {
+      await tx.execute(sql`
+        update public.dev_board_dev_ticket set lane = 'backlog'
+        where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and id = ${ticketId}::uuid
+      `);
+    }, database!)).rejects.toThrow();
+    await expect(withTenant(organizationId, async (tx) => {
+      await tx.execute(sql`
+        delete from public.dev_board_lane_queue
+        where organization_id = ${organizationId}::uuid and workspace_id = ${testWorkspaceId}::uuid and dev_ticket_id = ${ticketId}::uuid
+      `);
+    }, database!)).rejects.toThrow();
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.lane, count(q.dev_ticket_id) as membership_count
+      from public.dev_board_dev_ticket t left join public.dev_board_lane_queue q on q.dev_ticket_id = t.id
+      where t.id = ${ticketId}::uuid group by t.lane
+    `))[0], database!);
+    expect(state!["lane"]).toBe("todo");
+    expect(Number(state!["membership_count"])).toBe(1);
+  });
+  it("reorders Todo by its authoritative versioned queue and replays without a second mutation", async () => {
+    const testWorkspaceId = await createWorkspace("Todo replay workspace");
+    const first = await approveTicket("queue first", testWorkspaceId);
+    const moved = await approveTicket("queue moved", testWorkspaceId);
+    const last = await approveTicket("queue last", testWorkspaceId);
+    const queueVersion = await currentTodoQueueVersion(testWorkspaceId);
+    const request = envelope("ReorderTodo", moved, [
+      { recordKind: "dev_ticket", recordId: moved, version: 2 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion },
+    ], { workspaceId: testWorkspaceId });
+    const input = {
+      devTicketId: moved,
+      sourceQueue: { lane: "todo" as const, version: queueVersion },
+      targetQueue: { lane: "todo" as const, version: queueVersion },
+      anchor: { kind: "after" as const, neighborDevTicketId: first, neighborVersion: 2 },
+    };
+    const result = await reorderTodo(request, input, deps!);
+    expect(result).toMatchObject({ ok: true, value: { resultingVersions: expect.arrayContaining([
+      { recordKind: "lane_queue", recordId: "todo", version: queueVersion + 1 },
+    ]) } });
+    expect(await reorderTodo({ ...request, commandId: randomUUID() }, input, deps!)).toMatchObject({
+      ok: true, value: { commandId: request.commandId },
+    });
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select dev_ticket_id, rank from public.dev_board_lane_queue
+      where workspace_id = ${testWorkspaceId}::uuid and dev_ticket_id in (${first}::uuid, ${moved}::uuid, ${last}::uuid)
+      order by dev_ticket_id
+    `)), database!);
+    const ranks = new Map(state.map((row) => [String(row["dev_ticket_id"]), BigInt(String(row["rank"]))]));
+    expect(ranks.get(moved)).toBe((ranks.get(first)! + ranks.get(last)!) / 2n);
+    const crossTenantQueueRows = await withTenant(otherOrganizationId, (tx) => tx.execute(sql`
+      select dev_ticket_id from public.dev_board_lane_queue where dev_ticket_id = ${moved}::uuid
+    `), database!);
+    expect(rows(crossTenantQueueRows)).toHaveLength(0);
+    const events = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select count(*) as count from public.dev_board_activity_event
+      where aggregate_id = ${moved}::uuid and event_name = 'TodoReordered'
+    `))[0], database!);
+    expect(Number(events!["count"])).toBe(1);
   });
 });
 

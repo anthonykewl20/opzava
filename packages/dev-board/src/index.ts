@@ -10,8 +10,8 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
-export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, ProposalRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
+export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, TodoQueueMembershipRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
 export {
   acceptProposal,
   addDependency,
@@ -23,11 +23,13 @@ export {
   dependencyLockStatus,
   mergeProposal,
   rejectProposal,
+  reorderTodo,
   removeDependency,
   start as startDevTicket,
   submitForReview as submitDevTicketForReview,
   submitProposal,
 } from "./application/dev-board-planning-commands.js";
+export { RANK_STRIDE } from "./application/dev-board-planning-commands.js";
 export { InMemoryCommandReceiptRepository } from "./adapters/in-memory-command-receipt-repository.js";
 export {
   InMemoryDevBoardLedgerAppendStore,

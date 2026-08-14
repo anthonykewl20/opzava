@@ -41,7 +41,6 @@ export interface DevTicket {
   readonly readyApprovedByUserId: string | null;
   readonly readyApprovedAt: Date | null;
   readonly readyApprovalCommandId: string | null;
-  readonly todoRank: number | null;
   readonly createdCommandId: string;
   readonly createdAt: Date;
   readonly updatedAt: Date;
