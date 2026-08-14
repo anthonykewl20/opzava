@@ -22,17 +22,6 @@ export interface DoctorLintRawResult {
   readonly stdout: string;
 }
 
-export interface GatewayRuntimeDeviceCodeLogin {
-  readonly execId: string;
-  readonly logPath: string;
-}
-
-export interface GatewayRuntimeSetupTokenLogin {
-  readonly execId: string;
-  readonly logPath: string;
-  readonly stdinPath: string;
-}
-
 /** Opaque reference to a device login owned by the runtime adapter. */
 export interface DeviceLoginHandle {
   readonly __brand: "DeviceLoginHandle";
@@ -52,12 +41,19 @@ export type DeviceLoginState =
       readonly verificationUri: string;
       readonly expiresInMs: number;
     }
+  | { readonly kind: "pending" }
   | { readonly kind: "completed" }
+  /** The runtime can no longer read the still-owned interactive login process. */
+  | { readonly kind: "unavailable" }
   | { readonly kind: "terminal-failure"; readonly reason: string };
 
 export type SetupTokenLoginState =
-  | { readonly kind: "awaiting-code" }
-  | { readonly kind: "completed" }
+  | { readonly kind: "awaiting-code"; readonly authorizeUrl: string }
+  | { readonly kind: "pending" }
+  /** The one-use credential is consumed inside the provisioning worker and never returned to a browser. */
+  | { readonly kind: "completed"; readonly setupToken: string }
+  /** The runtime can no longer read the still-owned interactive setup-token process. */
+  | { readonly kind: "unavailable" }
   | { readonly kind: "terminal-failure"; readonly reason: string };
 
 export interface GatewayRuntimeAgentCredential {
@@ -195,6 +191,13 @@ export interface GatewayRuntimePort {
     readonly authChoiceId: string;
     readonly keyFlag: string;
     readonly apiKey: string;
+    /**
+     * Re-check an interactive flow's ownership at the adapter's credential-write linearization
+     * point: synchronously and immediately before the attached-stdin bytes are sent. The preceding
+     * capability check, Docker setup, and transport upgrade are asynchronous, so a caller-side
+     * check alone cannot prevent a cancellation that begins during them.
+     */
+    readonly beforeCredentialWrite?: () => boolean;
   }): Promise<Result<GatewayRuntimeCommandResult>>;
   /**
    * Store a provider credential in ONE named agent's auth store. `connectApiKey` (onboard) cannot
@@ -248,23 +251,4 @@ export interface GatewayRuntimePort {
   pollSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<SetupTokenLoginState>>;
   submitSetupTokenCode(handle: SetupTokenLoginHandle, code: string): Promise<Result<void>>;
   cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>>;
-  /**
-   * `agentId` names the auth store the completed OAuth login writes to. It is required rather than
-   * defaulted: an un-agented device-code login silently lands in the *configured default* agent,
-   * which is the orchestrator's private store that no other agent reads (issue #169).
-   */
-  startDeviceCodeLogin(
-    providerId: string,
-    agentId: string,
-  ): Promise<Result<GatewayRuntimeDeviceCodeLogin>>;
-  readDeviceCodeLog(logPath: string): Promise<Result<string>>;
-  /**
-   * Resolve only after the exec is confirmed stopped and its private log is securely deleted.
-   * Reject when either condition cannot be verified within the adapter's bounded timeout.
-   */
-  stopDeviceCodeLogin(execId: string, logPath: string): Promise<void>;
-  startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>>;
-  readSetupTokenLog(logPath: string): Promise<Result<string>>;
-  writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>>;
-  stopSetupTokenLogin(execId: string, logPath: string): Promise<void>;
 }

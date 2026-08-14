@@ -141,6 +141,8 @@ function fakeDocker(input: {
   readonly stdinHead?: Buffer;
   readonly stdinChunks?: readonly Buffer[];
   readonly stdinTransportError?: Error;
+  readonly stdinTransportBarrier?: Promise<void>;
+  readonly stdinTransportStarted?: () => void;
   readonly stdinStreamError?: Error;
   readonly stdinNeverEnds?: boolean;
   readonly stdinInspectStates?: readonly {
@@ -197,6 +199,8 @@ function fakeDocker(input: {
     if (input.stdinTransportError !== undefined) {
       throw input.stdinTransportError;
     }
+    input.stdinTransportStarted?.();
+    await input.stdinTransportBarrier;
     const current = execs.at(-1)?.cmd ?? [];
     const chunks = input.stdinChunks ?? [dockerStdoutFrame(stdoutFor(current))];
     return {
@@ -1285,6 +1289,42 @@ describe("DockerOpenClawGatewayRuntime onboard connect (#187, #191)", () => {
     ]);
     expect(onboard?.env).toBeUndefined();
     expect(docker.stdinWrites).toEqual([Buffer.from("sk-ant-oat01-secret")]);
+  });
+
+  it("does not send a superseded setup token when replacement cancellation wins during transport setup", async () => {
+    let releaseTransport: (() => void) | undefined;
+    const transportBarrier = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    let notifyTransportStarted: (() => void) | undefined;
+    const transportStarted = new Promise<void>((resolve) => {
+      notifyTransportStarted = resolve;
+    });
+    let ownsFlow = true;
+    const docker = fakeDocker({
+      stdout: onboardStdout({ credentialStdin: true }),
+      stdinTransportBarrier: transportBarrier,
+      stdinTransportStarted: () => notifyTransportStarted?.(),
+    });
+
+    const connected = docker.runtime.connectApiKey({
+      providerId: "anthropic",
+      authChoiceId: "setup-token",
+      keyFlag: "token",
+      apiKey: "sk-ant-oat01-superseded",
+      beforeCredentialWrite: () => ownsFlow,
+    });
+    await transportStarted;
+    // A replacement flow publishes cancellation while the old flow awaits the transport upgrade.
+    ownsFlow = false;
+    releaseTransport?.();
+
+    await expect(connected).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.connections.setupTokenFlowSuperseded" },
+    });
+    expect(docker.stdinWrites).toEqual([]);
+    expect(docker.stdinDestroyCount()).toBe(1);
   });
 
   // A gateway image built before --credential-stdin would reject the flag anyway — but only after
