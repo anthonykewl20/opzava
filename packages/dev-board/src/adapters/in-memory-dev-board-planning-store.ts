@@ -3,7 +3,10 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import type {
   DevBoardPlanningStore,
+  DependencyEdgeRow,
+  DependencyLockStatus,
   DevTicketRow,
+  InsertDependencyEdgeInput,
   InsertDevTicketInput,
   InsertProposalInput,
   ProposalRow,
@@ -18,6 +21,7 @@ function key(organizationId: string, workspaceId: string, id: string): string {
 export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
   public readonly proposals = new Map<string, ProposalRow>();
   public readonly devTickets = new Map<string, DevTicketRow>();
+  public readonly dependencyEdges = new Map<string, DependencyEdgeRow>();
 
   public async executeRiskyMutation<T>(
     _tx: TenantTransaction,
@@ -183,5 +187,107 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     };
     this.devTickets.set(mapKey, row);
     return row;
+  }
+
+  public async lockDependencyGraph(tx: TenantTransaction, workspaceId: string): Promise<void> {
+    void tx;
+    void workspaceId;
+  }
+
+  public async selectDependencyEdge(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string, edgeId: string,
+  ): Promise<DependencyEdgeRow | null> {
+    return this.dependencyEdges.get(key(organizationId, workspaceId, edgeId)) ?? null;
+  }
+
+  public async selectActiveDependencyEdge(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string,
+    dependentDevTicketId: string, blockerDevTicketId: string,
+  ): Promise<DependencyEdgeRow | null> {
+    return [...this.dependencyEdges.values()].find((edge) =>
+      edge.organizationId === organizationId && edge.workspaceId === workspaceId &&
+      edge.dependentDevTicketId === dependentDevTicketId && edge.blockerDevTicketId === blockerDevTicketId &&
+      edge.lifecycleState === "active",
+    ) ?? null;
+  }
+
+  public async dependencyCreatesCycle(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string,
+    dependentDevTicketId: string, blockerDevTicketId: string,
+  ): Promise<boolean> {
+    const seen = new Set<string>();
+    const visit = (ticketId: string): boolean => {
+      if (ticketId === dependentDevTicketId) return true;
+      if (seen.has(ticketId)) return false;
+      seen.add(ticketId);
+      return [...this.dependencyEdges.values()].some((edge) =>
+        edge.organizationId === organizationId && edge.workspaceId === workspaceId &&
+        edge.lifecycleState === "active" && edge.dependentDevTicketId === ticketId && visit(edge.blockerDevTicketId),
+      );
+    };
+    return visit(blockerDevTicketId);
+  }
+
+  public async insertDependencyEdge(
+    _tx: TenantTransaction, input: InsertDependencyEdgeInput,
+  ): Promise<DependencyEdgeRow> {
+    if (input.dependentDevTicketId === input.blockerDevTicketId ||
+      await this.selectActiveDependencyEdge(_tx, input.organizationId, input.workspaceId, input.dependentDevTicketId, input.blockerDevTicketId) !== null) {
+      throw { code: "23505" };
+    }
+    if (this.devTickets.get(key(input.organizationId, input.workspaceId, input.dependentDevTicketId)) === undefined ||
+      this.devTickets.get(key(input.organizationId, input.workspaceId, input.blockerDevTicketId)) === undefined) {
+      throw { code: "23503" };
+    }
+    const row: DependencyEdgeRow = {
+      id: input.id, organizationId: input.organizationId, workspaceId: input.workspaceId, version: 1,
+      dependentDevTicketId: input.dependentDevTicketId, blockerDevTicketId: input.blockerDevTicketId,
+      lifecycleState: "active", createdCommandId: input.createdCommandId, retiredCommandId: null,
+    };
+    this.dependencyEdges.set(key(input.organizationId, input.workspaceId, input.id), row);
+    return row;
+  }
+
+  public async retireDependencyEdge(
+    _tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly edgeId: string; readonly expectedVersion: number; readonly retiredCommandId: string },
+  ): Promise<DependencyEdgeRow | null> {
+    const mapKey = key(input.organizationId, input.workspaceId, input.edgeId);
+    const current = this.dependencyEdges.get(mapKey);
+    if (current === undefined || current.lifecycleState !== "active" || current.version !== input.expectedVersion) return null;
+    const row = { ...current, lifecycleState: "retired" as const, version: current.version + 1, retiredCommandId: input.retiredCommandId };
+    this.dependencyEdges.set(mapKey, row);
+    return row;
+  }
+
+  public async applyDependencyChangeToDependent(
+    _tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },
+  ): Promise<DevTicketRow | null> {
+    const mapKey = key(input.organizationId, input.workspaceId, input.devTicketId);
+    const current = this.devTickets.get(mapKey);
+    if (current === undefined || current.version !== input.expectedVersion) return null;
+    const todo = current.lane === "todo";
+    const row: DevTicketRow = {
+      ...current, version: current.version + 1,
+      ...(todo ? {
+        lane: "backlog", readyState: "draft", readyApprovalContractVersion: null,
+        readyApprovalContentHash: null, readyApprovedByUserId: null, readyApprovalCommandId: null, todoRank: null,
+      } : {}),
+    };
+    this.devTickets.set(mapKey, row);
+    return row;
+  }
+
+  public async dependencyLockStatus(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string,
+  ): Promise<DependencyLockStatus> {
+    const blockers = [...this.dependencyEdges.values()]
+      .filter((edge) => edge.organizationId === organizationId && edge.workspaceId === workspaceId && edge.dependentDevTicketId === devTicketId && edge.lifecycleState === "active")
+      .map((edge) => ({
+        devTicketId: edge.blockerDevTicketId,
+        done: this.devTickets.get(key(organizationId, workspaceId, edge.blockerDevTicketId))?.lane === "done",
+      }));
+    return { locked: blockers.some((blocker) => !blocker.done), blockers };
   }
 }

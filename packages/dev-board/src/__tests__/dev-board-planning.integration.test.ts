@@ -7,12 +7,14 @@ import { PostgresDevBoardLedgerAppendStore } from "../adapters/postgres/postgres
 import { PostgresDevBoardPlanningStore } from "../adapters/postgres/postgres-dev-board-planning-store.js";
 import {
   acceptProposal,
+  addDependency,
   admitDone,
   approveReadyToTodo,
   archiveProposal,
   claim,
   draftProposal,
   mergeProposal,
+  removeDependency,
   rejectProposal,
   start,
   submitForReview,
@@ -72,6 +74,21 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       expectedVersions,
       ...overrides,
     };
+  }
+  async function createBacklogTicket(summary: string): Promise<string> {
+    const proposalId = randomUUID();
+    expect((await draftProposal(envelope("DraftProposal", proposalId), {
+      discoverySummary: summary, blockingAssessment: "non_blocking",
+    }, deps!)).ok).toBe(true);
+    expect((await submitProposal(envelope("SubmitProposal", proposalId, [
+      { recordKind: "proposal", recordId: proposalId, version: 1 },
+    ]), { proposalId }, deps!)).ok).toBe(true);
+    const accepted = await acceptProposal(envelope("AcceptProposal", proposalId, [
+      { recordKind: "proposal", recordId: proposalId, version: 2 },
+    ]), { proposalId, humanOwnerUserId: ownerId, initialContractContent: { outcome: summary } }, deps!);
+    expect(accepted).toMatchObject({ ok: true });
+    if (!accepted.ok) throw accepted.error;
+    return accepted.value.devTicketId!;
   }
   beforeAll(async () => {
     const role = rows(
@@ -638,6 +655,198 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
       database!,
     );
     expect(rows(result)).toHaveLength(0);
+  });
+  it("invalidates Todo Ready approval and records one DependencyAdded activity event", async () => {
+    const dependent = await createBacklogTicket("Todo dependent added dependency");
+    const blocker = await createBacklogTicket("Todo dependency blocker");
+    const approvalContent = { outcome: "Todo dependent added dependency", scope: "dependency invalidation" };
+    expect((await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 1 },
+    ]), {
+      devTicketId: dependent,
+      readyContractContent: approvalContent,
+      expectedContractVersion: 1,
+      expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent added dependency" }),
+    }, deps!)).ok).toBe(true);
+
+    const command = envelope("AddDependency", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+      { recordKind: "dev_ticket", recordId: blocker, version: 1 },
+    ]);
+    expect((await addDependency(command, {
+      dependentDevTicketId: dependent, blockerDevTicketId: blocker, reason: "This work now requires the blocker.",
+    }, deps!)).ok).toBe(true);
+
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, t.lane, t.ready_state, t.ready_approval_contract_version,
+        t.ready_approved_by_user_id, t.ready_approval_content_hash, t.todo_rank,
+        (select count(*) from public.dev_board_activity_event e
+          where e.aggregate_id = t.id and e.aggregate_version = t.version) as new_version_event_count,
+        (select count(*) from public.dev_board_activity_event e
+          where e.aggregate_id = t.id and e.aggregate_version = t.version
+            and e.event_name = 'DependencyAdded'
+            and e.payload @> '{"readyInvalidated":true,"laneChanged":{"from":"todo","to":"backlog"}}'::jsonb) as invalidation_event_count
+      from public.dev_board_dev_ticket t where t.id = ${dependent}::uuid
+    `))[0], database!);
+    expect(Number(state!["version"])).toBe(3);
+    expect(state!["lane"]).toBe("backlog");
+    expect(state!["ready_state"]).toBe("draft");
+    expect(state!["ready_approval_contract_version"]).toBeNull();
+    expect(state!["ready_approved_by_user_id"]).toBeNull();
+    expect(state!["ready_approval_content_hash"]).toBeNull();
+    expect(state!["todo_rank"]).toBeNull();
+    expect(Number(state!["new_version_event_count"])).toBe(1);
+    expect(Number(state!["invalidation_event_count"])).toBe(1);
+  });
+  it("invalidates Todo Ready approval and records one DependencyRemoved activity event", async () => {
+    const dependent = await createBacklogTicket("Todo dependent removed dependency");
+    const blocker = await createBacklogTicket("Todo removal blocker");
+    const added = await addDependency(envelope("AddDependency", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 1 },
+      { recordKind: "dev_ticket", recordId: blocker, version: 1 },
+    ]), {
+      dependentDevTicketId: dependent, blockerDevTicketId: blocker, reason: "The dependency exists before approval.",
+    }, deps!);
+    expect(added).toMatchObject({ ok: true });
+    if (!added.ok) return;
+    const approvalContent = { outcome: "Todo dependent removed dependency", scope: "dependency invalidation" };
+    expect((await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+    ]), {
+      devTicketId: dependent,
+      readyContractContent: approvalContent,
+      expectedContractVersion: 1,
+      expectedContractContentHash: computeReadyContractContentHash({ outcome: "Todo dependent removed dependency" }),
+    }, deps!)).ok).toBe(true);
+
+    const command = envelope("RemoveDependency", added.value.dependencyEdgeId!);
+    expect((await removeDependency(command, {
+      edgeId: added.value.dependencyEdgeId!, expectedEdgeVersion: 1, reason: "The dependency is no longer required.",
+    }, deps!)).ok).toBe(true);
+
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.version, t.lane, t.ready_state, t.ready_approval_contract_version,
+        t.ready_approved_by_user_id, t.ready_approval_content_hash, t.todo_rank,
+        (select count(*) from public.dev_board_activity_event e
+          where e.aggregate_id = t.id and e.aggregate_version = t.version) as new_version_event_count,
+        (select count(*) from public.dev_board_activity_event e
+          where e.aggregate_id = t.id and e.aggregate_version = t.version
+            and e.event_name = 'DependencyRemoved'
+            and e.payload @> '{"readyInvalidated":true,"laneChanged":{"from":"todo","to":"backlog"}}'::jsonb) as invalidation_event_count
+      from public.dev_board_dev_ticket t where t.id = ${dependent}::uuid
+    `))[0], database!);
+    expect(Number(state!["version"])).toBe(4);
+    expect(state!["lane"]).toBe("backlog");
+    expect(state!["ready_state"]).toBe("draft");
+    expect(state!["ready_approval_contract_version"]).toBeNull();
+    expect(state!["ready_approved_by_user_id"]).toBeNull();
+    expect(state!["ready_approval_content_hash"]).toBeNull();
+    expect(state!["todo_rank"]).toBeNull();
+    expect(Number(state!["new_version_event_count"])).toBe(1);
+    expect(Number(state!["invalidation_event_count"])).toBe(1);
+  });
+  it("serializes dependency edges, rejects cycles, retains retired history, and applies the live completion lock", async () => {
+    const [a, b, c, dependent] = await Promise.all([
+      createBacklogTicket("dependency A"), createBacklogTicket("dependency B"),
+      createBacklogTicket("dependency C"), createBacklogTicket("locked dependent"),
+    ]);
+    const selfEdge = await addDependency(envelope("AddDependency", c), {
+      dependentDevTicketId: c, blockerDevTicketId: c, reason: "Self edge is invalid.",
+    }, deps!);
+    expect(selfEdge).toMatchObject({ ok: false });
+    if (!selfEdge.ok) expect(selfEdge.error.code).toBe("dev_board.dependency_cycle_rejected");
+    const missingBlockerId = randomUUID();
+    const missingBlocker = await addDependency(envelope("AddDependency", a, [
+      { recordKind: "dev_ticket", recordId: a, version: 1 },
+      { recordKind: "dev_ticket", recordId: missingBlockerId, version: 1 },
+    ]), { dependentDevTicketId: a, blockerDevTicketId: missingBlockerId, reason: "Missing edge target." }, deps!);
+    expect(missingBlocker).toMatchObject({ ok: false });
+    if (!missingBlocker.ok) expect(missingBlocker.error.code).toBe("dev_board.constraint_reference_invalid");
+    const first = await addDependency(envelope("AddDependency", a, [
+      { recordKind: "dev_ticket", recordId: a, version: 1 },
+      { recordKind: "dev_ticket", recordId: b, version: 1 },
+    ]), { dependentDevTicketId: a, blockerDevTicketId: b, reason: "A needs B." }, deps!);
+    expect(first).toMatchObject({ ok: true });
+    if (!first.ok) return;
+    const edgeId = first.value.dependencyEdgeId!;
+    const duplicate = await addDependency(envelope("AddDependency", a), {
+      dependentDevTicketId: a, blockerDevTicketId: b, reason: "Duplicate edge.",
+    }, deps!);
+    expect(duplicate).toMatchObject({ ok: true, value: { dependencyEdgeId: edgeId } });
+    expect((await addDependency(envelope("AddDependency", b, [
+      { recordKind: "dev_ticket", recordId: b, version: 1 },
+      { recordKind: "dev_ticket", recordId: c, version: 1 },
+    ]), { dependentDevTicketId: b, blockerDevTicketId: c, reason: "B needs C." }, deps!)).ok).toBe(true);
+    const cycle = await addDependency(envelope("AddDependency", c, [
+      { recordKind: "dev_ticket", recordId: c, version: 1 },
+      { recordKind: "dev_ticket", recordId: a, version: 2 },
+    ]), { dependentDevTicketId: c, blockerDevTicketId: a, reason: "Must reject cycle." }, deps!);
+    expect(cycle).toMatchObject({ ok: false });
+    if (!cycle.ok) expect(cycle.error.code).toBe("dev_board.dependency_cycle_rejected");
+    const staleRemoval = await removeDependency(envelope("RemoveDependency", edgeId), {
+      edgeId, expectedEdgeVersion: 99, reason: "Wrong version.",
+    }, deps!);
+    expect(staleRemoval).toMatchObject({ ok: false });
+    if (!staleRemoval.ok) expect(staleRemoval.error.code).toBe("dev_board.dependency_identity_conflict");
+    const absentEdgeId = randomUUID();
+    const absentRemoval = await removeDependency(envelope("RemoveDependency", absentEdgeId), {
+      edgeId: absentEdgeId, expectedEdgeVersion: 1, reason: "Not active.",
+    }, deps!);
+    expect(absentRemoval).toMatchObject({ ok: false });
+    if (!absentRemoval.ok) expect(absentRemoval.error.code).toBe("dev_board.dependency_not_active");
+    const removeRequest = envelope("RemoveDependency", edgeId);
+    const removed = await removeDependency(removeRequest, {
+      edgeId, expectedEdgeVersion: 1, reason: "No longer required.",
+    }, deps!);
+    expect(removed).toMatchObject({ ok: true });
+    expect(await removeDependency({ ...removeRequest, commandId: randomUUID() }, {
+      edgeId, expectedEdgeVersion: 1, reason: "No longer required.",
+    }, deps!)).toMatchObject({ ok: true, value: { commandId: removeRequest.commandId } });
+    const alreadyRemoved = await removeDependency(envelope("RemoveDependency", edgeId), {
+      edgeId, expectedEdgeVersion: 2, reason: "No second removal.",
+    }, deps!);
+    expect(alreadyRemoved).toMatchObject({ ok: false });
+    if (!alreadyRemoved.ok) expect(alreadyRemoved.error.code).toBe("dev_board.already_removed");
+    const readded = await addDependency(envelope("AddDependency", a, [
+      { recordKind: "dev_ticket", recordId: a, version: 3 },
+      { recordKind: "dev_ticket", recordId: b, version: 2 },
+    ]), { dependentDevTicketId: a, blockerDevTicketId: b, reason: "Needed again." }, deps!);
+    expect(readded).toMatchObject({ ok: true });
+    if (!readded.ok) return;
+    expect(readded.value.dependencyEdgeId).not.toBe(edgeId);
+    const addLocked = await addDependency(envelope("AddDependency", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 1 },
+      { recordKind: "dev_ticket", recordId: b, version: 2 },
+    ]), { dependentDevTicketId: dependent, blockerDevTicketId: b, reason: "Blocks completion." }, deps!);
+    expect(addLocked).toMatchObject({ ok: true });
+    const lockedApprovalContent = { outcome: "locked dependent", scope: "can remain Todo while locked" };
+    const approvedWhileLocked = await approveReadyToTodo(envelope("ApproveReadyToTodo", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 2 },
+    ]), {
+      devTicketId: dependent,
+      readyContractContent: lockedApprovalContent,
+      expectedContractVersion: 1,
+      expectedContractContentHash: computeReadyContractContentHash({ outcome: "locked dependent" }),
+    }, deps!);
+    expect(approvedWhileLocked).toMatchObject({ ok: true });
+    const lockedStatus = await withTenant(organizationId, (tx) => deps!.planningStore.dependencyLockStatus(tx, organizationId, workspaceId, dependent), database!);
+    expect(lockedStatus).toEqual({ locked: true, blockers: [{ devTicketId: b, done: false }] });
+    const crossTenantStatus = await withTenant(otherOrganizationId, (tx) => deps!.planningStore.dependencyLockStatus(tx, otherOrganizationId, workspaceId, dependent), database!);
+    expect(crossTenantStatus).toEqual({ locked: false, blockers: [] });
+    const lockedClaim = await claim(envelope("Claim", dependent), deps!);
+    expect(lockedClaim).toMatchObject({ ok: false });
+    if (!lockedClaim.ok) expect(lockedClaim.error.code).toBe("dev_board.dependency_locked");
+    const state = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select count(*) from public.dev_board_dependency_edge where dependent_dev_ticket_id = ${a}::uuid and blocker_dev_ticket_id = ${b}::uuid) as retained_edges,
+        (select count(*) from public.dev_board_dependency_edge where dependent_dev_ticket_id = ${c}::uuid and blocker_dev_ticket_id = ${a}::uuid) as cycle_edges,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${a}::uuid and event_name = 'DependencyAdded') as added_events,
+        (select count(*) from public.dev_board_planning_decision_entry where aggregate_id = ${a}::uuid and entry_kind = 'DependencyDecisionRationaleRecorded') as planning_entries
+    `))[0], database!);
+    expect(Number(state!["retained_edges"])).toBe(2);
+    expect(Number(state!["cycle_edges"])).toBe(0);
+    expect(Number(state!["added_events"])).toBe(2);
+    expect(Number(state!["planning_entries"])).toBe(3);
   });
 });
 

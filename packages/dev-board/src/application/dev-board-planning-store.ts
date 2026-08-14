@@ -41,6 +41,23 @@ export interface DevTicketRow {
   readonly createdCommandId: string;
 }
 
+export interface DependencyEdgeRow {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly version: number;
+  readonly dependentDevTicketId: string;
+  readonly blockerDevTicketId: string;
+  readonly lifecycleState: "active" | "retired";
+  readonly createdCommandId: string;
+  readonly retiredCommandId: string | null;
+}
+
+export interface DependencyLockStatus {
+  readonly locked: boolean;
+  readonly blockers: readonly { readonly devTicketId: string; readonly done: boolean }[];
+}
+
 export interface InsertProposalInput {
   readonly id: string;
   readonly organizationId: string;
@@ -87,6 +104,15 @@ export interface UpdateDevTicketForReadyApprovalInput {
   readonly readyApprovalCommandId: string;
 }
 
+export interface InsertDependencyEdgeInput {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly dependentDevTicketId: string;
+  readonly blockerDevTicketId: string;
+  readonly createdCommandId: string;
+}
+
 export interface DevBoardPlanningStore {
   /**
    * Runs a persistence operation behind a transaction savepoint where the adapter supports one.
@@ -116,4 +142,42 @@ export interface DevBoardPlanningStore {
     tx: TenantTransaction,
     input: UpdateDevTicketForReadyApprovalInput,
   ): Promise<DevTicketRow | null>;
+  /** Serializes all graph traversals and mutations for one workspace transaction. */
+  lockDependencyGraph(tx: TenantTransaction, workspaceId: string): Promise<void>;
+  selectDependencyEdge(
+    tx: TenantTransaction,
+    organizationId: string,
+    workspaceId: string,
+    edgeId: string,
+  ): Promise<DependencyEdgeRow | null>;
+  selectActiveDependencyEdge(
+    tx: TenantTransaction,
+    organizationId: string,
+    workspaceId: string,
+    dependentDevTicketId: string,
+    blockerDevTicketId: string,
+  ): Promise<DependencyEdgeRow | null>;
+  dependencyCreatesCycle(
+    tx: TenantTransaction,
+    organizationId: string,
+    workspaceId: string,
+    dependentDevTicketId: string,
+    blockerDevTicketId: string,
+  ): Promise<boolean>;
+  insertDependencyEdge(tx: TenantTransaction, input: InsertDependencyEdgeInput): Promise<DependencyEdgeRow>;
+  retireDependencyEdge(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly edgeId: string; readonly expectedVersion: number; readonly retiredCommandId: string },
+  ): Promise<DependencyEdgeRow | null>;
+  /** Bumps the dependent version; Todo additionally loses Ready and returns to Backlog. */
+  applyDependencyChangeToDependent(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },
+  ): Promise<DevTicketRow | null>;
+  dependencyLockStatus(
+    tx: TenantTransaction,
+    organizationId: string,
+    workspaceId: string,
+    devTicketId: string,
+  ): Promise<DependencyLockStatus>;
 }

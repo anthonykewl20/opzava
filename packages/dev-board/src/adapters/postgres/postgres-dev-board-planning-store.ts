@@ -4,7 +4,10 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import type {
   DevBoardPlanningStore,
+  DependencyEdgeRow,
+  DependencyLockStatus,
   DevTicketRow,
+  InsertDependencyEdgeInput,
   InsertDevTicketInput,
   InsertProposalInput,
   ProposalRow,
@@ -107,6 +110,20 @@ function ticket(row: QueryRow): DevTicketRow {
   };
 }
 
+function edge(row: QueryRow): DependencyEdgeRow {
+  return {
+    id: String(row["id"]),
+    organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]),
+    version: number(row["version"]),
+    dependentDevTicketId: String(row["dependent_dev_ticket_id"]),
+    blockerDevTicketId: String(row["blocker_dev_ticket_id"]),
+    lifecycleState: row["lifecycle_state"] as "active" | "retired",
+    createdCommandId: String(row["created_command_id"]),
+    retiredCommandId: typeof row["retired_command_id"] === "string" ? row["retired_command_id"] : null,
+  };
+}
+
 const proposalColumns = sql`id, organization_id, workspace_id, version, lifecycle_state, archived_at,
   discovery_summary, blocking_assessment, suggested_contract, created_command_id, accepted_command_id,
   accepted_dev_ticket_id`;
@@ -114,7 +131,9 @@ const ticketColumns = sql`id, organization_id, workspace_id, version, origin_kin
   lane, archived_at, human_owner_user_id, ready_contract_version, ready_contract_content,
   ready_contract_content_hash, ready_state, ready_approval_contract_version,
   ready_approval_content_hash, ready_approved_by_user_id, ready_approval_command_id, todo_rank,
-  created_command_id`;
+   created_command_id`;
+const edgeColumns = sql`id, organization_id, workspace_id, version, dependent_dev_ticket_id,
+  blocker_dev_ticket_id, lifecycle_state, created_command_id, retired_command_id`;
 
 export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
   public async executeRiskyMutation<T>(
@@ -270,5 +289,134 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     `);
     const row = rowsFromExecuteResult(result)[0];
     return row === undefined ? null : ticket(row);
+  }
+
+  public async lockDependencyGraph(tx: TenantTransaction, workspaceId: string): Promise<void> {
+    await tx.execute(sql`
+      select pg_advisory_xact_lock(hashtext('dev_board_dependency_graph:' || ${workspaceId}))
+    `);
+  }
+
+  public async selectDependencyEdge(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, edgeId: string,
+  ): Promise<DependencyEdgeRow | null> {
+    const result = await tx.execute(sql`
+      select ${edgeColumns} from public.dev_board_dependency_edge
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and id = ${edgeId}::uuid
+      for update
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : edge(row);
+  }
+
+  public async selectActiveDependencyEdge(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+    dependentDevTicketId: string, blockerDevTicketId: string,
+  ): Promise<DependencyEdgeRow | null> {
+    const result = await tx.execute(sql`
+      select ${edgeColumns} from public.dev_board_dependency_edge
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and dependent_dev_ticket_id = ${dependentDevTicketId}::uuid
+        and blocker_dev_ticket_id = ${blockerDevTicketId}::uuid and lifecycle_state = 'active'
+      limit 1
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : edge(row);
+  }
+
+  public async dependencyCreatesCycle(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+    dependentDevTicketId: string, blockerDevTicketId: string,
+  ): Promise<boolean> {
+    const result = await tx.execute(sql`
+      with recursive traversal(dev_ticket_id) as (
+        select ${blockerDevTicketId}::uuid
+        union
+        select edge.blocker_dev_ticket_id
+        from public.dev_board_dependency_edge edge
+        join traversal on edge.dependent_dev_ticket_id = traversal.dev_ticket_id
+        where edge.organization_id = ${organizationId}::uuid
+          and edge.workspace_id = ${workspaceId}::uuid
+          and edge.lifecycle_state = 'active'
+      )
+      select exists(select 1 from traversal where dev_ticket_id = ${dependentDevTicketId}::uuid) as creates_cycle
+    `);
+    return rowsFromExecuteResult(result)[0]?.["creates_cycle"] === true;
+  }
+
+  public async insertDependencyEdge(
+    tx: TenantTransaction, input: InsertDependencyEdgeInput,
+  ): Promise<DependencyEdgeRow> {
+    const result = await tx.execute(sql`
+      insert into public.dev_board_dependency_edge (
+        id, organization_id, workspace_id, dependent_dev_ticket_id, blocker_dev_ticket_id, created_command_id
+      ) values (
+        ${input.id}::uuid, ${input.organizationId}::uuid, ${input.workspaceId}::uuid,
+        ${input.dependentDevTicketId}::uuid, ${input.blockerDevTicketId}::uuid, ${input.createdCommandId}::uuid
+      ) returning ${edgeColumns}
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    if (row === undefined) throw new Error("Dependency edge insert returned no row.");
+    return edge(row);
+  }
+
+  public async retireDependencyEdge(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly edgeId: string; readonly expectedVersion: number; readonly retiredCommandId: string },
+  ): Promise<DependencyEdgeRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dependency_edge
+      set lifecycle_state = 'retired', retired_command_id = ${input.retiredCommandId}::uuid,
+        retired_at = now(), version = version + 1
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and id = ${input.edgeId}::uuid and lifecycle_state = 'active' and version = ${input.expectedVersion}
+      returning ${edgeColumns}
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : edge(row);
+  }
+
+  public async applyDependencyChangeToDependent(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },
+  ): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dev_ticket
+      set lane = case when lane = 'todo' then 'backlog' else lane end,
+        ready_state = case when lane = 'todo' then 'draft' else ready_state end,
+        ready_approval_contract_version = case when lane = 'todo' then null else ready_approval_contract_version end,
+        ready_approval_content_hash = case when lane = 'todo' then null else ready_approval_content_hash end,
+        ready_approved_by_user_id = case when lane = 'todo' then null else ready_approved_by_user_id end,
+        ready_approved_at = case when lane = 'todo' then null else ready_approved_at end,
+        ready_approval_command_id = case when lane = 'todo' then null else ready_approval_command_id end,
+        todo_rank = case when lane = 'todo' then null else todo_rank end,
+        version = version + 1, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
+      returning ${ticketColumns}
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : ticket(row);
+  }
+
+  public async dependencyLockStatus(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string,
+  ): Promise<DependencyLockStatus> {
+    const result = await tx.execute(sql`
+      select edge.blocker_dev_ticket_id as dev_ticket_id, (ticket.lane = 'done') as done
+      from public.dev_board_dependency_edge edge
+      join public.dev_board_dev_ticket ticket
+        on ticket.id = edge.blocker_dev_ticket_id and ticket.organization_id = edge.organization_id
+        and ticket.workspace_id = edge.workspace_id
+      where edge.organization_id = ${organizationId}::uuid and edge.workspace_id = ${workspaceId}::uuid
+        and edge.dependent_dev_ticket_id = ${devTicketId}::uuid and edge.lifecycle_state = 'active'
+      order by edge.blocker_dev_ticket_id
+    `);
+    const blockers = rowsFromExecuteResult(result).map((row) => ({
+      devTicketId: String(row["dev_ticket_id"]),
+      done: row["done"] === true,
+    }));
+    return { locked: blockers.some((blocker) => !blocker.done), blockers };
   }
 }
