@@ -88,6 +88,10 @@
     {
       "path": "0021_dev_board_planning_lifecycle.sql",
       "sha256": "5613d20902f74926fc9c7f0c3c47e7ae44487a06de764f7006a73b2325854204"
+    },
+    {
+      "path": "0022_dev_board_lane_queue.sql",
+      "sha256": "29b8d6218b446fe76afd4ed7a7ab1a4200b9f4dd798c32165953e25fcb5b48c3"
     }
   ]
 }

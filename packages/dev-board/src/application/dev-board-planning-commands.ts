@@ -61,6 +61,16 @@ export interface ApproveReadyToTodoInput {
   readonly readyContractContent: Readonly<Record<string, unknown>>;
   readonly expectedContractVersion: number;
   readonly expectedContractContentHash: string;
+  readonly expectedTodoQueueVersion: number;
+}
+export type TodoReorderAnchor =
+  | { kind: "before" | "after"; neighborDevTicketId: string; neighborVersion: number }
+  | { kind: "empty_band" };
+export interface ReorderTodoInput {
+  readonly devTicketId: string;
+  readonly sourceQueue: { readonly lane: "todo"; readonly version: number };
+  readonly targetQueue: { readonly lane: "todo"; readonly version: number };
+  readonly anchor: TodoReorderAnchor;
 }
 export interface AddDependencyInput {
   readonly dependentDevTicketId: string;
@@ -76,6 +86,33 @@ export interface DependencyLockStatusInput {
   readonly organizationId: string;
   readonly workspaceId: string;
   readonly devTicketId: string;
+}
+
+export const RANK_STRIDE = 1_000_000n;
+const FIRST_TODO_RANK = 2n * RANK_STRIDE;
+const POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807n;
+
+/**
+ * TB-01b-5 has no classification fields yet, so every Todo ticket is in this one band. This is the
+ * deliberate forward-compatibility seam for the classifications slice; callers never set a tier.
+ */
+function deriveTodoOrderingBand(ticket: { readonly lane: string }): "all_todo" {
+  void ticket;
+  return "all_todo";
+}
+
+function validTodoAnchor(anchor: TodoReorderAnchor): boolean {
+  if (anchor.kind === "empty_band") return Object.keys(anchor).length === 1;
+  return (anchor.kind === "before" || anchor.kind === "after") &&
+    typeof anchor.neighborDevTicketId === "string" && anchor.neighborDevTicketId.length > 0 &&
+    Number.isSafeInteger(anchor.neighborVersion) && anchor.neighborVersion > 0;
+}
+
+function forbiddenTodoOrderingField(input: ReorderTodoInput): "tier" | "numeric" | null {
+  const candidate = input as unknown as Readonly<Record<string, unknown>>;
+  if (["reviewReworkPlacement", "orderingTier", "tier"].some((field) => field in candidate)) return "tier";
+  if (["rank", "position", "priority", "placement"].some((field) => field in candidate)) return "numeric";
+  return null;
 }
 
 function failure(code: string, message: string): DomainError {
@@ -793,10 +830,24 @@ export async function addDependency(
       if ("ok" in reservation) return reservation;
       const reason = decisionReason(input.reason);
       if (!reason.ok) return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
-      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
       if (input.dependentDevTicketId === input.blockerDevTicketId) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_cycle_rejected", "A DevTicket cannot depend on itself.");
       }
+      const dependentExpected = expected(envelope, "dev_ticket", input.dependentDevTicketId);
+      const blockerExpected = expected(envelope, "dev_ticket", input.blockerDevTicketId);
+      const endpointIds = [input.dependentDevTicketId, input.blockerDevTicketId].sort();
+      const endpointRows = new Map<string, Awaited<ReturnType<DevBoardPlanningStore["selectDevTicketForUpdate"]>>>();
+      for (const endpointId of endpointIds) {
+        endpointRows.set(endpointId, await deps.planningStore.selectDevTicketForUpdate(
+          tx, envelope.organizationId, envelope.workspaceId, endpointId,
+        ));
+      }
+      const dependent = endpointRows.get(input.dependentDevTicketId) ?? null;
+      const blocker = endpointRows.get(input.blockerDevTicketId) ?? null;
+      if (dependent === null || blocker === null) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.constraint_reference_invalid", "A dependency endpoint does not exist.");
+      }
+      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
       const duplicate = await deps.planningStore.selectActiveDependencyEdge(
         tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId, input.blockerDevTicketId,
       );
@@ -805,17 +856,6 @@ export async function addDependency(
           [{ recordKind: "dependency_edge", recordId: duplicate.id, version: duplicate.version }],
           { dependencyEdgeId: duplicate.id, devTicketId: duplicate.dependentDevTicketId },
         );
-      }
-      const dependentExpected = expected(envelope, "dev_ticket", input.dependentDevTicketId);
-      const blockerExpected = expected(envelope, "dev_ticket", input.blockerDevTicketId);
-      const dependent = await deps.planningStore.selectDevTicketForUpdate(
-        tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId,
-      );
-      const blocker = await deps.planningStore.selectDevTicketForUpdate(
-        tx, envelope.organizationId, envelope.workspaceId, input.blockerDevTicketId,
-      );
-      if (dependent === null || blocker === null) {
-        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.constraint_reference_invalid", "A dependency endpoint does not exist.");
       }
       if (dependentExpected === null || blockerExpected === null || dependent.version !== dependentExpected || blocker.version !== blockerExpected) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Dependency endpoint version has changed.");
@@ -828,6 +868,14 @@ export async function addDependency(
       if (await deps.planningStore.dependencyCreatesCycle(tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId, input.blockerDevTicketId)) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_cycle_rejected", "The dependency would create a cycle.");
       }
+      const expectedTodoQueueVersion = expected(envelope, "lane_queue", "todo");
+      let todoQueueVersion: number | null = null;
+      if (dependent.lane === "todo") {
+        const header = await deps.planningStore.getOrLockTodoQueueHeader(tx, envelope.organizationId, envelope.workspaceId);
+        if (expectedTodoQueueVersion === null || header.version !== expectedTodoQueueVersion) {
+          return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift", "Todo queue changed; reload and submit a new command/key.");
+        }
+      }
       const dependentVersionDrift = new Error("Dependent DevTicket version has changed.");
       let mutation;
       try {
@@ -836,6 +884,17 @@ export async function addDependency(
             id: randomUUID(), organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
             dependentDevTicketId: dependent.id, blockerDevTicketId: blocker.id, createdCommandId: envelope.commandId,
           });
+          if (dependent.lane === "todo") {
+            const deleted = await deps.planningStore.deleteTodoQueueMembership(
+              tx, envelope.organizationId, envelope.workspaceId, dependent.id,
+            );
+            if (!deleted) throw dependentVersionDrift;
+            const bumped = await deps.planningStore.casBumpTodoQueueVersion(
+              tx, envelope.organizationId, envelope.workspaceId, expectedTodoQueueVersion!,
+            );
+            if (bumped === null) throw dependentVersionDrift;
+            todoQueueVersion = bumped.version;
+          }
           const updated = await deps.planningStore.applyDependencyChangeToDependent(tx, {
             organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
             devTicketId: dependent.id, expectedVersion: dependent.version,
@@ -855,6 +914,7 @@ export async function addDependency(
           { recordKind: "dependency_edge", recordId: mutation.value.edge.id, version: mutation.value.edge.version },
           { recordKind: "dev_ticket", recordId: mutation.value.updated.id, version: mutation.value.updated.version },
           { recordKind: "dev_ticket", recordId: blocker.id, version: blocker.version },
+          ...(todoQueueVersion === null ? [] : [{ recordKind: "lane_queue" as const, recordId: "todo", version: todoQueueVersion }]),
         ],
         { dependencyEdgeId: mutation.value.edge.id, devTicketId: mutation.value.updated.id },
       );
@@ -875,7 +935,6 @@ export async function removeDependency(
       if ("ok" in reservation) return reservation;
       const reason = decisionReason(input.reason);
       if (!reason.ok) return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
-      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
       const edge = await deps.planningStore.selectDependencyEdge(tx, envelope.organizationId, envelope.workspaceId, input.edgeId);
       if (edge === null) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_not_active", "The dependency edge is not active.");
@@ -888,12 +947,15 @@ export async function removeDependency(
       if (edge.version !== input.expectedEdgeVersion) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_identity_conflict", "The dependency edge identity or version has changed.");
       }
-      const dependent = await deps.planningStore.selectDevTicketForUpdate(
-        tx, envelope.organizationId, envelope.workspaceId, edge.dependentDevTicketId,
-      );
-      const blocker = await deps.planningStore.selectDevTicketForUpdate(
-        tx, envelope.organizationId, envelope.workspaceId, edge.blockerDevTicketId,
-      );
+      const endpointIds = [edge.dependentDevTicketId, edge.blockerDevTicketId].sort();
+      const endpointRows = new Map<string, Awaited<ReturnType<DevBoardPlanningStore["selectDevTicketForUpdate"]>>>();
+      for (const endpointId of endpointIds) {
+        endpointRows.set(endpointId, await deps.planningStore.selectDevTicketForUpdate(
+          tx, envelope.organizationId, envelope.workspaceId, endpointId,
+        ));
+      }
+      const dependent = endpointRows.get(edge.dependentDevTicketId) ?? null;
+      const blocker = endpointRows.get(edge.blockerDevTicketId) ?? null;
       if (dependent === null || blocker === null) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.constraint_reference_invalid", "A dependency endpoint does not exist.");
       }
@@ -901,6 +963,15 @@ export async function removeDependency(
       if (endpointFailure !== null) return reject(tx, deps.commandReceiptRepository, envelope, endpointFailure.code, endpointFailure.message);
       if (hasLiveSprintMembership(dependent.id) || hasLiveSprintMembership(blocker.id)) {
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.sprint_coordination_required", "Dependency changes for Sprint members require Sprint coordination.");
+      }
+      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
+      const expectedTodoQueueVersion = expected(envelope, "lane_queue", "todo");
+      let todoQueueVersion: number | null = null;
+      if (dependent.lane === "todo") {
+        const header = await deps.planningStore.getOrLockTodoQueueHeader(tx, envelope.organizationId, envelope.workspaceId);
+        if (expectedTodoQueueVersion === null || header.version !== expectedTodoQueueVersion) {
+          return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift", "Todo queue changed; reload and submit a new command/key.");
+        }
       }
       const dependentVersionDrift = new Error("Dependent DevTicket version has changed.");
       let mutation;
@@ -911,6 +982,17 @@ export async function removeDependency(
             expectedVersion: input.expectedEdgeVersion, retiredCommandId: envelope.commandId,
           });
           if (retired === null) return null;
+          if (dependent.lane === "todo") {
+            const deleted = await deps.planningStore.deleteTodoQueueMembership(
+              tx, envelope.organizationId, envelope.workspaceId, dependent.id,
+            );
+            if (!deleted) throw dependentVersionDrift;
+            const bumped = await deps.planningStore.casBumpTodoQueueVersion(
+              tx, envelope.organizationId, envelope.workspaceId, expectedTodoQueueVersion!,
+            );
+            if (bumped === null) throw dependentVersionDrift;
+            todoQueueVersion = bumped.version;
+          }
           const updated = await deps.planningStore.applyDependencyChangeToDependent(tx, {
             organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
             devTicketId: dependent.id, expectedVersion: dependent.version,
@@ -930,12 +1012,141 @@ export async function removeDependency(
         [
           { recordKind: "dependency_edge", recordId: mutation.value.edge.id, version: mutation.value.edge.version },
           { recordKind: "dev_ticket", recordId: mutation.value.updated.id, version: mutation.value.updated.version },
+          ...(todoQueueVersion === null ? [] : [{ recordKind: "lane_queue" as const, recordId: "todo", version: todoQueueVersion }]),
         ],
         { dependencyEdgeId: mutation.value.edge.id, devTicketId: mutation.value.updated.id },
       );
     },
     deps.database ?? db,
   );
+}
+
+export async function reorderTodo(
+  envelope: CommandEnvelope,
+  input: ReorderTodoInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const forbiddenField = forbiddenTodoOrderingField(input);
+    if (forbiddenField === "tier") {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_ordering_tier_server_derived", "Todo ordering tier is server-derived.");
+    }
+    if (forbiddenField === "numeric") {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_numeric_position_forbidden", "Todo rank and numeric position are server-derived.");
+    }
+    if (
+      input.sourceQueue.lane !== "todo" || input.targetQueue.lane !== "todo" ||
+      input.sourceQueue.version !== input.targetQueue.version || !validTodoAnchor(input.anchor)
+    ) {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_anchor_invalid", "Todo reorder requires one valid Todo anchor and matching queue versions.");
+    }
+    const expectedTicketVersion = expected(envelope, "dev_ticket", input.devTicketId);
+    const moved = await deps.planningStore.selectDevTicketForUpdate(
+      tx, envelope.organizationId, envelope.workspaceId, input.devTicketId,
+    );
+    if (moved === null || expectedTicketVersion === null || moved.version !== expectedTicketVersion) {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    }
+    if (moved.lane !== "todo") {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_not_in_todo", "DevTicket is not in Todo.");
+    }
+    const band = deriveTodoOrderingBand(moved);
+    const header = await deps.planningStore.getOrLockTodoQueueHeader(tx, envelope.organizationId, envelope.workspaceId);
+    // Do not persist a version bump for a rejected anchor: the locked header makes this precheck
+    // equivalent to the later CAS while preserving the zero-write rejection contract.
+    if (header.version !== input.sourceQueue.version) {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift", "Todo queue changed; reload and submit a new command/key.");
+    }
+    const movedMembership = await deps.planningStore.todoQueueMembership(
+      tx, envelope.organizationId, envelope.workspaceId, moved.id,
+    );
+    if (movedMembership === null) {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_not_in_todo", "DevTicket has no Todo queue membership.");
+    }
+    const members = await deps.planningStore.listTodoQueueRanks(tx, envelope.organizationId, envelope.workspaceId);
+    const others = members.filter((member) => member.devTicketId !== moved.id);
+    const anchor = input.anchor;
+    let insertionIndex: number;
+    if (anchor.kind === "empty_band") {
+      if (others.length !== 0) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_anchor_invalid", "The Todo ordering band is not empty.");
+      }
+      insertionIndex = 0;
+    } else {
+      const neighbor = await deps.planningStore.selectDevTicket(
+        tx, envelope.organizationId, envelope.workspaceId, anchor.neighborDevTicketId,
+      );
+      const neighborIndex = others.findIndex((member) => member.devTicketId === anchor.neighborDevTicketId);
+      if (neighbor === null || neighbor.lane !== "todo" || neighborIndex < 0) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_anchor_invalid", "Todo anchor is no longer available.");
+      }
+      if (neighbor.version !== anchor.neighborVersion) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Todo anchor version has changed.");
+      }
+      if (deriveTodoOrderingBand(neighbor) !== band) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_anchor_band_mismatch", "Todo anchor is in another ordering band.");
+      }
+      insertionIndex = anchor.kind === "before" ? neighborIndex : neighborIndex + 1;
+    }
+    const orderedIds = [...others.map((member) => member.devTicketId)];
+    orderedIds.splice(insertionIndex, 0, moved.id);
+    const lower = insertionIndex === 0 ? undefined : others[insertionIndex - 1]?.rank;
+    const upper = insertionIndex === others.length ? undefined : others[insertionIndex]?.rank;
+    let rank: bigint;
+    let rebalancedDevTicketIds: readonly string[] = [];
+    if (lower === undefined && upper === undefined) {
+      rank = FIRST_TODO_RANK;
+    } else if (lower === undefined) {
+      rank = upper! - RANK_STRIDE;
+    } else if (upper === undefined) {
+      rank = lower + RANK_STRIDE;
+    } else if (upper - lower >= 2n) {
+      rank = lower + (upper - lower) / 2n;
+    } else {
+      rank = 0n;
+    }
+    let shouldRebalance = false;
+    if (rank <= 0n || rank > POSTGRES_BIGINT_MAX) {
+      if ((BigInt(orderedIds.length) + 1n) * RANK_STRIDE > POSTGRES_BIGINT_MAX) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_rank_capacity_exhausted", "Todo rank capacity is exhausted.");
+      }
+      shouldRebalance = true;
+    }
+    const bumpedQueue = await deps.planningStore.casBumpTodoQueueVersion(
+      tx, envelope.organizationId, envelope.workspaceId, input.sourceQueue.version,
+    );
+    if (bumpedQueue === null) {
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift", "Todo queue changed; reload and submit a new command/key.");
+    }
+    if (shouldRebalance) {
+      await deps.planningStore.rebalanceTodoBand(tx, envelope.organizationId, envelope.workspaceId, orderedIds);
+      rebalancedDevTicketIds = orderedIds;
+    } else {
+      const updatedMembership = await deps.planningStore.updateTodoQueueMembershipRank(tx, {
+        organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, devTicketId: moved.id, rank,
+      });
+      if (!updatedMembership) throw new Error("Todo membership disappeared after being locked.");
+    }
+    const updated = await deps.planningStore.bumpDevTicketVersion(tx, {
+      organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
+      devTicketId: moved.id, expectedVersion: expectedTicketVersion,
+    });
+    if (updated === null) throw new Error("Todo DevTicket disappeared after being locked.");
+    const rankPolicy = anchor.kind === "empty_band"
+      ? { anchorKind: anchor.kind }
+      : { anchorKind: anchor.kind, neighborDevTicketId: anchor.neighborDevTicketId };
+    await activity(tx, deps.ledger, envelope, updated.id, updated.version, "TodoReordered", {
+      rankPolicy,
+      queueVersion: bumpedQueue.version,
+      ...(rebalancedDevTicketIds.length === 0 ? {} : { rebalancedDevTicketIds }),
+    });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_reordered", updated.id, [
+      { recordKind: "dev_ticket", recordId: updated.id, version: updated.version },
+      { recordKind: "lane_queue", recordId: "todo", version: bumpedQueue.version },
+    ], { devTicketId: updated.id });
+  }, deps.database ?? db);
 }
 
 export async function approveReadyToTodo(
@@ -992,8 +1203,28 @@ export async function approveReadyToTodo(
           contract.error.message,
         );
       const hash = computeReadyContractContentHash({ ...contract.value });
-      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
-        deps.planningStore.updateDevTicketForReadyApproval(tx, {
+      const header = await deps.planningStore.getOrLockTodoQueueHeader(
+        tx, envelope.organizationId, envelope.workspaceId,
+      );
+      if (header.version !== input.expectedTodoQueueVersion) {
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift",
+          "Todo queue changed; reload and submit a new command/key.",
+        );
+      }
+      const members = await deps.planningStore.listTodoQueueRanks(tx, envelope.organizationId, envelope.workspaceId);
+      const last = members.at(-1);
+      let rank = last === undefined ? FIRST_TODO_RANK : last.rank + RANK_STRIDE;
+      let rebalanceBeforeAppend = false;
+      if (rank > POSTGRES_BIGINT_MAX) {
+        if ((BigInt(members.length) + 2n) * RANK_STRIDE > POSTGRES_BIGINT_MAX) {
+          return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.todo_rank_capacity_exhausted", "Todo rank capacity is exhausted.");
+        }
+        rebalanceBeforeAppend = true;
+        rank = (BigInt(members.length) + 2n) * RANK_STRIDE;
+      }
+      const changed = await deps.planningStore.executeRiskyMutation(tx, async () => {
+        const updated = await deps.planningStore.updateDevTicketForReadyApproval(tx, {
           organizationId: envelope.organizationId,
           workspaceId: envelope.workspaceId,
           devTicketId: ticket.id,
@@ -1003,8 +1234,19 @@ export async function approveReadyToTodo(
           readyContractContentHash: hash,
           readyApprovedByUserId: envelope.actorRef.stableId,
           readyApprovalCommandId: envelope.commandId,
-        }),
-      );
+        });
+        if (updated === null) return null;
+        if (rebalanceBeforeAppend) {
+          await deps.planningStore.rebalanceTodoBand(
+            tx, envelope.organizationId, envelope.workspaceId, members.map((member) => member.devTicketId),
+          );
+        }
+        await deps.planningStore.insertTodoQueueMembership(tx, {
+          organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
+          devTicketId: updated.id, rank,
+        });
+        return updated;
+      });
       if (!changed.ok)
         return reject(
           tx,
@@ -1022,6 +1264,10 @@ export async function approveReadyToTodo(
           "dev_board.expected_version_drift",
           "DevTicket version has changed.",
         );
+      const bumpedQueue = await deps.planningStore.casBumpTodoQueueVersion(
+        tx, envelope.organizationId, envelope.workspaceId, input.expectedTodoQueueVersion,
+      );
+      if (bumpedQueue === null) throw new Error("Todo queue header drifted while locked.");
       await planning(
         tx,
         deps.ledger,
@@ -1054,7 +1300,10 @@ export async function approveReadyToTodo(
         envelope,
         "dev_board.ready_approved_to_todo",
         updated.id,
-        [{ recordKind: "dev_ticket", recordId: updated.id, version: updated.version }],
+        [
+          { recordKind: "dev_ticket", recordId: updated.id, version: updated.version },
+          { recordKind: "lane_queue", recordId: "todo", version: bumpedQueue.version },
+        ],
         { devTicketId: updated.id },
       );
     },

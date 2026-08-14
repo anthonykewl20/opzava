@@ -37,8 +37,19 @@ export interface DevTicketRow {
   readonly readyApprovalContentHash: string | null;
   readonly readyApprovedByUserId: string | null;
   readonly readyApprovalCommandId: string | null;
-  readonly todoRank: number | null;
   readonly createdCommandId: string;
+}
+
+export interface LaneQueueHeaderRow {
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly lane: "todo";
+  readonly version: number;
+}
+
+export interface TodoQueueMembershipRow {
+  readonly devTicketId: string;
+  readonly rank: bigint;
 }
 
 export interface DependencyEdgeRow {
@@ -137,11 +148,37 @@ export interface DevBoardPlanningStore {
     workspaceId: string,
     ticketId: string,
   ): Promise<DevTicketRow | null>;
+  /** Queue-header serialization makes this safe for anchor-version observation without a row lock. */
+  selectDevTicket(
+    tx: TenantTransaction,
+    organizationId: string,
+    workspaceId: string,
+    ticketId: string,
+  ): Promise<DevTicketRow | null>;
   insertDevTicket(tx: TenantTransaction, input: InsertDevTicketInput): Promise<DevTicketRow>;
   updateDevTicketForReadyApproval(
     tx: TenantTransaction,
     input: UpdateDevTicketForReadyApprovalInput,
   ): Promise<DevTicketRow | null>;
+  bumpDevTicketVersion(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },
+  ): Promise<DevTicketRow | null>;
+  /** Creates the Todo header on demand, then holds its row lock through the transaction. */
+  getOrLockTodoQueueHeader(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<LaneQueueHeaderRow>;
+  casBumpTodoQueueVersion(tx: TenantTransaction, organizationId: string, workspaceId: string, expectedVersion: number): Promise<LaneQueueHeaderRow | null>;
+  todoQueueMembership(tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<TodoQueueMembershipRow | null>;
+  insertTodoQueueMembership(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly rank: bigint }): Promise<void>;
+  updateTodoQueueMembershipRank(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly rank: bigint }): Promise<boolean>;
+  deleteTodoQueueMembership(tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<boolean>;
+  /** Stable committed order: rank, then DevTicket UUID. */
+  listTodoQueueRanks(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly TodoQueueMembershipRow[]>;
+  rebalanceTodoBand(tx: TenantTransaction, organizationId: string, workspaceId: string, orderedDevTicketIds: readonly string[]): Promise<void>;
+  /**
+   * Canonical mutation lock order: affected DevTicket rows (UUID sorted), dependency graph
+   * advisory lock, then lane queue header/membership rows. Queue-only reorders take ticket then
+   * queue locks; Ready admission takes ticket then header.
+   */
   /** Serializes all graph traversals and mutations for one workspace transaction. */
   lockDependencyGraph(tx: TenantTransaction, workspaceId: string): Promise<void>;
   selectDependencyEdge(

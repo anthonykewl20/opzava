@@ -10,7 +10,9 @@ import type {
   InsertDependencyEdgeInput,
   InsertDevTicketInput,
   InsertProposalInput,
+  LaneQueueHeaderRow,
   ProposalRow,
+  TodoQueueMembershipRow,
   UpdateDevTicketForReadyApprovalInput,
   UpdateProposalInput,
 } from "../../application/dev-board-planning-store.js";
@@ -21,6 +23,16 @@ function number(value: unknown): number {
   const result = typeof value === "number" ? value : Number(value);
   if (!Number.isSafeInteger(result)) throw new Error("Dev Board row contained an invalid integer.");
   return result;
+}
+
+function bigint(value: unknown): bigint {
+  try {
+    const result = typeof value === "bigint" ? value : BigInt(String(value));
+    if (result <= 0n) throw new Error();
+    return result;
+  } catch {
+    throw new Error("Dev Board row contained an invalid positive bigint.");
+  }
 }
 
 function record(value: unknown): Readonly<Record<string, unknown>> {
@@ -105,7 +117,6 @@ function ticket(row: QueryRow): DevTicketRow {
       typeof row["ready_approval_command_id"] === "string"
         ? row["ready_approval_command_id"]
         : null,
-    todoRank: row["todo_rank"] === null ? null : number(row["todo_rank"]),
     createdCommandId: String(row["created_command_id"]),
   };
 }
@@ -130,7 +141,7 @@ const proposalColumns = sql`id, organization_id, workspace_id, version, lifecycl
 const ticketColumns = sql`id, organization_id, workspace_id, version, origin_kind, source_proposal_id,
   lane, archived_at, human_owner_user_id, ready_contract_version, ready_contract_content,
   ready_contract_content_hash, ready_state, ready_approval_contract_version,
-  ready_approval_content_hash, ready_approved_by_user_id, ready_approval_command_id, todo_rank,
+  ready_approval_content_hash, ready_approved_by_user_id, ready_approval_command_id,
    created_command_id`;
 const edgeColumns = sql`id, organization_id, workspace_id, version, dependent_dev_ticket_id,
   blocker_dev_ticket_id, lifecycle_state, created_command_id, retired_command_id`;
@@ -244,6 +255,18 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     return row === undefined ? null : ticket(row);
   }
 
+  public async selectDevTicket(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, ticketId: string,
+  ): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      select ${ticketColumns} from public.dev_board_dev_ticket
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and id = ${ticketId}::uuid
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : ticket(row);
+  }
+
   public async insertDevTicket(
     tx: TenantTransaction,
     input: InsertDevTicketInput,
@@ -268,9 +291,6 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     tx: TenantTransaction,
     input: UpdateDevTicketForReadyApprovalInput,
   ): Promise<DevTicketRow | null> {
-    await tx.execute(sql`
-      select pg_advisory_xact_lock(hashtext('dev_board_todo:' || ${input.workspaceId}))
-    `);
     const result = await tx.execute(sql`
       update public.dev_board_dev_ticket
       set ready_contract_version = ${input.readyContractVersion},
@@ -280,8 +300,6 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
         ready_approval_content_hash = ${input.readyContractContentHash},
         ready_approved_by_user_id = ${input.readyApprovedByUserId}, ready_approved_at = now(),
         ready_approval_command_id = ${input.readyApprovalCommandId}::uuid, lane = 'todo',
-        todo_rank = (select coalesce(max(todo_rank), 0) + 1 from public.dev_board_dev_ticket
-          where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid),
         version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
@@ -289,6 +307,118 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     `);
     const row = rowsFromExecuteResult(result)[0];
     return row === undefined ? null : ticket(row);
+  }
+
+  public async bumpDevTicketVersion(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly expectedVersion: number },
+  ): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dev_ticket set version = version + 1, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
+      returning ${ticketColumns}
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : ticket(row);
+  }
+
+  public async getOrLockTodoQueueHeader(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<LaneQueueHeaderRow> {
+    await tx.execute(sql`
+      insert into public.dev_board_lane_queue_version (organization_id, workspace_id, lane)
+      values (${organizationId}::uuid, ${workspaceId}::uuid, 'todo') on conflict do nothing
+    `);
+    const result = await tx.execute(sql`
+      select organization_id, workspace_id, lane, version
+      from public.dev_board_lane_queue_version
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid and lane = 'todo'
+      for update
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    if (row === undefined) throw new Error("Todo lane queue header was not available.");
+    return { organizationId: String(row["organization_id"]), workspaceId: String(row["workspace_id"]), lane: "todo", version: number(row["version"]) };
+  }
+
+  public async casBumpTodoQueueVersion(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, expectedVersion: number,
+  ): Promise<LaneQueueHeaderRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_lane_queue_version set version = version + 1, updated_at = now()
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and lane = 'todo' and version = ${expectedVersion}
+      returning organization_id, workspace_id, lane, version
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : { organizationId: String(row["organization_id"]), workspaceId: String(row["workspace_id"]), lane: "todo", version: number(row["version"]) };
+  }
+
+  public async todoQueueMembership(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string,
+  ): Promise<TodoQueueMembershipRow | null> {
+    const result = await tx.execute(sql`
+      select dev_ticket_id, rank from public.dev_board_lane_queue
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and lane = 'todo' and dev_ticket_id = ${devTicketId}::uuid for update
+    `);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : { devTicketId: String(row["dev_ticket_id"]), rank: bigint(row["rank"]) };
+  }
+
+  public async insertTodoQueueMembership(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly rank: bigint },
+  ): Promise<void> {
+    await tx.execute(sql`
+      insert into public.dev_board_lane_queue (organization_id, workspace_id, lane, dev_ticket_id, rank)
+      values (${input.organizationId}::uuid, ${input.workspaceId}::uuid, 'todo', ${input.devTicketId}::uuid, ${input.rank})
+    `);
+  }
+
+  public async updateTodoQueueMembershipRank(
+    tx: TenantTransaction,
+    input: { readonly organizationId: string; readonly workspaceId: string; readonly devTicketId: string; readonly rank: bigint },
+  ): Promise<boolean> {
+    const result = await tx.execute(sql`
+      update public.dev_board_lane_queue set rank = ${input.rank}, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and lane = 'todo' and dev_ticket_id = ${input.devTicketId}::uuid returning dev_ticket_id
+    `);
+    return rowsFromExecuteResult(result).length === 1;
+  }
+
+  public async deleteTodoQueueMembership(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string,
+  ): Promise<boolean> {
+    const result = await tx.execute(sql`
+      delete from public.dev_board_lane_queue
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and lane = 'todo' and dev_ticket_id = ${devTicketId}::uuid returning dev_ticket_id
+    `);
+    return rowsFromExecuteResult(result).length === 1;
+  }
+
+  public async listTodoQueueRanks(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<readonly TodoQueueMembershipRow[]> {
+    const result = await tx.execute(sql`
+      select dev_ticket_id, rank from public.dev_board_lane_queue
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid and lane = 'todo'
+      order by rank, dev_ticket_id for update
+    `);
+    return rowsFromExecuteResult(result).map((row) => ({ devTicketId: String(row["dev_ticket_id"]), rank: bigint(row["rank"]) }));
+  }
+
+  public async rebalanceTodoBand(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, orderedDevTicketIds: readonly string[],
+  ): Promise<void> {
+    for (const [index, devTicketId] of orderedDevTicketIds.entries()) {
+      const updated = await this.updateTodoQueueMembershipRank(tx, {
+        organizationId, workspaceId, devTicketId, rank: (BigInt(index) + 2n) * 1_000_000n,
+      });
+      if (!updated) throw new Error("Todo membership disappeared during rebalance.");
+    }
   }
 
   public async lockDependencyGraph(tx: TenantTransaction, workspaceId: string): Promise<void> {
@@ -390,7 +520,6 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
         ready_approved_by_user_id = case when lane = 'todo' then null else ready_approved_by_user_id end,
         ready_approved_at = case when lane = 'todo' then null else ready_approved_at end,
         ready_approval_command_id = case when lane = 'todo' then null else ready_approval_command_id end,
-        todo_rank = case when lane = 'todo' then null else todo_rank end,
         version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
