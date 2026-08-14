@@ -4,10 +4,14 @@ export interface CommandExpectedVersion {
   readonly version: number;
 }
 
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
+
+export const commandActorKinds = ["user", "agent", "system"] as const;
+export const commandActorRoles = ["admin", "human_owner", "lead_orchestrator", "agent", "system_worker"] as const;
 export interface CommandActorRef {
-  readonly kind: string;
+  readonly kind: (typeof commandActorKinds)[number];
   readonly stableId: string;
-  readonly role: string;
+  readonly role: (typeof commandActorRoles)[number];
 }
 
 export interface CommandSourceRef {
@@ -29,4 +33,14 @@ export interface CommandEnvelope {
   readonly correlationId: string;
   readonly causationId?: string;
   readonly expectedVersions: readonly CommandExpectedVersion[];
+}
+
+export function parseCommandActorRef(value: unknown): Result<CommandActorRef> {
+  if (typeof value !== "object" || value === null) return err(new DomainError({ code: "dev_board.invalid_actor_ref", message: "Command actor reference is invalid." }));
+  const actor = value as Record<string, unknown>;
+  if (typeof actor["stableId"] !== "string" || actor["stableId"].length === 0 ||
+    typeof actor["kind"] !== "string" || !commandActorKinds.includes(actor["kind"] as never) ||
+    typeof actor["role"] !== "string" || !commandActorRoles.includes(actor["role"] as never))
+    return err(new DomainError({ code: "dev_board.invalid_actor_ref", message: "Command actor reference is invalid." }));
+  return ok({ kind: actor["kind"] as CommandActorRef["kind"], stableId: actor["stableId"], role: actor["role"] as CommandActorRef["role"] });
 }

@@ -169,6 +169,13 @@
       "when": 1786924800000,
       "tag": "0023_task_terminal_transition_attempt",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787011200000,
+      "tag": "0024_dev_board_classifications",
+      "breakpoints": true
     }
   ]
 }

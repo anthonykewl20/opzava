@@ -9,11 +9,14 @@ import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 import type { CommandReceiptRepository, CommandReceiptResult } from "./command-receipt-store.js";
 import type { DevBoardLedgerAppendPort } from "./dev-board-ledger-append-port.js";
 import type { DevBoardPlanningStore } from "./dev-board-planning-store.js";
-import type { CommandEnvelope, CommandExpectedVersion } from "../domain/command-envelope.js";
+import { parseCommandActorRef, type CommandEnvelope, type CommandExpectedVersion } from "../domain/command-envelope.js";
 import {
+  canonicalJson,
   computeReadyContractContentHash,
   parseReadyContractContent,
 } from "../domain/dev-ticket.js";
+import { compareChangeRisk, normalizeWorkAreas, parseChangeRisk, parseDevTicketType, parsePriority, parseSeverity } from "../domain/classification.js";
+import { evaluateChangeRisk } from "../domain/change-risk-policy.js";
 import { normalizeDiscoverySummary, parseBlockingAssessment } from "../domain/proposal.js";
 
 type Database = ReturnType<typeof createPostgresDatabase>;
@@ -62,6 +65,15 @@ export interface ApproveReadyToTodoInput {
   readonly expectedContractVersion: number;
   readonly expectedContractContentHash: string;
   readonly expectedTodoQueueVersion: number;
+}
+export interface SetDevTicketClassificationInput {
+  readonly devTicketId: string;
+  readonly type: unknown;
+  readonly workAreas: unknown;
+  readonly priority: unknown;
+  readonly severity?: unknown;
+  readonly declaredChangeRisk: unknown;
+  readonly humanOwnerUserId?: string;
 }
 export type TodoReorderAnchor =
   | { kind: "before" | "after"; neighborDevTicketId: string; neighborVersion: number }
@@ -267,11 +279,15 @@ async function reserve(
   envelope: CommandEnvelope,
 ): Promise<CommandReceiptResult | Result<CommandResult>> {
   const result = await repository.reserveOrReplayTransaction(tx, envelope);
-  return !result.ok
-    ? err(result.error)
-    : result.value.state === "reserved"
-      ? result.value
-      : replay(result.value);
+  if (!result.ok) return err(result.error);
+  if (result.value.state !== "reserved") return replay(result.value);
+  const actor = parseCommandActorRef(envelope.actorRef);
+  if (!actor.ok) {
+    const finalized = await repository.finalizeTransaction(tx, { organizationId: envelope.organizationId, commandId: envelope.commandId, outcome: "rejected", outcomeCode: actor.error.code, resultSummary: { message: actor.error.message } });
+    if (!finalized.ok) throw finalized.error;
+    return err(actor.error);
+  }
+  return result.value;
 }
 
 export async function draftProposal(
@@ -436,13 +452,6 @@ export async function submitProposal(
   );
 }
 
-/**
- * GitHub binding and mirror intent are deliberately deferred to TB-GH1 for this slice.
- * Active-membership validation is not pre-checked here because the `memberships` RLS restricts
- * opzava_app to self-rows; the `human_owner_user_id → memberships` FK enforces membership
- * existence. A governed active-membership pre-check (AuthorizationPort or a SECURITY DEFINER
- * helper) is deferred to a follow-up slice.
- */
 export async function acceptProposal(
   envelope: CommandEnvelope,
   input: AcceptProposalInput,
@@ -476,6 +485,8 @@ export async function acceptProposal(
           "dev_board.proposal_not_awaiting_decision",
           "Proposal is not awaiting a decision.",
         );
+      if (!await deps.planningStore.isActiveMember(tx, envelope.organizationId, input.humanOwnerUserId))
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.human_owner_not_active_member", "Human Owner must be an active organization member.");
       const contract = parseReadyContractContent(input.initialContractContent ?? {});
       if (!contract.ok)
         return reject(
@@ -1149,6 +1160,67 @@ export async function reorderTodo(
   }, deps.database ?? db);
 }
 
+export async function setDevTicketClassification(
+  envelope: CommandEnvelope,
+  input: SetDevTicketClassificationInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const version = expected(envelope, "dev_ticket", input.devTicketId);
+    const ticket = await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, input.devTicketId);
+    if (version === null || ticket === null || ticket.version !== version)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    if (ticket.lane !== "backlog")
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_revision_required", "Classification changes require a governed revision outside Backlog.");
+    const type = parseDevTicketType(input.type); if (!type.ok) return reject(tx, deps.commandReceiptRepository, envelope, type.error.code, type.error.message);
+    const areas = normalizeWorkAreas(input.workAreas); if (!areas.ok) return reject(tx, deps.commandReceiptRepository, envelope, areas.error.code, areas.error.message);
+    const priority = parsePriority(input.priority); if (!priority.ok) return reject(tx, deps.commandReceiptRepository, envelope, priority.error.code, priority.error.message);
+    const declared = parseChangeRisk(input.declaredChangeRisk); if (!declared.ok) return reject(tx, deps.commandReceiptRepository, envelope, declared.error.code, declared.error.message);
+    const severity = input.severity === undefined ? null : parseSeverity(input.severity);
+    if (severity !== null && !severity.ok) return reject(tx, deps.commandReceiptRepository, envelope, severity.error.code, severity.error.message);
+    if (severity !== null && type.value !== "bug") return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_invalid", "Severity is permitted only for Bug DevTickets.");
+    const owner = input.humanOwnerUserId ?? ticket.humanOwnerUserId;
+    if (owner !== ticket.humanOwnerUserId && !await deps.planningStore.isActiveMember(tx, envelope.organizationId, owner))
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.human_owner_not_active_member", "Human Owner must be an active organization member.");
+    const evaluation = evaluateChangeRisk({ type: type.value, workAreas: areas.value, hasActiveDependencies: await deps.planningStore.hasActiveDependencies(tx, envelope.organizationId, envelope.workspaceId, ticket.id) });
+    if (compareChangeRisk(declared.value, evaluation.minimumChangeRisk) < 0)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.change_risk_below_policy_minimum", "Declared Change Risk is below the policy minimum.");
+    const sameAreas = ticket.workAreas.length === areas.value.length && ticket.workAreas.every((area, index) => area === areas.value[index]);
+    // Deliberately unlike addDependency's duplicate-active accept: an unchanged SET is a
+    // client error. Both outcomes are replayable terminal receipts.
+    if (ticket.humanOwnerUserId === owner && ticket.devTicketType === type.value && sameAreas && ticket.priority === priority.value && ticket.severity === (severity === null ? null : severity.value) && ticket.declaredChangeRisk === declared.value && ticket.minimumChangeRisk === evaluation.minimumChangeRisk && ticket.changeRiskPolicyVersion === evaluation.policyVersion && ticket.changeRiskPolicyHash === evaluation.policyHash)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_unchanged", "Classification is unchanged.");
+    const classification = { type: type.value, workAreas: areas.value, priority: priority.value, ...(severity === null ? {} : { severity: severity.value }), declaredChangeRisk: declared.value };
+    const content = { ...ticket.readyContractContent, humanOwnerUserId: owner, classification, changeRiskPolicy: evaluation };
+    const hash = computeReadyContractContentHash(content);
+    const mutation = await deps.planningStore.executeRiskyMutation(tx, () => deps.planningStore.updateDevTicketClassification(tx, {
+      organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, devTicketId: ticket.id, expectedVersion: ticket.version,
+      humanOwnerUserId: owner, devTicketType: type.value, workAreas: areas.value, priority: priority.value, severity: severity === null ? null : severity.value,
+      declaredChangeRisk: declared.value, minimumChangeRisk: evaluation.minimumChangeRisk, changeRiskPolicyVersion: evaluation.policyVersion,
+      changeRiskPolicyHash: evaluation.policyHash, readyContractContent: content, readyContractContentHash: hash,
+    }));
+    if (!mutation.ok) return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+    if (mutation.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    const updated = mutation.value;
+    const reasonCodes: string[] = [];
+    if (ticket.humanOwnerUserId !== owner) reasonCodes.push("human_owner_changed");
+    if (ticket.priority !== priority.value) reasonCodes.push("priority_changed");
+    if (ticket.declaredChangeRisk !== declared.value) reasonCodes.push("change_risk_changed");
+    if (ticket.devTicketType !== type.value) reasonCodes.push("type_changed");
+    if (!sameAreas) reasonCodes.push("work_areas_changed");
+    await planning(tx, deps.ledger, envelope, updated.id, "ClassificationMaterialityAssessed", "Classification materiality assessed", {
+      base: { contractVersion: ticket.readyContractVersion, contentHash: ticket.readyContractContentHash }, result: { contractVersion: updated.readyContractVersion, contentHash: updated.readyContractContentHash },
+      old: { humanOwnerUserId: ticket.humanOwnerUserId, type: ticket.devTicketType, workAreas: ticket.workAreas, priority: ticket.priority, severity: ticket.severity, declaredChangeRisk: ticket.declaredChangeRisk },
+      next: { humanOwnerUserId: owner, ...classification }, policyEvaluation: evaluation, material: true, reasonCodes,
+    });
+    await activity(tx, deps.ledger, envelope, updated.id, updated.version, "DevTicketClassificationChanged", { classification, humanOwnerUserId: owner, policyEvaluation: evaluation, consequences: { readyContractVersion: updated.readyContractVersion } });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_set", updated.id,
+      [{ recordKind: "dev_ticket", recordId: updated.id, version: updated.version }], { devTicketId: updated.id });
+  }, deps.database ?? db);
+}
+
 export async function approveReadyToTodo(
   envelope: CommandEnvelope,
   input: ApproveReadyToTodoInput,
@@ -1182,6 +1254,19 @@ export async function approveReadyToTodo(
           "dev_board.dev_ticket_not_ready_for_approval",
           "DevTicket is not an active Backlog draft.",
         );
+      const authorized = envelope.actorRef.kind === "user" && (
+        envelope.actorRef.stableId === ticket.humanOwnerUserId ||
+        await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "owner") ||
+        await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "admin")
+      );
+      if (!authorized)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.ready_approval_human_authorization_required", "Ready approval requires the Human Owner or an authorized admin.");
+      if (ticket.devTicketType === null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_type_required", "DevTicket type is required before Ready approval.");
+      if (ticket.workAreas.length === 0)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_work_areas_required", "At least one work area is required before Ready approval.");
+      if (ticket.priority === null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.classification_priority_required", "Priority is required before Ready approval.");
       if (
         ticket.readyContractVersion !== input.expectedContractVersion ||
         ticket.readyContractContentHash !== input.expectedContractContentHash
@@ -1202,6 +1287,23 @@ export async function approveReadyToTodo(
           contract.error.code,
           contract.error.message,
         );
+      const submittedClassification = contract.value["classification"];
+      const submittedPolicy = contract.value["changeRiskPolicy"];
+      const expectedClassification = {
+        type: ticket.devTicketType, workAreas: ticket.workAreas, priority: ticket.priority,
+        ...(ticket.severity === null ? {} : { severity: ticket.severity }), declaredChangeRisk: ticket.declaredChangeRisk,
+      };
+      if (submittedClassification === undefined || submittedPolicy === undefined ||
+        canonicalJson(submittedClassification) !== canonicalJson(expectedClassification) ||
+        contract.value["humanOwnerUserId"] !== ticket.humanOwnerUserId)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.ready_contract_missing_classification", "Ready contract must bind the current classification and Human Owner.");
+      if (ticket.declaredChangeRisk === null || ticket.minimumChangeRisk === null || ticket.changeRiskPolicyVersion === null || ticket.changeRiskPolicyHash === null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.ready_contract_missing_classification", "Ready contract must bind the current Change Risk policy.");
+      const currentPolicy = evaluateChangeRisk({ type: ticket.devTicketType, workAreas: ticket.workAreas, hasActiveDependencies: await deps.planningStore.hasActiveDependencies(tx, envelope.organizationId, envelope.workspaceId, ticket.id) });
+      if (compareChangeRisk(ticket.declaredChangeRisk, currentPolicy.minimumChangeRisk) < 0)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.change_risk_below_policy_minimum", "Declared Change Risk is below the policy minimum.");
+      if (ticket.minimumChangeRisk !== currentPolicy.minimumChangeRisk || ticket.changeRiskPolicyVersion !== currentPolicy.policyVersion || ticket.changeRiskPolicyHash !== currentPolicy.policyHash || canonicalJson(submittedPolicy) !== canonicalJson(currentPolicy))
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.change_risk_policy_drift", "Change Risk policy evaluation has drifted.");
       const hash = computeReadyContractContentHash({ ...contract.value });
       const header = await deps.planningStore.getOrLockTodoQueueHeader(
         tx, envelope.organizationId, envelope.workspaceId,

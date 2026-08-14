@@ -96,6 +96,10 @@
     {
       "path": "0022_dev_board_lane_queue.sql",
       "sha256": "29b8d6218b446fe76afd4ed7a7ab1a4200b9f4dd798c32165953e25fcb5b48c3"
+    },
+    {
+      "path": "0024_dev_board_classifications.sql",
+      "sha256": "b8eba9e47ced5c47b60822521a0fc32353672f42ef1cfebb34d6cce2ef9b4b30"
     }
   ]
 }

@@ -10,8 +10,8 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
-export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, TodoQueueMembershipRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
+export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, TodoQueueMembershipRow, UpdateDevTicketClassificationInput, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, SetDevTicketClassificationInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
 export {
   acceptProposal,
   addDependency,
@@ -24,6 +24,7 @@ export {
   mergeProposal,
   rejectProposal,
   reorderTodo,
+  setDevTicketClassification,
   removeDependency,
   start as startDevTicket,
   submitForReview as submitDevTicketForReview,
@@ -48,5 +49,10 @@ export type {
 } from "./domain/command-envelope.js";
 export { blockingAssessments, normalizeDiscoverySummary, parseBlockingAssessment, parseProposalLifecycleState, proposalLifecycleStates } from "./domain/proposal.js";
 export type { BlockingAssessment, Proposal, ProposalLifecycleState } from "./domain/proposal.js";
-export { computeReadyContractContentHash, devTicketLanes, originKinds, parseDevTicketLane, parseOriginKind, parseReadyContractContent, parseReadyState, readyStates } from "./domain/dev-ticket.js";
+export { canonicalJson, computeReadyContractContentHash, devTicketLanes, originKinds, parseDevTicketLane, parseOriginKind, parseReadyContractContent, parseReadyState, readyStates } from "./domain/dev-ticket.js";
 export type { DevTicket, DevTicketLane, OriginKind, ReadyContract, ReadyState } from "./domain/dev-ticket.js";
+export { changeRisks, devTicketTypeLabels, devTicketTypes, normalizeWorkAreas, parseChangeRisk, parseDevTicketType, parsePriority, parseSeverity, parseWorkArea, priorities, severities, workAreas } from "./domain/classification.js";
+export type { ChangeRisk, DevTicketType, Priority, Severity, WorkArea } from "./domain/classification.js";
+export { changeRiskPolicyHash, changeRiskPolicyVersion, evaluateChangeRisk } from "./domain/change-risk-policy.js";
+export type { ChangeRiskEvaluation } from "./domain/change-risk-policy.js";
+export { commandActorKinds, commandActorRoles, parseCommandActorRef } from "./domain/command-envelope.js";

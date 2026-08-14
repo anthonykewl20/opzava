@@ -83,7 +83,7 @@ export function parseOriginKind(value: unknown): Result<OriginKind> {
   );
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
     return JSON.stringify(value);
   }

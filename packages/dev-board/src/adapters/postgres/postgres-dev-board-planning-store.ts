@@ -13,10 +13,12 @@ import type {
   LaneQueueHeaderRow,
   ProposalRow,
   TodoQueueMembershipRow,
+  UpdateDevTicketClassificationInput,
   UpdateDevTicketForReadyApprovalInput,
   UpdateProposalInput,
 } from "../../application/dev-board-planning-store.js";
 import type { DevTicketLane, OriginKind, ReadyState } from "../../domain/dev-ticket.js";
+import type { ChangeRisk, DevTicketType, Priority, Severity, WorkArea } from "../../domain/classification.js";
 import type { BlockingAssessment, ProposalLifecycleState } from "../../domain/proposal.js";
 
 function number(value: unknown): number {
@@ -97,6 +99,14 @@ function ticket(row: QueryRow): DevTicketRow {
     lane: row["lane"] as DevTicketLane,
     archivedAt: nullableDate(row["archived_at"]),
     humanOwnerUserId: String(row["human_owner_user_id"]),
+    devTicketType: row["dev_ticket_type"] as DevTicketType | null,
+    workAreas: Array.isArray(row["work_areas"]) ? row["work_areas"].map(String) as WorkArea[] : [],
+    priority: row["priority"] as Priority | null,
+    severity: row["severity"] as Severity | null,
+    declaredChangeRisk: row["declared_change_risk"] as ChangeRisk | null,
+    minimumChangeRisk: row["minimum_change_risk"] as ChangeRisk | null,
+    changeRiskPolicyVersion: typeof row["change_risk_policy_version"] === "string" ? row["change_risk_policy_version"] : null,
+    changeRiskPolicyHash: typeof row["change_risk_policy_hash"] === "string" ? row["change_risk_policy_hash"] : null,
     readyContractVersion: number(row["ready_contract_version"]),
     readyContractContent: record(row["ready_contract_content"]),
     readyContractContentHash: String(row["ready_contract_content_hash"]),
@@ -138,11 +148,12 @@ function edge(row: QueryRow): DependencyEdgeRow {
 const proposalColumns = sql`id, organization_id, workspace_id, version, lifecycle_state, archived_at,
   discovery_summary, blocking_assessment, suggested_contract, created_command_id, accepted_command_id,
   accepted_dev_ticket_id`;
-const ticketColumns = sql`id, organization_id, workspace_id, version, origin_kind, source_proposal_id,
-  lane, archived_at, human_owner_user_id, ready_contract_version, ready_contract_content,
-  ready_contract_content_hash, ready_state, ready_approval_contract_version,
-  ready_approval_content_hash, ready_approved_by_user_id, ready_approval_command_id,
-   created_command_id`;
+const ticketColumns = sql`t.id, t.organization_id, t.workspace_id, t.version, t.origin_kind, t.source_proposal_id,
+  t.lane, t.archived_at, t.human_owner_user_id, t.dev_ticket_type, t.priority, t.severity, t.declared_change_risk, t.minimum_change_risk, t.change_risk_policy_version, t.change_risk_policy_hash,
+  coalesce((select array_agg(wa.work_area order by wa.work_area) from public.dev_board_dev_ticket_work_area wa where wa.organization_id = t.organization_id and wa.workspace_id = t.workspace_id and wa.dev_ticket_id = t.id), array[]::text[]) as work_areas, t.ready_contract_version, t.ready_contract_content,
+  t.ready_contract_content_hash, t.ready_state, t.ready_approval_contract_version,
+  t.ready_approval_content_hash, t.ready_approved_by_user_id, t.ready_approval_command_id,
+    t.created_command_id`;
 const edgeColumns = sql`id, organization_id, workspace_id, version, dependent_dev_ticket_id,
   blocker_dev_ticket_id, lifecycle_state, created_command_id, retired_command_id`;
 
@@ -246,7 +257,7 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     ticketId: string,
   ): Promise<DevTicketRow | null> {
     const result = await tx.execute(sql`
-      select ${ticketColumns} from public.dev_board_dev_ticket
+      select ${ticketColumns} from public.dev_board_dev_ticket t
       where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
         and id = ${ticketId}::uuid
       for update
@@ -259,7 +270,7 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     tx: TenantTransaction, organizationId: string, workspaceId: string, ticketId: string,
   ): Promise<DevTicketRow | null> {
     const result = await tx.execute(sql`
-      select ${ticketColumns} from public.dev_board_dev_ticket
+      select ${ticketColumns} from public.dev_board_dev_ticket t
       where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
         and id = ${ticketId}::uuid
     `);
@@ -280,11 +291,10 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
         ${input.originKind}, ${input.sourceProposalId}::uuid, 'backlog', ${input.humanOwnerUserId},
         ${JSON.stringify(input.readyContractContent)}::jsonb, ${input.readyContractContentHash},
         ${input.createdCommandId}::uuid
-      ) returning ${ticketColumns}
+      ) returning id
     `);
-    const row = rowsFromExecuteResult(result)[0];
-    if (row === undefined) throw new Error("DevTicket insert returned no row.");
-    return ticket(row);
+    const row = rowsFromExecuteResult(result)[0]; if (row === undefined) throw new Error("DevTicket insert returned no row.");
+    const inserted = await this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, String(row["id"])); if (inserted === null) throw new Error("DevTicket insert could not be read."); return inserted;
   }
 
   public async updateDevTicketForReadyApproval(
@@ -303,11 +313,26 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
         version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
-      returning ${ticketColumns}
+      returning id
     `);
     const row = rowsFromExecuteResult(result)[0];
-    return row === undefined ? null : ticket(row);
+    return row === undefined ? null : this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
   }
+
+  public async updateDevTicketClassification(tx: TenantTransaction, input: UpdateDevTicketClassificationInput): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dev_ticket set human_owner_user_id = ${input.humanOwnerUserId}, dev_ticket_type = ${input.devTicketType}, priority = ${input.priority}, severity = ${input.severity}, declared_change_risk = ${input.declaredChangeRisk}, minimum_change_risk = ${input.minimumChangeRisk}, change_risk_policy_version = ${input.changeRiskPolicyVersion}, change_risk_policy_hash = ${input.changeRiskPolicyHash}, ready_contract_version = ready_contract_version + 1, ready_contract_content = ${JSON.stringify(input.readyContractContent)}::jsonb, ready_contract_content_hash = ${input.readyContractContentHash}, version = version + 1, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion} returning id
+    `);
+    if (rowsFromExecuteResult(result)[0] === undefined) return null;
+    await tx.execute(sql`delete from public.dev_board_dev_ticket_work_area where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid and dev_ticket_id = ${input.devTicketId}::uuid`);
+    for (const workArea of input.workAreas) await tx.execute(sql`insert into public.dev_board_dev_ticket_work_area (organization_id, workspace_id, dev_ticket_id, work_area) values (${input.organizationId}::uuid, ${input.workspaceId}::uuid, ${input.devTicketId}::uuid, ${workArea})`);
+    return this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
+  }
+
+  public async isActiveMember(tx: TenantTransaction, organizationId: string, userId: string): Promise<boolean> { const result = await tx.execute(sql`select app.is_active_member(${organizationId}::uuid, ${userId}) as allowed`); return rowsFromExecuteResult(result)[0]?.["allowed"] === true; }
+  public async hasOrganizationRole(tx: TenantTransaction, organizationId: string, userId: string, roleKey: "owner" | "admin"): Promise<boolean> { const result = await tx.execute(sql`select app.has_organization_role(${organizationId}::uuid, ${userId}, ${roleKey}) as allowed`); return rowsFromExecuteResult(result)[0]?.["allowed"] === true; }
+  public async hasActiveDependencies(tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<boolean> { const result = await tx.execute(sql`select exists(select 1 from public.dev_board_dependency_edge where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid and dependent_dev_ticket_id = ${devTicketId}::uuid and lifecycle_state = 'active') as active`); return rowsFromExecuteResult(result)[0]?.["active"] === true; }
 
   public async bumpDevTicketVersion(
     tx: TenantTransaction,
@@ -317,10 +342,10 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
       update public.dev_board_dev_ticket set version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
-      returning ${ticketColumns}
+      returning id
     `);
     const row = rowsFromExecuteResult(result)[0];
-    return row === undefined ? null : ticket(row);
+    return row === undefined ? null : this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
   }
 
   public async getOrLockTodoQueueHeader(
@@ -523,10 +548,10 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
         version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion}
-      returning ${ticketColumns}
+      returning id
     `);
     const row = rowsFromExecuteResult(result)[0];
-    return row === undefined ? null : ticket(row);
+    return row === undefined ? null : this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
   }
 
   public async dependencyLockStatus(
