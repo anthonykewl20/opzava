@@ -5,6 +5,8 @@ import { getAppSessionContext, isFirstOwnerSetupComplete } from "@/lib/session";
 const setupPath = "/setup";
 const loginPath = "/login";
 const signOutPath = "/signout";
+const forgotPasswordPath = "/forgot-password";
+const resetPasswordPath = "/reset-password";
 
 function redirectTo(request: NextRequest, pathname: string): NextResponse {
   return NextResponse.redirect(new URL(pathname, request.url));
@@ -32,6 +34,12 @@ export async function proxy(request: NextRequest) {
 
   if (isPath(pathname, loginPath)) {
     return session === null ? NextResponse.next() : redirectTo(request, "/");
+  }
+
+  // Reset links are intentionally reachable without an existing session. The
+  // token itself is the short-lived, single-use credential checked server-side.
+  if (isPath(pathname, forgotPasswordPath) || isPath(pathname, resetPasswordPath)) {
+    return NextResponse.next();
   }
 
   if (isPath(pathname, signOutPath)) {

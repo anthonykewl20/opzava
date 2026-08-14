@@ -112,6 +112,10 @@
     {
       "path": "0027_mfa_baseline.sql",
       "sha256": "04225a74c938128f1ce81a0881451981293d848461e0101d6153cd4d80cd8793"
+    },
+    {
+      "path": "0028_password_reset.sql",
+      "sha256": "85b993c7e4198183993ece1c59149975ee191091f7d8719fa667767c15dbeab6"
     }
   ]
 }
