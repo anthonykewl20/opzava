@@ -1,6 +1,6 @@
 import { db } from "@opzava/adapters";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { betterAuth } from "better-auth";
+import { betterAuth, type Auth, type BetterAuthOptions } from "better-auth";
 
 import { betterAuthSchema } from "../postgres/schema/auth.js";
 import { hashPassword, verifyPassword } from "./password-hasher.js";
@@ -13,13 +13,13 @@ export interface BetterAuthConfigOptions {
   readonly secret?: string;
 }
 
-export function createBetterAuth(options: BetterAuthConfigOptions = {}) {
+export function createBetterAuth(options: BetterAuthConfigOptions = {}): Auth<BetterAuthOptions> {
   const database = options.database ?? db;
   const baseURL = options.baseURL ?? process.env["BETTER_AUTH_URL"] ?? process.env["APP_URL"];
   const secret = options.secret ?? process.env["BETTER_AUTH_SECRET"];
   const trustedOrigins = baseURL === undefined ? [] : [baseURL];
 
-  const authOptions = {
+  const authOptions: BetterAuthOptions = {
     appName: "Opzava",
     ...(baseURL === undefined ? {} : { baseURL }),
     ...(secret === undefined ? {} : { secret }),
@@ -51,17 +51,17 @@ export function createBetterAuth(options: BetterAuthConfigOptions = {}) {
       defaultCookieAttributes: {
         httpOnly: true,
         secure: true,
-        sameSite: "lax",
+        sameSite: "lax" as const,
         path: "/"
       },
-      database: { generateId: "uuid" }
+      database: { generateId: "uuid" as const }
     },
     user: { modelName: "auth_users" },
     account: { modelName: "auth_accounts" },
     verification: { modelName: "auth_verifications" }
   };
 
-  return betterAuth(authOptions as unknown as Parameters<typeof betterAuth>[0]);
+  return betterAuth(authOptions);
 }
 
-export const auth = createBetterAuth();
+export const auth: Auth<BetterAuthOptions> = createBetterAuth();

@@ -6,16 +6,24 @@ import {
   type Result
 } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type {
   AuthPort,
   AuthSession,
+  DisableMfaInput,
+  EnabledMfa,
   ListSessionsInput,
   LogoutAllInput,
   MfaChallenge,
+  MfaEnrollment,
+  MfaStatus,
+  MfaVerificationInput,
+  MfaVerificationResult,
   RevokeSessionInput,
-  SignInInput
+  SignInInput,
+  StartMfaEnrollmentInput,
+  EnableMfaInput
 } from "@opzava/ports";
 
 import { verifyPassword } from "./password-hasher.js";
@@ -26,6 +34,17 @@ import {
   resolveSessionPrincipal,
   sessionTokenFromHeaders
 } from "./session-principal.js";
+import {
+  consumeRecoveryCode,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  mfaEncryptionKey,
+  totpUri,
+  verifyTotp,
+  type HashedRecoveryCode
+} from "./mfa-crypto.js";
 
 type RootDatabase = typeof db;
 
@@ -33,6 +52,8 @@ interface CredentialRow {
   readonly userId: string;
   readonly email: string;
   readonly passwordHash: string;
+  readonly twoFactorEnabled: boolean;
+  readonly passwordLocked: boolean;
 }
 
 const sessionTtlMs = 7 * 24 * 60 * 60 * 1000;
@@ -77,47 +98,322 @@ function rowToCredential(row: Record<string, unknown> | undefined): CredentialRo
   return {
     userId: String(row["user_id"]),
     email: String(row["email"]),
-    passwordHash: row["password"]
+    passwordHash: row["password"],
+    twoFactorEnabled: row["two_factor_enabled"] === true,
+    passwordLocked: row["password_locked"] === true
   };
 }
 
-async function selectCredential(
-  email: string,
-  database: RootDatabase
+async function selectCredentialForPasswordAttempt(
+  input: { readonly email?: string; readonly userId?: string },
+  database: ExecuteDatabase
 ): Promise<CredentialRow | null> {
+  const predicate = input.userId === undefined
+    ? sql`lower(u.email) = ${input.email}`
+    : sql`u.id = ${input.userId}`;
   const result = await database.execute(sql`
-    select u.id as user_id, u.email, a.password
+        select u.id as user_id, u.email, u.two_factor_enabled,
+               u.password_locked_until > now() as password_locked, a.password
     from public.auth_users u
     join public.auth_accounts a on a.user_id = u.id
-    where lower(u.email) = ${email}
+    where ${predicate}
       and a.provider_id = ${credentialProviderId}
-      and a.account_id = ${email}
+      ${input.email === undefined ? sql`` : sql`and a.account_id = ${input.email}`}
     limit 1
+    for update of u
   `);
 
   return rowToCredential(rowsFromExecuteResult(result)[0]);
 }
 
+interface TwoFactorRow {
+  readonly secret: string;
+  readonly backupCodes: string;
+  readonly verified: boolean;
+  readonly locked: boolean;
+  readonly enrollmentGeneration: string | null;
+  readonly enrollmentSessionId: string | null;
+}
+
+type ExecuteDatabase = Pick<RootDatabase, "execute">;
+
+export interface BetterAuthPortAdapterHooks {
+  /** Test-only seam used to deterministically exercise authentication races. */
+  readonly afterPasswordVerified?: () => Promise<void>;
+  /** Test-only seam immediately before enablement acquires the user MFA lock. */
+  readonly beforeEnableMfaLock?: () => Promise<void>;
+  /** Test-only seam after verification has acquired the canonical user MFA lock. */
+  readonly afterMfaUserLocked?: () => Promise<void>;
+}
+
+interface ChallengeRow {
+  readonly userId: string;
+  readonly activeOrganizationId: string;
+  readonly membershipVersion: number;
+  readonly expiresAt: Date;
+  readonly userAgentHash: string | null;
+  readonly ipAddressHash: string | null;
+}
+
+function hashBinding(value: string | undefined): string | null {
+  return value === undefined || value === "" ? null : createHash("sha256").update(value).digest("hex");
+}
+
+function mfaError(code: string, message: string, cause?: unknown): DomainError {
+  return new DomainError({ code, message, ...(cause === undefined ? {} : { cause }) });
+}
+
+function mfaChallengeUnavailable(): DomainError {
+  return mfaError("auth.mfaChallengeUnavailable", "Two-factor authentication is temporarily unavailable.");
+}
+
+/**
+ * Deliberately shared by malformed/expired challenges and incorrect codes.
+ * The private cause preserves the reason for server-side error reporting without
+ * providing a code-validity oracle to the browser.
+ */
+function mfaVerificationFailed(reason: string): DomainError {
+  // Keep the internal reason in structured server logs while every caller gets
+  // one generic error, so the verification endpoint is not a code-validity oracle.
+  console.warn(JSON.stringify({
+    level: "warn",
+    source: "identity-access",
+    operation: "mfa-verification",
+    message: "MFA verification failed.",
+    reason
+  }));
+  return mfaError(
+    "auth.mfaVerificationFailed",
+    "Two-factor verification could not be completed.",
+    new Error(reason)
+  );
+}
+
+function parseHashes(value: string): readonly HashedRecoveryCode[] | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "object" && item !== null && typeof item.salt === "string" && typeof item.hash === "string")) return null;
+    return parsed as readonly HashedRecoveryCode[];
+  } catch {
+    return null;
+  }
+}
+
+function rowToTwoFactor(row: Record<string, unknown> | undefined): TwoFactorRow | null {
+  if (row === undefined || typeof row["secret"] !== "string" || typeof row["backup_codes"] !== "string") return null;
+  return {
+    secret: row["secret"],
+    backupCodes: row["backup_codes"],
+    verified: row["verified"] === true,
+    locked: row["is_locked"] === true,
+    enrollmentGeneration: typeof row["enrollment_generation"] === "string" ? row["enrollment_generation"] : null,
+    enrollmentSessionId: typeof row["enrollment_session_id"] === "string" ? row["enrollment_session_id"] : null
+  };
+}
+
+function dateFrom(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
 export class BetterAuthPortAdapter implements AuthPort {
-  public constructor(private readonly database: RootDatabase = db) {}
+  public constructor(
+    private readonly database: RootDatabase = db,
+    private readonly hooks: BetterAuthPortAdapterHooks = {}
+  ) {}
+
+  private async twoFactorForUser(userId: string): Promise<TwoFactorRow | null> {
+    const result = await this.database.execute(sql`
+      select secret, backup_codes, verified, locked_until > now() as is_locked,
+             enrollment_generation, enrollment_session_id
+      from public.auth_two_factor
+      where user_id = ${userId}
+      limit 1
+    `);
+    return rowToTwoFactor(rowsFromExecuteResult(result)[0]);
+  }
+
+  /**
+   * Password failures are global to the account, not to a particular entry point.
+   * Locking the user row makes the counter shared by sign-in and MFA re-auth.
+   */
+  private async verifyPasswordAttempt(input: {
+    readonly email?: string;
+    readonly userId?: string;
+    readonly password: string;
+  }): Promise<
+    | { readonly kind: "authenticated"; readonly credential: CredentialRow }
+    | { readonly kind: "invalid" | "locked" }
+  > {
+    return this.database.transaction(async (tx) => {
+      const credential = await selectCredentialForPasswordAttempt(input, tx as unknown as ExecuteDatabase);
+      if (credential === null) return { kind: "invalid" as const };
+      if (credential.passwordLocked) return { kind: "locked" as const };
+
+      const passwordMatches = await verifyPassword({ hash: credential.passwordHash, password: input.password });
+      if (!passwordMatches) {
+        const updated = await tx.execute(sql`
+          update public.auth_users
+          set password_failed_count = password_failed_count + 1,
+              password_locked_until = case
+                when password_failed_count + 1 >= 5 then now() + interval '5 minutes'
+                else password_locked_until
+              end
+          where id = ${credential.userId}
+          returning password_locked_until > now() as password_locked
+        `);
+        return rowsFromExecuteResult(updated)[0]?.["password_locked"] === true
+          ? { kind: "locked" as const }
+          : { kind: "invalid" as const };
+      }
+
+      await tx.execute(sql`
+        update public.auth_users
+        set password_failed_count = 0, password_locked_until = null
+        where id = ${credential.userId}
+      `);
+      return { kind: "authenticated" as const, credential };
+    });
+  }
+
+  private async insertSession(input: {
+    readonly database: ExecuteDatabase;
+    readonly userId: string;
+    readonly activeOrganizationId: string;
+    readonly membershipVersion: number;
+    readonly userAgent?: string;
+    readonly ipAddress?: string;
+    readonly mfaSatisfiedAt?: Date;
+  }): Promise<{ readonly token: string; readonly mfaSatisfiedAt?: Date }> {
+    const id = randomUUID();
+    const token = randomToken();
+    await input.database.execute(sql`
+      insert into public.auth_sessions (
+        id, user_id, token, expires_at, ip_address, user_agent, active_organization_id, membership_version, mfa_satisfied_at
+      ) values (
+        ${id}, ${input.userId}, ${token}, ${new Date(Date.now() + sessionTtlMs)}, ${input.ipAddress ?? null},
+        ${input.userAgent ?? null}, ${input.activeOrganizationId}, ${input.membershipVersion},
+        ${input.mfaSatisfiedAt ?? null}
+      )
+    `);
+    return input.mfaSatisfiedAt === undefined
+      ? { token }
+      : { token, mfaSatisfiedAt: input.mfaSatisfiedAt };
+  }
+
+  private async issueMfaChallenge(input: {
+    readonly database: ExecuteDatabase;
+    readonly userId: string;
+    readonly activeOrganizationId: string;
+    readonly tenantId: MfaChallenge["tenantId"];
+    readonly membershipVersion: number;
+    readonly userAgent?: string;
+    readonly ipAddress?: string;
+  }): Promise<MfaChallenge> {
+    const factorResult = await input.database.execute(sql`
+      select secret, backup_codes, verified, locked_until > now() as is_locked,
+             enrollment_generation, enrollment_session_id
+      from public.auth_two_factor
+      where user_id = ${input.userId}
+      limit 1
+    `);
+    const twoFactor = rowToTwoFactor(rowsFromExecuteResult(factorResult)[0]);
+    if (twoFactor === null || !twoFactor.verified) {
+      throw mfaError("auth.mfaConfigurationInvalid", "Two-factor authentication is unavailable.");
+    }
+    if (twoFactor.locked) throw mfaChallengeUnavailable();
+
+    const challengeToken = randomToken();
+    const issuedAt = new Date();
+    const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
+    await input.database.execute(sql`
+      insert into public.auth_mfa_challenges (
+        id, user_id, active_organization_id, membership_version, expires_at, user_agent_hash, ip_address_hash
+      ) values (
+        ${createHash("sha256").update(challengeToken).digest("hex")}, ${input.userId},
+        ${input.activeOrganizationId}, ${input.membershipVersion}, ${expiresAt},
+        ${hashBinding(input.userAgent)}, ${hashBinding(input.ipAddress)}
+      )
+    `);
+    return {
+      challengeId: challengeToken as MfaChallenge["challengeId"],
+      userId: input.userId as MfaChallenge["userId"],
+      tenantId: input.tenantId,
+      method: "totp",
+      issuedAt,
+      expiresAt
+    };
+  }
+
+  private async verifyLockedFactor(input: {
+    readonly database: ExecuteDatabase;
+    readonly userId: string;
+    readonly code: string;
+    readonly method: "totp" | "recovery-code";
+  }): Promise<{ readonly kind: "verified" } | { readonly kind: "locked" | "invalid-code" | "invalid-factor" }> {
+    // Every MFA mutation takes the user lock before the factor lock. Session
+    // creation holds a key-share lock on auth_users through its FK; this order
+    // prevents verification and disablement from forming a lock cycle.
+    const userResult = await input.database.execute(sql`
+      select id from public.auth_users where id = ${input.userId} for update
+    `);
+    if (rowsFromExecuteResult(userResult)[0] === undefined) return { kind: "invalid-factor" };
+    await this.hooks.afterMfaUserLocked?.();
+    const factorResult = await input.database.execute(sql`
+      select secret, backup_codes, verified, locked_until > now() as is_locked,
+             enrollment_generation, enrollment_session_id
+      from public.auth_two_factor
+      where user_id = ${input.userId}
+      for update
+    `);
+    const twoFactor = rowToTwoFactor(rowsFromExecuteResult(factorResult)[0]);
+    if (twoFactor === null || !twoFactor.verified) return { kind: "invalid-factor" };
+    if (twoFactor.locked) return { kind: "locked" };
+
+    const updatedCodes = input.method === "totp"
+      ? null
+      : (() => {
+          const hashes = parseHashes(twoFactor.backupCodes);
+          return hashes === null ? null : consumeRecoveryCode(hashes, input.code);
+        })();
+    const verified = input.method === "totp"
+      ? verifyTotp(await decryptTotpSecret(twoFactor.secret), input.code)
+      : updatedCodes !== null;
+    if (!verified) {
+      await input.database.execute(sql`
+        update public.auth_two_factor
+        set failed_verification_count = failed_verification_count + 1,
+            locked_until = case
+              when failed_verification_count + 1 >= 5 then now() + interval '5 minutes'
+              else locked_until
+            end
+        where user_id = ${input.userId}
+      `);
+      return { kind: "invalid-code" };
+    }
+
+    await input.database.execute(sql`
+      update public.auth_two_factor
+      set failed_verification_count = 0,
+          locked_until = null,
+          backup_codes = ${updatedCodes === null ? twoFactor.backupCodes : JSON.stringify(updatedCodes)}
+      where user_id = ${input.userId}
+    `);
+    return { kind: "verified" };
+  }
 
   public async signIn(input: SignInInput): Promise<Result<AuthSession | MfaChallenge>> {
     try {
       const email = normalizeEmail(input.email);
-      const credential = await selectCredential(email, this.database);
-
-      if (credential === null) {
-        return err(invalidCredentials());
-      }
-
-      const passwordMatches = await verifyPassword({
-        hash: credential.passwordHash,
-        password: input.password
-      });
-
-      if (!passwordMatches) {
-        return err(invalidCredentials());
-      }
+      const passwordAttempt = await this.verifyPasswordAttempt({ email, password: input.password });
+      if (passwordAttempt.kind === "locked") return err(mfaChallengeUnavailable());
+      if (passwordAttempt.kind !== "authenticated") return err(invalidCredentials());
+      const credential = passwordAttempt.credential;
+      await this.hooks.afterPasswordVerified?.();
 
       const memberships = await listActiveMembershipsForUser(credential.userId, this.database);
       const activeMembership = memberships[0];
@@ -131,46 +427,311 @@ export class BetterAuthPortAdapter implements AuthPort {
         );
       }
 
-      const sessionId = randomUUID();
-      const sessionToken = randomToken();
-      const expiresAt = new Date(Date.now() + sessionTtlMs);
-
-      await this.database.execute(sql`
-        insert into public.auth_sessions (
-          id,
-          user_id,
-          token,
-          expires_at,
-          ip_address,
-          user_agent,
-          active_organization_id,
-          membership_version
-        )
-        values (
-          ${sessionId},
-          ${credential.userId},
-          ${sessionToken},
-          ${expiresAt},
-          ${input.ipAddress ?? null},
-          ${input.userAgent ?? null},
-          ${activeMembership.orgId},
-          ${activeMembership.membershipVersion}
-        )
-      `);
-
-      const resolved = await resolveSessionPrincipal(sessionToken, this.database);
-      if (!resolved.ok || resolved.value === null) {
-        return err(
-          resolved.ok
-            ? sessionError("Created session could not be resolved.")
-            : resolved.error
-        );
+      if (credential.twoFactorEnabled) {
+        return ok(await this.issueMfaChallenge({
+          database: this.database,
+          userId: credential.userId,
+          activeOrganizationId: String(activeMembership.orgId),
+          tenantId: activeMembership.tenantId,
+          membershipVersion: activeMembership.membershipVersion,
+          ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
+          ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress })
+        }));
       }
 
-      return ok(resolved.value);
+      // Lock the same user row held by MFA enablement. A password-only session
+      // can only be inserted after this re-read proves MFA is still disabled.
+      const issued = await this.database.transaction(async (tx) => {
+        const currentUser = await tx.execute(sql`
+          select two_factor_enabled, password_locked_until > now() as password_locked
+          from public.auth_users
+          where id = ${credential.userId}
+          for update
+        `);
+        const currentUserRow = rowsFromExecuteResult(currentUser)[0];
+        if (currentUserRow?.["password_locked"] === true) return { kind: "locked" as const };
+        if (currentUserRow?.["two_factor_enabled"] === true) {
+          return {
+            kind: "challenge" as const,
+            challenge: await this.issueMfaChallenge({
+              database: tx as unknown as ExecuteDatabase,
+              userId: credential.userId,
+              activeOrganizationId: String(activeMembership.orgId),
+              tenantId: activeMembership.tenantId,
+              membershipVersion: activeMembership.membershipVersion,
+              ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
+              ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress })
+            })
+          };
+        }
+        return {
+          kind: "session" as const,
+          created: await this.insertSession({
+            database: tx as unknown as ExecuteDatabase,
+            userId: credential.userId,
+            activeOrganizationId: String(activeMembership.orgId),
+            membershipVersion: activeMembership.membershipVersion,
+            ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
+            ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress })
+          })
+        };
+      });
+      if (issued.kind === "locked") return err(mfaChallengeUnavailable());
+      if (issued.kind === "challenge") return ok(issued.challenge);
+      const resolved = await resolveSessionPrincipal(issued.created.token, this.database);
+      return !resolved.ok || resolved.value === null
+        ? err(resolved.ok ? sessionError("Created session could not be resolved.") : resolved.error)
+        : ok(resolved.value);
     } catch (error) {
-      return err(sessionError(error));
+      return err(error instanceof DomainError ? error : sessionError(error));
     }
+  }
+
+  public async verifyMfaChallenge(input: MfaVerificationInput): Promise<Result<MfaVerificationResult>> {
+    try {
+      const challengeHash = createHash("sha256").update(input.challengeId).digest("hex");
+      const selected = await this.database.execute(sql`
+        select user_id, active_organization_id, membership_version, expires_at, user_agent_hash, ip_address_hash
+        from public.auth_mfa_challenges
+        where id = ${challengeHash} and used_at is null and expires_at > now()
+        limit 1
+      `);
+      const raw = rowsFromExecuteResult(selected)[0];
+      const expiresAt = raw === undefined ? null : dateFrom(raw["expires_at"]);
+      const challenge: ChallengeRow | null = raw === undefined || expiresAt === null ? null : {
+        userId: String(raw["user_id"]), activeOrganizationId: String(raw["active_organization_id"]),
+        membershipVersion: Number(raw["membership_version"]), expiresAt,
+        userAgentHash: typeof raw["user_agent_hash"] === "string" ? raw["user_agent_hash"] : null,
+        ipAddressHash: typeof raw["ip_address_hash"] === "string" ? raw["ip_address_hash"] : null
+      };
+      // IP and UA hashes are retained for audit correlation only. The challenge is
+      // bound to the authenticated user and membership version, is short-lived, and
+      // is consumed once; network and browser identifiers are not stable authenticators.
+      if (challenge === null) return err(mfaVerificationFailed("challenge missing, expired, or consumed"));
+
+      const attempt = await this.database.transaction(async (tx) => {
+        const factorAttempt = await this.verifyLockedFactor({
+          database: tx as unknown as ExecuteDatabase,
+          userId: challenge.userId,
+          code: input.code,
+          method: input.method
+        });
+        if (factorAttempt.kind !== "verified") return factorAttempt;
+
+        // Recheck the membership in the same transaction that consumes the challenge.
+        await tx.execute(sql`select set_config('app.current_user', ${challenge.userId}, true)`);
+        const membershipResult = await tx.execute(sql`
+          select 1
+          from public.memberships m
+          join public.organizations o on o.id = m.organization_id
+          where m.user_id = ${challenge.userId}
+            and m.organization_id = ${challenge.activeOrganizationId}::uuid
+            and m.membership_version = ${challenge.membershipVersion}
+            and m.status = 'active'
+            and o.lifecycle_state in ('provisioning', 'active')
+          limit 1
+        `);
+        if (rowsFromExecuteResult(membershipResult)[0] === undefined) return { kind: "invalid-membership" as const };
+
+        const consumedChallenge = await tx.execute(sql`
+          update public.auth_mfa_challenges set used_at = now()
+          where id = ${challengeHash} and user_id = ${challenge.userId} and used_at is null and expires_at > now()
+        `);
+        if ((consumedChallenge as { readonly rowCount?: number }).rowCount !== 1) throw mfaVerificationFailed("replayed-challenge");
+        const mfaSatisfiedAt = new Date();
+        const session = await this.insertSession({
+          database: tx as unknown as Pick<RootDatabase, "execute">,
+          userId: challenge.userId,
+          activeOrganizationId: challenge.activeOrganizationId,
+          membershipVersion: challenge.membershipVersion,
+          ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }),
+          ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress }),
+          mfaSatisfiedAt
+        });
+        return { kind: "verified" as const, session };
+      });
+      if (attempt.kind === "locked") return err(mfaChallengeUnavailable());
+      if (attempt.kind !== "verified") return err(mfaVerificationFailed(attempt.kind));
+      const session = attempt.session;
+      const resolved = await resolveSessionPrincipal(session.token, this.database);
+      if (!resolved.ok || resolved.value === null) return err(resolved.ok ? sessionError("Created session could not be resolved.") : resolved.error);
+      return ok({ session: resolved.value, verifiedAt: session.mfaSatisfiedAt as Date });
+    } catch (error) {
+      return err(error instanceof DomainError ? error : sessionError(error));
+    }
+  }
+
+  public async startMfaEnrollment(input: StartMfaEnrollmentInput): Promise<Result<MfaEnrollment>> {
+    try {
+      if (mfaEncryptionKey() === null) return err(mfaError("auth.mfaUnavailable", "Two-factor authentication is unavailable."));
+      const passwordAttempt = await this.verifyPasswordAttempt({ userId: String(input.userId), password: input.password });
+      if (passwordAttempt.kind === "locked") return err(mfaChallengeUnavailable());
+      if (passwordAttempt.kind !== "authenticated") {
+        return err(mfaError("auth.mfaEnrollmentPasswordInvalid", "Your password could not be verified."));
+      }
+      const secret = generateTotpSecret();
+      const encryptedSecret = await encryptTotpSecret(secret);
+      const generation = randomUUID();
+      const started = await this.database.transaction(async (tx) => {
+        // This is the canonical per-user MFA lock. It also prevents an enrollment
+        // restart from replacing a factor that was enabled while it was waiting.
+        const user = await tx.execute(sql`
+          select id from public.auth_users where id = ${input.userId} for update
+        `);
+        if (rowsFromExecuteResult(user)[0] === undefined) return false;
+        // Canonical lock order is user -> session -> factor. Deleting a session
+        // takes a factor-row lock through enrollment_session_id's SET NULL FK.
+        const session = await tx.execute(sql`
+          select id, user_id, expires_at > now() as is_current
+          from public.auth_sessions
+          where id = ${input.currentSessionId}
+          for update
+        `);
+        const sessionRow = rowsFromExecuteResult(session)[0];
+        if (
+          sessionRow === undefined ||
+          sessionRow["user_id"] !== String(input.userId) ||
+          sessionRow["is_current"] !== true
+        ) return "invalid-current-session" as const;
+        const factor = await tx.execute(sql`
+          select verified from public.auth_two_factor where user_id = ${input.userId} for update
+        `);
+        if (rowsFromExecuteResult(factor)[0]?.["verified"] === true) return false;
+        await tx.execute(sql`
+          insert into public.auth_two_factor (
+            id, user_id, secret, backup_codes, verified, failed_verification_count, locked_until,
+            enrollment_generation, enrollment_session_id
+          ) values (
+            ${randomUUID()}, ${input.userId}, ${encryptedSecret}, ${JSON.stringify([])}, false, 0, null,
+            ${generation}, ${input.currentSessionId}
+          )
+          on conflict (user_id) do update
+          set secret = excluded.secret,
+              backup_codes = excluded.backup_codes,
+              verified = false,
+              failed_verification_count = 0,
+              locked_until = null,
+              enrollment_generation = excluded.enrollment_generation,
+              enrollment_session_id = excluded.enrollment_session_id
+          where public.auth_two_factor.verified = false
+        `);
+        return "started" as const;
+      });
+      if (started === "invalid-current-session") {
+        return err(mfaError("auth.currentSessionInvalid", "The session used to start two-factor enrollment is no longer valid."));
+      }
+      if (!started) return err(mfaError("auth.mfaAlreadyEnabled", "Two-factor authentication is already enabled."));
+      return ok({ generation, secret, otpauthUri: totpUri(secret, input.email) });
+    } catch (error) { return err(sessionError(error)); }
+  }
+
+  public async enableMfa(input: EnableMfaInput): Promise<Result<EnabledMfa>> {
+    try {
+      const generated = generateRecoveryCodes();
+      const changed = await this.database.transaction(async (tx) => {
+        await this.hooks.beforeEnableMfaLock?.();
+        // Serializes with password-only session issuance and enrollment replacement.
+        const user = await tx.execute(sql`
+          select id from public.auth_users where id = ${input.userId} for update
+        `);
+        if (rowsFromExecuteResult(user)[0] === undefined) return { kind: "invalid-enrollment" as const };
+        // The current session must be fresh before inspecting the factor or
+        // evaluating a code. Expired/revoked enrollment always restarts.
+        const session = await tx.execute(sql`
+          select id, user_id, expires_at > now() as is_current
+          from public.auth_sessions
+          where id = ${input.currentSessionId}
+          for update
+        `);
+        const sessionRow = rowsFromExecuteResult(session)[0];
+        if (
+          sessionRow === undefined ||
+          sessionRow["user_id"] !== String(input.userId) ||
+          sessionRow["is_current"] !== true
+        ) {
+          return { kind: "invalid-current-session" as const };
+        }
+        const factorResult = await tx.execute(sql`
+          select secret, backup_codes, verified, locked_until > now() as is_locked,
+                 enrollment_generation, enrollment_session_id
+          from public.auth_two_factor
+          where user_id = ${input.userId}
+          for update
+        `);
+        const factor = rowToTwoFactor(rowsFromExecuteResult(factorResult)[0]);
+        if (factor === null || factor.verified || factor.locked) return { kind: "expired" as const };
+        // The factor's secret and generation are read under the same lock. A
+        // newer password-verified enrollment replaces both atomically, so an
+        // older browser can never enable the replacement secret.
+        if (factor.enrollmentGeneration !== input.generation) return { kind: "expired" as const };
+        if (factor.enrollmentSessionId !== String(input.currentSessionId)) return { kind: "expired" as const };
+        // Verify the secret read under this lock, never a pre-transaction snapshot.
+        if (!verifyTotp(await decryptTotpSecret(factor.secret), input.code)) {
+          return { kind: "invalid-code" as const };
+        }
+        const updated = await tx.execute(sql`
+          update public.auth_two_factor set backup_codes = ${JSON.stringify(generated.hashes)}, verified = true
+          where user_id = ${input.userId} and verified = false
+        `);
+        if ((updated as { readonly rowCount?: number }).rowCount !== 1) return { kind: "expired" as const };
+        await tx.execute(sql`update public.auth_users set two_factor_enabled = true where id = ${input.userId}`);
+        await tx.execute(sql`
+          delete from public.auth_sessions
+          where user_id = ${input.userId}
+            and id <> ${input.currentSessionId}
+        `);
+        await tx.execute(sql`
+          update public.auth_sessions
+          set mfa_satisfied_at = now()
+          where id = ${input.currentSessionId} and user_id = ${input.userId}
+        `);
+        return { kind: "enabled" as const };
+      });
+      if (changed.kind === "invalid-current-session") {
+        return err(mfaError("auth.currentSessionInvalid", "The session used to enable two-factor authentication is no longer valid."));
+      }
+      if (changed.kind === "expired") return err(mfaError("auth.mfaEnrollmentExpired", "Two-factor enrollment is no longer available."));
+      if (changed.kind === "invalid-code") return err(mfaError("auth.mfaEnrollmentVerificationFailed", "The authenticator code could not be verified."));
+      if (changed.kind !== "enabled") return err(mfaError("auth.mfaEnrollmentExpired", "Two-factor enrollment is no longer available."));
+      return ok({ recoveryCodes: generated.codes });
+    } catch (error) { return err(sessionError(error)); }
+  }
+
+  public async disableMfa(input: DisableMfaInput): Promise<Result<void>> {
+    try {
+      const disabled = await this.database.transaction(async (tx) => {
+        // Hold the canonical user lock before the factor lock, matching enable and
+        // enrollment. Verification uses the challenge lockout state machine.
+        const user = await tx.execute(sql`
+          select id from public.auth_users where id = ${input.userId} for update
+        `);
+        if (rowsFromExecuteResult(user)[0] === undefined) return { kind: "not-enabled" as const };
+        const attempt = await this.verifyLockedFactor({
+          database: tx as unknown as ExecuteDatabase,
+          userId: String(input.userId),
+          code: input.code,
+          method: input.method
+        });
+        if (attempt.kind !== "verified") return attempt;
+        await tx.execute(sql`delete from public.auth_two_factor where user_id = ${input.userId}`);
+        await tx.execute(sql`update public.auth_users set two_factor_enabled = false where id = ${input.userId}`);
+        return { kind: "disabled" as const };
+      });
+      if (disabled.kind === "locked") return err(mfaChallengeUnavailable());
+      if (disabled.kind === "not-enabled" || disabled.kind === "invalid-factor") {
+        return err(mfaError("auth.mfaNotEnabled", "Two-factor authentication is not enabled."));
+      }
+      if (disabled.kind !== "disabled") return err(mfaVerificationFailed("disable code invalid"));
+      return ok(undefined);
+    } catch (error) { return err(sessionError(error)); }
+  }
+
+  public async getMfaStatus(input: { readonly userId: import("@opzava/shared-kernel").UserId }): Promise<Result<MfaStatus>> {
+    try {
+      const twoFactor = await this.twoFactorForUser(String(input.userId));
+      const hashes = twoFactor === null ? [] : parseHashes(twoFactor.backupCodes) ?? [];
+      return ok({ enabled: twoFactor?.verified === true, recoveryCodesRemaining: twoFactor?.verified ? hashes.length : 0 });
+    } catch (error) { return err(sessionError(error)); }
   }
 
   public async getSession(input: {

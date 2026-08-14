@@ -108,6 +108,10 @@
     {
       "path": "0026_dev_board_legacy_import.sql",
       "sha256": "31691ace1a542a095ddec8124ac8b93a6c7b03d60d8f2586869ebdfa755b06b7"
+    },
+    {
+      "path": "0027_mfa_baseline.sql",
+      "sha256": "04225a74c938128f1ce81a0881451981293d848461e0101d6153cd4d80cd8793"
     }
   ]
 }

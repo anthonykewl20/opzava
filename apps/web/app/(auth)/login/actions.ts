@@ -8,10 +8,19 @@ import { z } from "zod";
 import { setSessionCookie } from "@/lib/auth-cookie";
 
 export interface LoginActionState {
-  readonly status: "idle" | "error";
+  readonly status: "idle" | "error" | "mfa";
   readonly message?: string;
   readonly fieldErrors?: Readonly<Record<string, string>>;
+  readonly challengeId?: string;
+  /** A truthful lockout state, distinct from an invalid credential/code. */
+  readonly locked?: boolean;
 }
+
+const mfaSchema = z.object({
+  challengeId: z.string().min(1),
+  code: z.string().trim().min(1, "Enter your verification code."),
+  method: z.enum(["totp", "recovery-code"])
+});
 
 const loginSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
@@ -49,6 +58,10 @@ function validationState(error: z.ZodError): LoginActionState {
   };
 }
 
+function isMfaLockout(result: { readonly ok: boolean; readonly error?: { readonly code?: unknown } }): boolean {
+  return !result.ok && result.error?.code === "auth.mfaChallengeUnavailable";
+}
+
 export async function loginAction(
   _previousState: LoginActionState,
   formData: FormData
@@ -75,17 +88,55 @@ export async function loginAction(
   if (!signIn.ok) {
     return {
       status: "error",
-      message: "Wrong email or password. Check both and try again, or reset your password."
+      message: isMfaLockout(signIn)
+        ? "Too many attempts — try again in a few minutes"
+        : "Wrong email or password. Check both and try again, or reset your password.",
+      ...(isMfaLockout(signIn) ? { locked: true } : {})
     };
   }
 
   if ("challengeId" in signIn.value) {
     return {
-      status: "error",
-      message: "Two-factor verification is required before this session can open."
+      status: "mfa",
+      challengeId: signIn.value.challengeId
     };
   }
 
   await setSessionCookie(signIn.value);
+  redirect("/");
+}
+
+export async function verifyMfaAction(
+  _previousState: LoginActionState,
+  formData: FormData
+): Promise<LoginActionState> {
+  const parsed = mfaSchema.safeParse({
+    challengeId: stringFromForm(formData, "challengeId"),
+    code: stringFromForm(formData, "code"),
+    method: stringFromForm(formData, "method")
+  });
+  if (!parsed.success) return validationState(parsed.error);
+
+  const requestHeaders = new Headers(await headers());
+  const userAgent = requestHeaders.get("user-agent");
+  const ipAddress = clientIpFromHeaders(requestHeaders);
+  const result = await authPort.verifyMfaChallenge({
+    challengeId: parsed.data.challengeId as import("@opzava/ports").MfaChallengeId,
+    code: parsed.data.code,
+    method: parsed.data.method,
+    ...(userAgent === null ? {} : { userAgent }),
+    ...(ipAddress === undefined ? {} : { ipAddress })
+  });
+  if (!result.ok) {
+    return {
+      status: "mfa",
+      challengeId: parsed.data.challengeId,
+      message: isMfaLockout(result)
+        ? "Too many attempts — try again in a few minutes"
+        : "That code didn't match. Codes refresh every 30 seconds.",
+      ...(isMfaLockout(result) ? { locked: true } : {})
+    };
+  }
+  await setSessionCookie(result.value.session);
   redirect("/");
 }
