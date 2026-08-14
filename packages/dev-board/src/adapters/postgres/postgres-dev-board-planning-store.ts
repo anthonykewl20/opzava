@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { rowsFromExecuteResult, type QueryRow, type TenantTransaction } from "@opzava/adapters";
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import type {
   DevBoardPlanningStore,
@@ -26,6 +27,30 @@ function record(value: unknown): Readonly<Record<string, unknown>> {
   return value as Readonly<Record<string, unknown>>;
 }
 
+function nullableDate(value: unknown): Date | null {
+  if (value === null) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  throw new Error("Dev Board row contained an invalid timestamp.");
+}
+
+const sqlStatePattern = /^[0-9A-Z]{5}$/;
+
+function sqlState(error: unknown): string | undefined {
+  const visited = new Set<object>();
+  let current = error;
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const code = (current as { readonly code?: unknown }).code;
+    if (typeof code === "string" && sqlStatePattern.test(code)) return code;
+    current = (current as { readonly cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 function proposal(row: QueryRow): ProposalRow {
   return {
     id: String(row["id"]),
@@ -33,7 +58,7 @@ function proposal(row: QueryRow): ProposalRow {
     workspaceId: String(row["workspace_id"]),
     version: number(row["version"]),
     lifecycleState: row["lifecycle_state"] as ProposalLifecycleState,
-    archivedAt: row["archived_at"] instanceof Date ? row["archived_at"] : null,
+    archivedAt: nullableDate(row["archived_at"]),
     discoverySummary: String(row["discovery_summary"]),
     blockingAssessment: row["blocking_assessment"] as BlockingAssessment,
     suggestedContract: record(row["suggested_contract"]),
@@ -55,7 +80,7 @@ function ticket(row: QueryRow): DevTicketRow {
     sourceProposalId:
       typeof row["source_proposal_id"] === "string" ? row["source_proposal_id"] : null,
     lane: row["lane"] as DevTicketLane,
-    archivedAt: row["archived_at"] instanceof Date ? row["archived_at"] : null,
+    archivedAt: nullableDate(row["archived_at"]),
     humanOwnerUserId: String(row["human_owner_user_id"]),
     readyContractVersion: number(row["ready_contract_version"]),
     readyContractContent: record(row["ready_contract_content"]),
@@ -92,6 +117,45 @@ const ticketColumns = sql`id, organization_id, workspace_id, version, origin_kin
   created_command_id`;
 
 export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
+  public async executeRiskyMutation<T>(
+    tx: TenantTransaction,
+    mutation: () => Promise<T>,
+  ): Promise<Result<T>> {
+    await tx.execute(sql.raw("savepoint dev_board_risky_mutation"));
+    try {
+      const value = await mutation();
+      await tx.execute(sql.raw("release savepoint dev_board_risky_mutation"));
+      return ok(value);
+    } catch (error) {
+      try {
+        await tx.execute(sql.raw("rollback to savepoint dev_board_risky_mutation"));
+      } catch {
+        // Preserve the mutation failure: cleanup errors cannot change its disposition.
+      }
+      try {
+        await tx.execute(sql.raw("release savepoint dev_board_risky_mutation"));
+      } catch {
+        // Preserve the mutation failure: cleanup errors cannot change its disposition.
+      }
+      const code = sqlState(error);
+      if (code === "23503" || code === "23505") {
+        return err(
+          new DomainError({
+            code:
+              code === "23503"
+                ? "dev_board.constraint_reference_invalid"
+                : "dev_board.constraint_conflict",
+            message:
+              code === "23503"
+                ? "A referenced Dev Board record is not valid."
+                : "A Dev Board record with this identity already exists.",
+          }),
+        );
+      }
+      throw error;
+    }
+  }
+
   public async selectProposalForUpdate(
     tx: TenantTransaction,
     organizationId: string,
@@ -131,10 +195,12 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     tx: TenantTransaction,
     input: UpdateProposalInput,
   ): Promise<ProposalRow | null> {
+    const archivedAt = input.archivedAt === undefined ? sql`archived_at` : sql`${input.archivedAt}`;
     const result = await tx.execute(sql`
       update public.dev_board_proposal
       set lifecycle_state = ${input.lifecycleState}, accepted_command_id = ${input.acceptedCommandId}::uuid,
-        accepted_dev_ticket_id = ${input.acceptedDevTicketId}::uuid, version = version + 1, updated_at = now()
+        accepted_dev_ticket_id = ${input.acceptedDevTicketId}::uuid, archived_at = ${archivedAt},
+        version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.proposalId}::uuid and version = ${input.expectedVersion}
       returning ${proposalColumns}
