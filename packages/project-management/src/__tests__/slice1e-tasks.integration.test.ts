@@ -37,6 +37,7 @@ import {
   toggleStep,
   updateTask,
 } from "../application/tasks.js";
+import { markTaskDoneAndEnqueueIssueClose } from "../application/task-done-close.js";
 
 interface TenantFixture {
   readonly organizationId: string;
@@ -191,6 +192,49 @@ async function approveTaskReview(tenant: TenantFixture, taskId: string): Promise
   return approved.value.id;
 }
 
+function doneCommand(tenant: TenantFixture, taskId: string, nonce: string, position = 4) {
+  return {
+    orgId: tenant.organizationId,
+    workspaceId: tenant.workspaceId,
+    actor: actor(tenant.userId),
+    taskId,
+    position,
+    humanCommand: {
+      confirmedByUserId: tenant.userId,
+      confirmSource: "admin-web" as const,
+      confirmNonce: nonce,
+    },
+  };
+}
+
+async function taskAndOutboxState(tenant: TenantFixture, taskId: string) {
+  return withTenant(tenant.organizationId, async (tx) => {
+    const result = await tx.execute(sql`
+      select
+        t.status,
+        count(distinct o.id)::integer as "outboxCount",
+        bool_or(c.consumed_at is not null) as "nonceConsumed"
+      from public.tasks t
+      left join public.issue_close_outbox o on o.task_id = t.id
+      left join public.task_done_confirmation c on c.task_id = t.id
+      where t.id = ${taskId}
+      group by t.status
+    `);
+    return rowsFromExecuteResult(result)[0];
+  });
+}
+
+async function issueCloseOutboxState(tenant: TenantFixture, taskId: string) {
+  return withTenant(tenant.organizationId, async (tx) => {
+    const result = await tx.execute(sql`
+      select state
+      from public.issue_close_outbox
+      where task_id = ${taskId}
+    `);
+    return rowsFromExecuteResult(result)[0];
+  });
+}
+
 async function selectStepsWithoutWithTenant(
   expectedOrgId: string,
 ): Promise<ReadonlyArray<Record<string, unknown>>> {
@@ -217,6 +261,10 @@ async function cleanupCreatedRows(): Promise<void> {
   const userIds = [...createdUserIds];
 
   if (organizationIds.length > 0) {
+    await adminPool.query(
+      "delete from public.issue_close_outbox where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
     await adminPool.query(
       "delete from public.task_terminal_transition_attempt where organization_id = any($1::uuid[])",
       [organizationIds],
@@ -513,6 +561,254 @@ describe("slice 1e tasks", () => {
     expect(await terminalAttemptRows(tenant)).toEqual([
       expect.objectContaining({ hard_reason: "nonce_conflict" }),
     ]);
+  });
+
+  it("commits Done and the linked issue-close intent together and returns the real outbox row", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-happy");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Complete with a linked GitHub issue",
+      provenanceSource: "github",
+      provenanceExternalRef: "github:opzava/opzava#345",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    await approveTaskReview(tenant, created.value.id);
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+
+    const completed = await markTaskDoneAndEnqueueIssueClose(
+      doneCommand(tenant, created.value.id, nonce),
+    );
+    expect(completed).toMatchObject({
+      ok: true,
+      value: {
+        task: { status: "done" },
+        linkedIssueCloseIntent: {
+          kind: "deferred_to_slice_2_5e",
+          targetRef: "github:opzava/opzava#345",
+          outbox: {
+            taskId: created.value.id,
+            repository: "opzava/opzava",
+            issueNumber: 345,
+            state: "pending",
+          },
+        },
+      },
+    });
+    expect(await taskAndOutboxState(tenant, created.value.id)).toMatchObject({
+      status: "done",
+      outboxCount: 1,
+      nonceConsumed: true,
+    });
+  });
+
+  it("returns issueCloseIntentFailed and rolls back Done on a real outbox insert fault", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-rollback");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Rollback the linked close intent",
+      provenanceSource: "github",
+      provenanceExternalRef: "github:opzava/opzava#346",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    await approveTaskReview(tenant, created.value.id);
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+    const command = doneCommand(tenant, created.value.id, nonce);
+
+    const triggerName = `slice1e_outbox_fail_${randomUUID().replaceAll("-", "")}`;
+    const functionName = `${triggerName}_fn`;
+    await adminPool.query(`
+      create function public."${functionName}"()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        raise exception 'slice1e forced issue close outbox insert failure' using errcode = 'P0001';
+      end;
+      $$
+    `);
+    await adminPool.query(`
+      create trigger "${triggerName}"
+      before insert on public.issue_close_outbox
+      for each row execute function public."${functionName}"()
+    `);
+
+    try {
+      const failed = await markTaskDoneAndEnqueueIssueClose(command);
+      expect(failed).toMatchObject({
+        ok: false,
+        error: { code: "projectManagement.issueCloseIntentFailed" },
+      });
+      expect(await taskAndOutboxState(tenant, created.value.id)).toMatchObject({
+        status: "todo",
+        outboxCount: 0,
+        nonceConsumed: false,
+      });
+    } finally {
+      await adminPool.query(`drop trigger if exists "${triggerName}" on public.issue_close_outbox`);
+      await adminPool.query(`drop function if exists public."${functionName}"()`);
+    }
+
+    const retried = await markTaskDoneAndEnqueueIssueClose(command);
+    expect(retried).toMatchObject({
+      ok: true,
+      value: {
+        task: { status: "done" },
+        linkedIssueCloseIntent: { outbox: { taskId: created.value.id } },
+      },
+    });
+  });
+
+  it("marks an unlinked task Done without creating a close intent", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-none");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Complete without an issue",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    await approveTaskReview(tenant, created.value.id);
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+
+    const completed = await markTaskDoneAndEnqueueIssueClose(
+      doneCommand(tenant, created.value.id, nonce),
+    );
+    expect(completed).toMatchObject({
+      ok: true,
+      value: {
+        task: { status: "done" },
+        linkedIssueCloseIntent: {
+          kind: "no_linked_issue",
+          taskId: created.value.id,
+        },
+      },
+    });
+    expect(await taskAndOutboxState(tenant, created.value.id)).toMatchObject({
+      status: "done",
+      outboxCount: 0,
+    });
+  });
+
+  it("deduplicates close intent rows when a linked task is marked Done again", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-idempotent");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Repeated Done stays one close intent",
+      provenanceSource: "github",
+      provenanceExternalRef: "github:opzava/opzava#347",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    await approveTaskReview(tenant, created.value.id);
+    const firstNonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+    const secondNonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+
+    expect(
+      await markTaskDoneAndEnqueueIssueClose(doneCommand(tenant, created.value.id, firstNonce, 4)),
+    ).toMatchObject({ ok: true });
+    expect(
+      await markTaskDoneAndEnqueueIssueClose(doneCommand(tenant, created.value.id, secondNonce, 5)),
+    ).toMatchObject({ ok: true });
+    expect(await taskAndOutboxState(tenant, created.value.id)).toMatchObject({
+      status: "done",
+      outboxCount: 1,
+    });
+    expect(await issueCloseOutboxState(tenant, created.value.id)).toMatchObject({
+      state: "pending",
+    });
+  });
+
+  it("audits invalid Done attestation through the composed command", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-invalid-attestation");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Audit invalid composed Done attestation",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+
+    const result = await markTaskDoneAndEnqueueIssueClose({
+      ...doneCommand(tenant, created.value.id, randomUUID()),
+      humanCommand: {
+        confirmedByUserId: randomUUID(),
+        confirmSource: "admin-web",
+        confirmNonce: randomUUID(),
+      },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+    expect(await terminalAttemptRows(tenant)).toEqual([
+      expect.objectContaining({ hard_reason: "attestation_principal_mismatch" }),
+    ]);
+  });
+
+  it("audits an unapproved review through the composed command", async () => {
+    const tenant = await adminCreateTenant("done-close-intent-unapproved-review");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Audit composed Done review gate",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    const review = await ensureTaskQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: created.value.id,
+    });
+    expect(review).toMatchObject({ ok: true, value: { status: "open" } });
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+
+    const result = await markTaskDoneAndEnqueueIssueClose(
+      doneCommand(tenant, created.value.id, nonce),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresApprovedReview" },
+    });
+    expect(await terminalAttemptRows(tenant)).toEqual([
+      expect.objectContaining({ hard_reason: "review_not_approved" }),
+    ]);
+  });
+
+  it("keeps the direct markTaskDone caller behavior: Done without an issue-close intent", async () => {
+    const tenant = await adminCreateTenant("direct-done-no-close-intent");
+    const created = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "Direct Done remains uncomposed",
+      provenanceSource: "github",
+      provenanceExternalRef: "github:opzava/opzava#348",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw created.error;
+    await approveTaskReview(tenant, created.value.id);
+    const nonce = await insertDoneConfirmationFixture({ tenant, taskId: created.value.id });
+
+    expect(await markTaskDone(doneCommand(tenant, created.value.id, nonce))).toMatchObject({
+      ok: true,
+      value: { status: "done" },
+    });
+    expect(await taskAndOutboxState(tenant, created.value.id)).toMatchObject({
+      status: "done",
+      outboxCount: 0,
+    });
   });
 
   it("consumes one Done confirmation exactly once across concurrent commands", async () => {

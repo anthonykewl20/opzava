@@ -392,7 +392,8 @@ class TaskDatabaseAttemptError extends Error {
   }
 }
 
-class TaskCommandRollbackError extends Error {
+/** @internal Shared with the composed Done command; not part of the package barrel. */
+export class TaskCommandRollbackError extends Error {
   public readonly domainError: DomainError;
 
   public constructor(domainError: DomainError) {
@@ -400,6 +401,12 @@ class TaskCommandRollbackError extends Error {
     this.name = "TaskCommandRollbackError";
     this.domainError = domainError;
   }
+}
+
+/** @internal Shared with the composed Done command; not part of the package barrel. */
+export interface MarkTaskDoneTransactionOutcome {
+  readonly result: Result<TaskDto>;
+  readonly hardReason?: TaskTerminalAttemptHardReason;
 }
 
 function taskError(code: string, message: string, cause?: unknown): DomainError {
@@ -779,6 +786,72 @@ async function appendTerminalAttempt(
       attemptedAction: input.attemptedAction,
       hardReason: input.hardReason,
     }),
+  );
+}
+
+/** @internal Shared Done-command guard prologue; not part of the package barrel. */
+export async function prepareMarkTaskDone(
+  input: MarkTaskDoneInput,
+  dependencies: TaskApplicationDependencies,
+): Promise<Result<void>> {
+  const knownIds = assertKnownIds(input);
+  if (!knownIds.ok) return err(knownIds.error);
+
+  const knownTaskId = assertKnownTaskId(input.taskId);
+  if (!knownTaskId.ok) return err(knownTaskId.error);
+
+  if (!Number.isInteger(input.position) || input.position < 0) {
+    return err(
+      taskError(
+        "projectManagement.invalidTaskPosition",
+        "Task position must be a non-negative integer.",
+      ),
+    );
+  }
+
+  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
+  const authorized = await authorizeTask(input, "update", authorizationPort);
+  if (!authorized.ok) return err(authorized.error);
+
+  if (!hasValidHumanCommandAttestation(input)) {
+    await appendTerminalAttempt(
+      {
+        organizationId: input.orgId,
+        workspaceId: input.workspaceId,
+        surface: taskTerminalAttemptSurface(input),
+        attemptedAction: "mark_done",
+        targetTaskId: input.taskId,
+        actorUserId: input.actor.userId,
+        hardReason: invalidAttestationReason(input),
+      },
+      dependencies,
+    );
+    return err(taskDoneRequiresHumanAttestation());
+  }
+
+  return ok(undefined);
+}
+
+/** @internal Shared post-transaction rejection audit; not part of the package barrel. */
+export async function appendMarkTaskDoneRejectionAttempt(
+  input: MarkTaskDoneInput,
+  outcome: MarkTaskDoneTransactionOutcome,
+  dependencies: TaskApplicationDependencies,
+): Promise<void> {
+  if (outcome.hardReason === undefined) return;
+
+  await appendTerminalAttempt(
+    {
+      organizationId: input.orgId,
+      workspaceId: input.workspaceId,
+      surface: taskTerminalAttemptSurface(input),
+      attemptedAction: "mark_done",
+      targetTaskId: input.taskId,
+      actorUserId: input.actor.userId,
+      hardReason: outcome.hardReason,
+      nonceConfirmationId: input.humanCommand.confirmNonce,
+    },
+    dependencies,
   );
 }
 
@@ -3192,6 +3265,106 @@ export async function cleanupDoneConfirmations(
   }
 }
 
+/** @internal Shared with the composed Done command; not part of the package barrel. */
+export async function markTaskDoneInTransaction(
+  tx: TenantTransaction,
+  input: MarkTaskDoneInput,
+): Promise<MarkTaskDoneTransactionOutcome> {
+  const review = await selectQualityReview(tx, input.taskId);
+  if (review === null) {
+    // WARNING: gate rejections return err, so withTenant commits. This is safe only because no
+    // writes precede this gate; never add a write before a gate that returns err.
+    return {
+      result: err(taskDoneRequiresApprovedReview()),
+      hardReason: "review_missing",
+    };
+  }
+  if (review.workspaceId !== input.workspaceId) {
+    // WARNING: gate rejections return err, so withTenant commits. This is safe only because no
+    // writes precede this gate; never add a write before a gate that returns err.
+    return {
+      result: err(taskDoneRequiresApprovedReview()),
+      hardReason: "review_scope_mismatch",
+    };
+  }
+  if (review.status !== "approved") {
+    // WARNING: gate rejections return err, so withTenant commits. This is safe only because no
+    // writes precede this gate; never add a write before a gate that returns err.
+    return {
+      result: err(taskDoneRequiresApprovedReview()),
+      hardReason: "review_not_approved",
+    };
+  }
+
+  const consumed = await tx.execute(sql`
+    update public.task_done_confirmation
+    set
+      consumed_at = now(),
+      consumed_by_user_id = ${input.actor.userId},
+      quality_review_id = ${review.id}
+    where id = ${input.humanCommand.confirmNonce}
+      and task_id = ${input.taskId}
+      and organization_id = ${input.orgId}
+      and workspace_id = ${input.workspaceId}
+      and issued_for_user_id = ${input.actor.userId}
+      and consumed_at is null
+      and expires_at > now()
+    returning id
+  `);
+  if (rowsFromExecuteResult(consumed)[0] === undefined) {
+    try {
+      // WARNING: this rejected UPDATE writes no row, so returning err commits safely. Never add a
+      // write before a gate that returns err; throw a rollback wrapper instead.
+      return {
+        result: err(taskDoneRequiresHumanAttestation()),
+        hardReason: await classifyRejectedDoneConfirmation(tx, input),
+      };
+    } catch {
+      // The classification SELECT is diagnostic only. If it fails, preserve the legacy coarse
+      // attestation rejection rather than surfacing a different error or changing gate semantics.
+      // WARNING: this rejected UPDATE writes no row, so returning err commits safely. Never add a
+      // write before a gate that returns err; throw a rollback wrapper instead.
+      return { result: err(taskDoneRequiresHumanAttestation()) };
+    }
+  }
+
+  const result = await tx.execute(sql`
+    update public.tasks
+    set
+      status = 'done'::public.task_status,
+      position = ${input.position},
+      updated_at = now()
+    where id = ${input.taskId}
+      and workspace_id = ${input.workspaceId}
+    returning
+      id,
+      organization_id,
+      workspace_id,
+      title,
+      description,
+      status,
+      priority,
+      assignee_user_id,
+      null::text as assignee_name,
+      labels,
+      position,
+      card_number,
+      due_at,
+      provenance_source,
+      provenance_external_ref,
+      created_at,
+      updated_at
+  `);
+  const row = rowsFromExecuteResult(result)[0];
+  if (row === undefined) {
+    throw new TaskCommandRollbackError(
+      taskError("projectManagement.taskNotFound", "Task was not found."),
+    );
+  }
+
+  return { result: ok(rowToTaskDto(row)) };
+}
+
 export async function markTaskDone(
   input: MarkTaskDoneInput,
   dependencies: TaskApplicationDependencies = {},
@@ -3201,148 +3374,12 @@ export async function markTaskDone(
    * confirmation flow. Retire it at verified Dev Board cutover in favour of wf229's proof-bound
    * AdmitDone; it is never a template for new commands or agent surfaces.
    */
-  const knownIds = assertKnownIds(input);
-  if (!knownIds.ok) {
-    return err(knownIds.error);
-  }
-
-  const knownTaskId = assertKnownTaskId(input.taskId);
-  if (!knownTaskId.ok) {
-    return err(knownTaskId.error);
-  }
-
-  if (!Number.isInteger(input.position) || input.position < 0) {
-    return err(
-      taskError(
-        "projectManagement.invalidTaskPosition",
-        "Task position must be a non-negative integer.",
-      ),
-    );
-  }
-
-  const authorizationPort = dependencies.authorizationPort ?? defaultTaskAuthorizationPort;
-  const authorized = await authorizeTask(input, "update", authorizationPort);
-  if (!authorized.ok) {
-    return err(authorized.error);
-  }
-
-  if (!hasValidHumanCommandAttestation(input)) {
-    await appendTerminalAttempt(
-      {
-        organizationId: input.orgId,
-        workspaceId: input.workspaceId,
-        surface: taskTerminalAttemptSurface(input),
-        attemptedAction: "mark_done",
-        targetTaskId: input.taskId,
-        actorUserId: input.actor.userId,
-        hardReason: invalidAttestationReason(input),
-      },
-      dependencies,
-    );
-    return err(taskDoneRequiresHumanAttestation());
-  }
+  const prepared = await prepareMarkTaskDone(input, dependencies);
+  if (!prepared.ok) return err(prepared.error);
 
   try {
-    const outcome = await withTenant(input.orgId, async (tx) => {
-      const review = await selectQualityReview(tx, input.taskId);
-      if (review === null) {
-        return {
-          result: err(taskDoneRequiresApprovedReview()),
-          hardReason: "review_missing" as const,
-        };
-      }
-      if (review.workspaceId !== input.workspaceId) {
-        return {
-          result: err(taskDoneRequiresApprovedReview()),
-          hardReason: "review_scope_mismatch" as const,
-        };
-      }
-      if (review.status !== "approved") {
-        return {
-          result: err(taskDoneRequiresApprovedReview()),
-          hardReason: "review_not_approved" as const,
-        };
-      }
-
-      const consumed = await tx.execute(sql`
-        update public.task_done_confirmation
-        set
-          consumed_at = now(),
-          consumed_by_user_id = ${input.actor.userId},
-          quality_review_id = ${review.id}
-        where id = ${input.humanCommand.confirmNonce}
-          and task_id = ${input.taskId}
-          and organization_id = ${input.orgId}
-          and workspace_id = ${input.workspaceId}
-          and issued_for_user_id = ${input.actor.userId}
-          and consumed_at is null
-          and expires_at > now()
-        returning id
-      `);
-      if (rowsFromExecuteResult(consumed)[0] === undefined) {
-        try {
-          return {
-            result: err(taskDoneRequiresHumanAttestation()),
-            hardReason: await classifyRejectedDoneConfirmation(tx, input),
-          };
-        } catch {
-          // The classification SELECT is diagnostic only. If it fails, preserve the legacy coarse
-          // attestation rejection rather than surfacing a different error or changing gate semantics.
-          return { result: err(taskDoneRequiresHumanAttestation()) };
-        }
-      }
-
-      const result = await tx.execute(sql`
-        update public.tasks
-        set
-          status = 'done'::public.task_status,
-          position = ${input.position},
-          updated_at = now()
-        where id = ${input.taskId}
-          and workspace_id = ${input.workspaceId}
-        returning
-          id,
-          organization_id,
-          workspace_id,
-          title,
-          description,
-          status,
-          priority,
-          assignee_user_id,
-          null::text as assignee_name,
-          labels,
-          position,
-          card_number,
-          due_at,
-          provenance_source,
-          provenance_external_ref,
-          created_at,
-          updated_at
-      `);
-      const row = rowsFromExecuteResult(result)[0];
-      if (row === undefined) {
-        throw new TaskCommandRollbackError(
-          taskError("projectManagement.taskNotFound", "Task was not found."),
-        );
-      }
-
-      return { result: ok(rowToTaskDto(row)) };
-    });
-    if (outcome.hardReason !== undefined) {
-      await appendTerminalAttempt(
-        {
-          organizationId: input.orgId,
-          workspaceId: input.workspaceId,
-          surface: taskTerminalAttemptSurface(input),
-          attemptedAction: "mark_done",
-          targetTaskId: input.taskId,
-          actorUserId: input.actor.userId,
-          hardReason: outcome.hardReason,
-          nonceConfirmationId: input.humanCommand.confirmNonce,
-        },
-        dependencies,
-      );
-    }
+    const outcome = await withTenant(input.orgId, (tx) => markTaskDoneInTransaction(tx, input));
+    await appendMarkTaskDoneRejectionAttempt(input, outcome, dependencies);
     return outcome.result;
   } catch (error) {
     if (error instanceof TaskCommandRollbackError) {
