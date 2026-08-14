@@ -13,14 +13,14 @@ Read `CLAUDE.md` + `docs/plan/EXECUTION.md` + `ARCHITECTURE.md` first. These are
 - Use `docs/plan/official-docs.md` as the registry; verify current official docs for OpenClaw (`docs/openclaw`) and every framework, language, and library used in the slice.
 
 ## Tenant isolation (ADR-007)
-- Every tenant-table access goes through a single **`withTenant(org, fn)` transaction** wrapper that issues `SET LOCAL app.current_org`. **Postgres RLS** is the fail-closed backstop. **PgBouncer in transaction pooling mode** (session pooling breaks `SET LOCAL`).
+- Every tenant-table access goes through a single **`withTenant(org, fn)` transaction** wrapper that issues `SET LOCAL app.current_org`. **Postgres RLS** is the fail-closed backstop. **TARGET (not deployed in local Compose): PgBouncer in transaction pooling mode** (session pooling breaks `SET LOCAL`).
 - An authz denial is a **hard 403**, NEVER a silent 200-with-empty. Integration tests assert 403.
 
 ## OpenClaw boundary (ADR-003)
 - The **gateway-broker is the ONLY ACL** to OpenClaw; no OpenClaw type leaks into the core domain. **Two-token:** hot-path broker (`operator.write`+`operator.approvals`) vs JIT admin provisioning (`operator.admin`, worker-only). Broker never provisions; worker never on the hot path.
 
 ## Data (ADR-004)
-- **Postgres is the source of truth.** Projections are a **rebuildable cache** — RPC snapshots are truth, WS events are hints. Command path is **write-through**. Transactional **outbox → LISTEN/NOTIFY → Redis → WS**; projectors idempotent (natural key + stateVersion).
+- **Postgres is the source of truth.** Projections are a **rebuildable cache** — RPC snapshots are truth, WS events are hints. Command path is **write-through**. **As built:** durable transactional outbox rows plus a polling worker. **TARGET (ADR-004/ADR-009):** `LISTEN/NOTIFY → Redis → WS` fan-out; projectors idempotent (natural key + stateVersion).
 - `pm.Card` (Opzava) vs OpenClaw Workboard card are **separate aggregates** bridged by `AgentDispatch` with **opaque refs — never a foreign key**.
 
 ## Security & agents (ADR-005, ADR-008)
