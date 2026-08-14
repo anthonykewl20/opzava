@@ -5,6 +5,8 @@ description: Provision/deprovision per-tenant OpenClaw Gateway containers safely
 
 # openclaw-gateway-provisioning
 
+> **STATUS (2026-08-14):** The dynamic per-tenant provisioning described below (ProvisioningJob saga, GatewayInstance registry, lifecycle calls, Traefik labels, reaper) is **deferred future spec** per ADR-002/Q18 — do not treat it as current. Canonical runtime today: the static `openclaw-platform-gateway` Compose service from `mainframe/`. The docker-socket-proxy **does enable EXEC**: the retained onboard/doctor path execs into the static container. `spike/` and `docs/plan/consensus/` references are historical.
+
 Opzava is **pure per-tenant**: ONE OpenClaw Gateway container per tenant, created by the **`worker-provisioning`** service
 (the admin/provisioning context) via the `GatewayRuntimePort`. Authoritative: **ADR-002 + ADR-015**.
 Read `docs/openclaw/gateway/multiple-gateways.md` (isolation checklist) first.

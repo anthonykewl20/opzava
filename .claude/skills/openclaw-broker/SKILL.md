@@ -15,9 +15,9 @@ Building/changing the broker service: the WS operator client to tenant Gateways,
 - **WS-first operator client.** After the `connect.challenge` nonce, send `connect` (min/maxProtocol = 4) as `role: operator`; sign the challenge with the device keypair. Authenticate with a **paired device token** carrying **`operator.write` + `operator.approvals` ONLY** (never admin/pairing/talk.secrets).
 - **req/res with idempotency keys** on every side-effecting method; consume **server-push events** (`agent` `deltaText` streaming, `session.message`, `exec.approval.requested`).
 - **Lazy per-tenant connections:** connect on demand, idle-disconnect dormant tenants; reconnect with jittered backoff + a per-tenant **circuit breaker**.
-- **The connection IS the tenant.** Keep a tenant→Gateway routing table; **NEVER trust a caller-supplied `tenant_id`** — derive it from the authenticated app→broker context.
+- **The connection IS the tenant. TARGET (not yet built):** keep a tenant→Gateway routing table; **NEVER trust a caller-supplied `tenant_id`** — derive it from the authenticated app→broker context. **As built (N=1):** accept the caller-asserted `tenantId` and verify it against the pinned tenant (ADR-018 accepted realization); derive-on-admission arrives with multi-tenant routing.
 - **Two-token boundary:** the broker only ever holds the hot-path device token. Provisioning (admin token, container create/destroy) is a **separate worker** — see `openclaw-gateway-provisioning`. The broker **never** touches Docker or admin scopes.
-- **Browser hub (RealtimeTransportPort):** self-hosted WS hub + Redis backplane + Postgres outbox; per-channel sequence + client dedup; presence/typing Redis-only TTL. Relay agent token deltas into a streaming assistant message.
+- **Browser hub (RealtimeTransportPort) — TARGET (not yet built):** self-hosted WS hub + Redis backplane + Postgres outbox; per-channel sequence + client dedup; presence/typing Redis-only TTL. The live path is SSE via the BFF; the hub is deferred to ADR-009/#96. Relay agent token deltas into a streaming assistant message.
 - Everything obeys hybrid-CQRS: **RPC snapshots are truth, WS events are hints** (ADR-004).
 
 ## References
