@@ -59,6 +59,16 @@ export interface ArchiveProposalInput {
   readonly proposalId: string;
   readonly reason: string;
 }
+export interface RestoreProposalInput {
+  readonly proposalId: string;
+}
+export interface ArchiveDevTicketInput {
+  readonly devTicketId: string;
+  readonly reason: string;
+}
+export interface RestoreDevTicketInput {
+  readonly devTicketId: string;
+}
 export interface ApproveReadyToTodoInput {
   readonly devTicketId: string;
   readonly readyContractContent: Readonly<Record<string, unknown>>;
@@ -288,6 +298,30 @@ async function reserve(
     return err(actor.error);
   }
   return result.value;
+}
+
+async function authorizedDevTicketArchiveActor(
+  tx: TenantTransaction,
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+  ticket: { readonly humanOwnerUserId: string },
+): Promise<boolean> {
+  return envelope.actorRef.kind === "user" && (
+    envelope.actorRef.stableId === ticket.humanOwnerUserId ||
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "owner") ||
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "admin")
+  );
+}
+
+async function authorizedProposalArchiveActor(
+  tx: TenantTransaction,
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<boolean> {
+  return envelope.actorRef.kind === "user" && (
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "owner") ||
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "admin")
+  );
 }
 
 export async function draftProposal(
@@ -687,6 +721,8 @@ export async function archiveProposal(
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
       if (proposal.archivedAt !== null)
         return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_already_archived", "Proposal is already archived.");
+      if (!await authorizedProposalArchiveActor(tx, envelope, deps))
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.archive_authorization_required", "Archive requires an authorized organization owner or admin.");
       const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
         deps.planningStore.updateProposal(tx, {
           organizationId: envelope.organizationId,
@@ -697,6 +733,8 @@ export async function archiveProposal(
           acceptedCommandId: proposal.acceptedCommandId,
           acceptedDevTicketId: proposal.acceptedDevTicketId,
           archivedAt: new Date(),
+          archivedByUserId: envelope.actorRef.stableId,
+          archivedReason: reason.value,
         }),
       );
       if (!changed.ok)
@@ -715,6 +753,136 @@ export async function archiveProposal(
     },
     deps.database ?? db,
   );
+}
+
+export async function restoreProposal(
+  envelope: CommandEnvelope,
+  input: RestoreProposalInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const version = expected(envelope, "proposal", input.proposalId);
+    const proposal = await deps.planningStore.selectProposalForUpdate(tx, envelope.organizationId, envelope.workspaceId, input.proposalId);
+    if (version === null || proposal === null || proposal.version !== version)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+    if (proposal.archivedAt === null)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_not_archived", "Proposal is not archived.");
+    if (!await authorizedProposalArchiveActor(tx, envelope, deps))
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.restore_authorization_required", "Restore requires an authorized organization owner or admin.");
+    const changed = await deps.planningStore.executeRiskyMutation(tx, () => deps.planningStore.updateProposal(tx, {
+      organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, proposalId: proposal.id,
+      expectedVersion: proposal.version, lifecycleState: proposal.lifecycleState,
+      acceptedCommandId: proposal.acceptedCommandId, acceptedDevTicketId: proposal.acceptedDevTicketId,
+      archivedAt: null, archivedByUserId: null, archivedReason: null,
+    }));
+    if (!changed.ok) return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+    if (changed.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+    const updated = changed.value;
+    await planning(tx, deps.ledger, envelope, updated.id, "ArchiveRestored", "Proposal restored", { restoredByUserId: envelope.actorRef.stableId });
+    await activity(tx, deps.ledger, envelope, updated.id, updated.version, "ProposalRestored", { lifecycleState: updated.lifecycleState });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_restored", updated.id,
+      [{ recordKind: "proposal", recordId: updated.id, version: updated.version }], { proposalId: updated.id });
+  }, deps.database ?? db);
+}
+
+export async function archiveDevTicket(
+  envelope: CommandEnvelope,
+  input: ArchiveDevTicketInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const reason = decisionReason(input.reason);
+    if (!reason.ok) return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+    const version = expected(envelope, "dev_ticket", input.devTicketId);
+    const ticket = await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, input.devTicketId);
+    if (version === null || ticket === null || ticket.version !== version)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    if (ticket.archivedAt !== null)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_already_archived", "DevTicket is already archived.");
+    if (!await authorizedDevTicketArchiveActor(tx, envelope, deps, ticket))
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.archive_authorization_required", "Archive requires the Human Owner or an authorized organization owner or admin.");
+    await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
+    const activeDependents = await deps.planningStore.selectActiveBlockerEdges(tx, envelope.organizationId, envelope.workspaceId, ticket.id);
+    if (activeDependents.length > 0)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.archive_active_dependents", "DevTicket has active dependents and cannot be archived.");
+    let todoQueueVersion: number | null = null;
+    if (ticket.lane === "todo") {
+      const header = await deps.planningStore.getOrLockTodoQueueHeader(tx, envelope.organizationId, envelope.workspaceId);
+      const expectedQueueVersion = expected(envelope, "lane_queue", "todo");
+      if (expectedQueueVersion === null || header.version !== expectedQueueVersion)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.lane_queue_version_drift", "Todo queue changed; reload and submit a new command/key.");
+    }
+    const archiveMutationDrift = new Error("DevTicket version or Todo membership has changed.");
+    let mutation;
+    try {
+      mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+        if (ticket.lane === "todo") {
+          const deleted = await deps.planningStore.deleteTodoQueueMembership(tx, envelope.organizationId, envelope.workspaceId, ticket.id);
+          if (!deleted) throw archiveMutationDrift;
+          const bumped = await deps.planningStore.casBumpTodoQueueVersion(tx, envelope.organizationId, envelope.workspaceId, expected(envelope, "lane_queue", "todo")!);
+          if (bumped === null) throw archiveMutationDrift;
+          todoQueueVersion = bumped.version;
+        }
+        const updated = await deps.planningStore.archiveDevTicket(tx, {
+          organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, devTicketId: ticket.id,
+          expectedVersion: ticket.version, archivedByUserId: envelope.actorRef.stableId, archivedReason: reason.value,
+        });
+        if (updated === null) throw archiveMutationDrift;
+        return updated;
+      });
+    } catch (error) {
+      if (error === archiveMutationDrift)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", archiveMutationDrift.message);
+      throw error;
+    }
+    if (!mutation.ok) return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+    const updated = mutation.value;
+    await planning(tx, deps.ledger, envelope, updated.id, "ArchiveRationaleRecorded", "DevTicket archived", {
+      reason: reason.value, archivedByUserId: envelope.actorRef.stableId, lastActiveLane: updated.lastActiveLane,
+    });
+    await activity(tx, deps.ledger, envelope, updated.id, updated.version, "DevTicketArchived", {
+      readyDeactivated: true, queueRemoved: ticket.lane === "todo", lastActiveLane: updated.lastActiveLane,
+    });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_archived", updated.id,
+      [{ recordKind: "dev_ticket", recordId: updated.id, version: updated.version },
+        ...(todoQueueVersion === null ? [] : [{ recordKind: "lane_queue" as const, recordId: "todo", version: todoQueueVersion }])],
+      { devTicketId: updated.id });
+  }, deps.database ?? db);
+}
+
+export async function restoreDevTicket(
+  envelope: CommandEnvelope,
+  input: RestoreDevTicketInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const version = expected(envelope, "dev_ticket", input.devTicketId);
+    const ticket = await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, input.devTicketId);
+    if (version === null || ticket === null || ticket.version !== version)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    if (ticket.archivedAt === null)
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_not_archived", "DevTicket is not archived.");
+    if (ticket.lastActiveLane === "done" || ticket.lane === "done")
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.done_restore_history_only", "Done DevTicket history cannot be restored to executable work.");
+    if (!await authorizedDevTicketArchiveActor(tx, envelope, deps, ticket))
+      return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.restore_authorization_required", "Restore requires the Human Owner or an authorized organization owner or admin.");
+    const changed = await deps.planningStore.executeRiskyMutation(tx, () => deps.planningStore.restoreDevTicket(tx, {
+      organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, devTicketId: ticket.id, expectedVersion: ticket.version,
+    }));
+    if (!changed.ok) return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+    if (changed.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "DevTicket version has changed.");
+    const updated = changed.value;
+    await planning(tx, deps.ledger, envelope, updated.id, "ArchiveRestored", "DevTicket restored", { restoredByUserId: envelope.actorRef.stableId, lastActiveLane: updated.lastActiveLane });
+    await activity(tx, deps.ledger, envelope, updated.id, updated.version, "DevTicketRestored", { lastActiveLane: updated.lastActiveLane, readyState: "draft" });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_restored", updated.id,
+      [{ recordKind: "dev_ticket", recordId: updated.id, version: updated.version }], { devTicketId: updated.id });
+  }, deps.database ?? db);
 }
 
 async function decideProposal(

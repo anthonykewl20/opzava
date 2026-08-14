@@ -176,6 +176,13 @@
       "when": 1787011200000,
       "tag": "0024_dev_board_classifications",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787097600000,
+      "tag": "0025_dev_board_archive",
+      "breakpoints": true
     }
   ]
 }

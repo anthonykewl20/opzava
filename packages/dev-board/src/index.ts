@@ -10,20 +10,23 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
-export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, TodoQueueMembershipRow, UpdateDevTicketClassificationInput, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, SetDevTicketClassificationInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
+export type { ArchivedDevTicketProjection, ArchivedProposalProjection, ArchiveDevTicketInput as ArchiveDevTicketStoreInput, DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, RestoreDevTicketInput as RestoreDevTicketStoreInput, TodoQueueMembershipRow, UpdateDevTicketClassificationInput, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveDevTicketInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, RestoreDevTicketInput, RestoreProposalInput, SetDevTicketClassificationInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
 export {
   acceptProposal,
   addDependency,
   admitDone as admitDevTicketDone,
   approveReadyToTodo,
   archiveProposal,
+  archiveDevTicket,
   claim as claimDevTicket,
   draftProposal,
   dependencyLockStatus,
   mergeProposal,
   rejectProposal,
   reorderTodo,
+  restoreDevTicket,
+  restoreProposal,
   setDevTicketClassification,
   removeDependency,
   start as startDevTicket,

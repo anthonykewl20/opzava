@@ -6,6 +6,9 @@ import type {
   DevBoardPlanningStore,
   DependencyEdgeRow,
   DependencyLockStatus,
+  ArchivedDevTicketProjection,
+  ArchivedProposalProjection,
+  ArchiveDevTicketInput,
   DevTicketRow,
   InsertDependencyEdgeInput,
   InsertDevTicketInput,
@@ -15,6 +18,7 @@ import type {
   TodoQueueMembershipRow,
   UpdateDevTicketClassificationInput,
   UpdateDevTicketForReadyApprovalInput,
+  RestoreDevTicketInput,
   UpdateProposalInput,
 } from "../../application/dev-board-planning-store.js";
 import type { DevTicketLane, OriginKind, ReadyState } from "../../domain/dev-ticket.js";
@@ -76,6 +80,8 @@ function proposal(row: QueryRow): ProposalRow {
     version: number(row["version"]),
     lifecycleState: row["lifecycle_state"] as ProposalLifecycleState,
     archivedAt: nullableDate(row["archived_at"]),
+    archivedByUserId: typeof row["archived_by_user_id"] === "string" ? row["archived_by_user_id"] : null,
+    archivedReason: typeof row["archived_reason"] === "string" ? row["archived_reason"] : null,
     discoverySummary: String(row["discovery_summary"]),
     blockingAssessment: row["blocking_assessment"] as BlockingAssessment,
     suggestedContract: record(row["suggested_contract"]),
@@ -98,6 +104,9 @@ function ticket(row: QueryRow): DevTicketRow {
       typeof row["source_proposal_id"] === "string" ? row["source_proposal_id"] : null,
     lane: row["lane"] as DevTicketLane,
     archivedAt: nullableDate(row["archived_at"]),
+    archivedByUserId: typeof row["archived_by_user_id"] === "string" ? row["archived_by_user_id"] : null,
+    archivedReason: typeof row["archived_reason"] === "string" ? row["archived_reason"] : null,
+    lastActiveLane: row["last_active_lane"] === null ? null : row["last_active_lane"] as DevTicketLane,
     humanOwnerUserId: String(row["human_owner_user_id"]),
     devTicketType: row["dev_ticket_type"] as DevTicketType | null,
     workAreas: Array.isArray(row["work_areas"]) ? row["work_areas"].map(String) as WorkArea[] : [],
@@ -146,10 +155,11 @@ function edge(row: QueryRow): DependencyEdgeRow {
 }
 
 const proposalColumns = sql`id, organization_id, workspace_id, version, lifecycle_state, archived_at,
+  archived_by_user_id, archived_reason,
   discovery_summary, blocking_assessment, suggested_contract, created_command_id, accepted_command_id,
   accepted_dev_ticket_id`;
 const ticketColumns = sql`t.id, t.organization_id, t.workspace_id, t.version, t.origin_kind, t.source_proposal_id,
-  t.lane, t.archived_at, t.human_owner_user_id, t.dev_ticket_type, t.priority, t.severity, t.declared_change_risk, t.minimum_change_risk, t.change_risk_policy_version, t.change_risk_policy_hash,
+  t.lane, t.archived_at, t.archived_by_user_id, t.archived_reason, t.last_active_lane, t.human_owner_user_id, t.dev_ticket_type, t.priority, t.severity, t.declared_change_risk, t.minimum_change_risk, t.change_risk_policy_version, t.change_risk_policy_hash,
   coalesce((select array_agg(wa.work_area order by wa.work_area) from public.dev_board_dev_ticket_work_area wa where wa.organization_id = t.organization_id and wa.workspace_id = t.workspace_id and wa.dev_ticket_id = t.id), array[]::text[]) as work_areas, t.ready_contract_version, t.ready_contract_content,
   t.ready_contract_content_hash, t.ready_state, t.ready_approval_contract_version,
   t.ready_approval_content_hash, t.ready_approved_by_user_id, t.ready_approval_command_id,
@@ -237,10 +247,13 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     input: UpdateProposalInput,
   ): Promise<ProposalRow | null> {
     const archivedAt = input.archivedAt === undefined ? sql`archived_at` : sql`${input.archivedAt}`;
+    const archivedByUserId = input.archivedByUserId === undefined ? sql`archived_by_user_id` : sql`${input.archivedByUserId}`;
+    const archivedReason = input.archivedReason === undefined ? sql`archived_reason` : sql`${input.archivedReason}`;
     const result = await tx.execute(sql`
       update public.dev_board_proposal
       set lifecycle_state = ${input.lifecycleState}, accepted_command_id = ${input.acceptedCommandId}::uuid,
         accepted_dev_ticket_id = ${input.acceptedDevTicketId}::uuid, archived_at = ${archivedAt},
+        archived_by_user_id = ${archivedByUserId}, archived_reason = ${archivedReason},
         version = version + 1, updated_at = now()
       where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
         and id = ${input.proposalId}::uuid and version = ${input.expectedVersion}
@@ -328,6 +341,36 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     await tx.execute(sql`delete from public.dev_board_dev_ticket_work_area where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid and dev_ticket_id = ${input.devTicketId}::uuid`);
     for (const workArea of input.workAreas) await tx.execute(sql`insert into public.dev_board_dev_ticket_work_area (organization_id, workspace_id, dev_ticket_id, work_area) values (${input.organizationId}::uuid, ${input.workspaceId}::uuid, ${input.devTicketId}::uuid, ${workArea})`);
     return this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
+  }
+
+  public async archiveDevTicket(tx: TenantTransaction, input: ArchiveDevTicketInput): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dev_ticket
+      set archived_at = now(), archived_by_user_id = ${input.archivedByUserId}, archived_reason = ${input.archivedReason},
+        last_active_lane = lane, lane = 'backlog', ready_state = 'draft',
+        ready_approval_contract_version = null, ready_approval_content_hash = null,
+        ready_approved_by_user_id = null, ready_approved_at = null, ready_approval_command_id = null,
+        version = version + 1, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion} and archived_at is null
+      returning id
+    `);
+    return rowsFromExecuteResult(result)[0] === undefined ? null : this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
+  }
+
+  public async restoreDevTicket(tx: TenantTransaction, input: RestoreDevTicketInput): Promise<DevTicketRow | null> {
+    const result = await tx.execute(sql`
+      update public.dev_board_dev_ticket
+      set archived_at = null, archived_by_user_id = null, archived_reason = null,
+        lane = 'backlog', ready_state = 'draft',
+        ready_approval_contract_version = null, ready_approval_content_hash = null,
+        ready_approved_by_user_id = null, ready_approved_at = null, ready_approval_command_id = null,
+        version = version + 1, updated_at = now()
+      where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid
+        and id = ${input.devTicketId}::uuid and version = ${input.expectedVersion} and archived_at is not null
+      returning id
+    `);
+    return rowsFromExecuteResult(result)[0] === undefined ? null : this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, input.devTicketId);
   }
 
   public async isActiveMember(tx: TenantTransaction, organizationId: string, userId: string): Promise<boolean> { const result = await tx.execute(sql`select app.is_active_member(${organizationId}::uuid, ${userId}) as allowed`); return rowsFromExecuteResult(result)[0]?.["allowed"] === true; }
@@ -480,6 +523,18 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     return row === undefined ? null : edge(row);
   }
 
+  public async selectActiveBlockerEdges(
+    tx: TenantTransaction, organizationId: string, workspaceId: string, blockerDevTicketId: string,
+  ): Promise<readonly DependencyEdgeRow[]> {
+    const result = await tx.execute(sql`
+      select ${edgeColumns} from public.dev_board_dependency_edge
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and blocker_dev_ticket_id = ${blockerDevTicketId}::uuid and lifecycle_state = 'active'
+      order by id
+    `);
+    return rowsFromExecuteResult(result).map(edge);
+  }
+
   public async dependencyCreatesCycle(
     tx: TenantTransaction, organizationId: string, workspaceId: string,
     dependentDevTicketId: string, blockerDevTicketId: string,
@@ -572,5 +627,44 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
       done: row["done"] === true,
     }));
     return { locked: blockers.some((blocker) => !blocker.done), blockers };
+  }
+
+  public async listArchivedDevTickets(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<readonly ArchivedDevTicketProjection[]> {
+    const result = await tx.execute(sql`
+      select id, last_active_lane, archived_at, archived_by_user_id, archived_reason
+      from public.dev_board_dev_ticket
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and archived_at is not null
+      order by archived_at desc, id
+    `);
+    return rowsFromExecuteResult(result).map((row) => ({
+      recordClass: "archived_dev_ticket" as const, devTicketId: String(row["id"]),
+      lastActiveLane: row["last_active_lane"] === null ? null : row["last_active_lane"] as DevTicketLane,
+      archivedAt: nullableDate(row["archived_at"])!,
+      archivedByUserId: typeof row["archived_by_user_id"] === "string" ? row["archived_by_user_id"] : null,
+      archivedReason: typeof row["archived_reason"] === "string" ? row["archived_reason"] : null,
+      activityAggregateId: String(row["id"]), planningAggregateId: String(row["id"]),
+    }));
+  }
+
+  public async listArchivedProposals(
+    tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<readonly ArchivedProposalProjection[]> {
+    const result = await tx.execute(sql`
+      select id, archived_at, archived_by_user_id, archived_reason
+      from public.dev_board_proposal
+      where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid
+        and archived_at is not null
+      order by archived_at desc, id
+    `);
+    return rowsFromExecuteResult(result).map((row) => ({
+      recordClass: "archived_proposal" as const, proposalId: String(row["id"]),
+      archivedAt: nullableDate(row["archived_at"])!,
+      archivedByUserId: typeof row["archived_by_user_id"] === "string" ? row["archived_by_user_id"] : null,
+      archivedReason: typeof row["archived_reason"] === "string" ? row["archived_reason"] : null,
+      activityAggregateId: String(row["id"]), planningAggregateId: String(row["id"]),
+    }));
   }
 }

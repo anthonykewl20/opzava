@@ -10,6 +10,7 @@ import {
   addDependency,
   admitDone,
   approveReadyToTodo,
+  archiveDevTicket,
   archiveProposal,
   claim,
   draftProposal,
@@ -17,6 +18,8 @@ import {
   removeDependency,
   rejectProposal,
   reorderTodo,
+  restoreDevTicket,
+  restoreProposal,
   setDevTicketClassification,
   start,
   submitForReview,
@@ -1714,6 +1717,125 @@ describePostgres("Dev Board planning lifecycle real-Postgres", () => {
     expect(actorReplay).toMatchObject({ ok: false });
     if (!actorReplay.ok && !rejectedActor.ok) expect(actorReplay.error.message).toBe(rejectedActor.error.message);
     expect(await ticketVersionAndEventCount(invalidActorTicketId)).toEqual(invalidActorBefore);
+  });
+  it("archives Todo atomically, restores to Backlog, and exposes the derived Historical Projection", async () => {
+    const testWorkspaceId = await createWorkspace("Archive Todo workspace");
+    const ticketId = await approveTicket("reversible archive", testWorkspaceId);
+    const queueBefore = await currentTodoQueueVersion(testWorkspaceId);
+    const archiveRequest = envelope("ArchiveDevTicket", ticketId, [
+      { recordKind: "dev_ticket", recordId: ticketId, version: 3 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueBefore },
+    ], { workspaceId: testWorkspaceId });
+    const archived = await archiveDevTicket(archiveRequest, { devTicketId: ticketId, reason: "Superseded by a narrower plan." }, deps!);
+    expect(archived).toMatchObject({ ok: true, value: { resultingVersions: expect.arrayContaining([
+      { recordKind: "dev_ticket", recordId: ticketId, version: 4 },
+      { recordKind: "lane_queue", recordId: "todo", version: queueBefore + 1 },
+    ]) } });
+    expect(await archiveDevTicket({ ...archiveRequest, commandId: randomUUID() }, { devTicketId: ticketId, reason: "Superseded by a narrower plan." }, deps!)).toMatchObject({ ok: true, value: { commandId: archiveRequest.commandId } });
+    const archivedState = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select t.lane, t.last_active_lane, t.ready_state, t.archived_by_user_id, t.archived_reason,
+        t.ready_approval_contract_version, t.ready_approval_content_hash, t.ready_approved_by_user_id,
+        t.ready_approved_at, t.ready_approval_command_id,
+        (select count(*) from public.dev_board_lane_queue q where q.dev_ticket_id = t.id) as membership_count,
+        (select count(*) from public.dev_board_activity_event e where e.aggregate_id = t.id and e.aggregate_version = t.version and e.event_name = 'DevTicketArchived') as event_count,
+        (select count(*) from public.dev_board_planning_decision_entry p where p.aggregate_id = t.id and p.entry_kind = 'ArchiveRationaleRecorded') as rationale_count
+      from public.dev_board_dev_ticket t where t.id = ${ticketId}::uuid
+    `))[0], database!);
+    expect(archivedState).toMatchObject({ lane: "backlog", last_active_lane: "todo", ready_state: "draft", archived_by_user_id: ownerId, archived_reason: "Superseded by a narrower plan." });
+    expect(archivedState!['ready_approval_contract_version']).toBeNull();
+    expect(archivedState!['ready_approval_content_hash']).toBeNull();
+    expect(archivedState!['ready_approved_by_user_id']).toBeNull();
+    expect(archivedState!['ready_approved_at']).toBeNull();
+    expect(archivedState!['ready_approval_command_id']).toBeNull();
+    expect(Number(archivedState!['membership_count'])).toBe(0);
+    expect(Number(archivedState!['event_count'])).toBe(1);
+    expect(Number(archivedState!['rationale_count'])).toBe(1);
+    const projection = await withTenant(organizationId, (tx) => deps!.planningStore.listArchivedDevTickets(tx, organizationId, testWorkspaceId), database!);
+    expect(projection).toEqual([expect.objectContaining({ recordClass: "archived_dev_ticket", devTicketId: ticketId, lastActiveLane: "todo", archivedByUserId: ownerId, archivedReason: "Superseded by a narrower plan.", activityAggregateId: ticketId, planningAggregateId: ticketId })]);
+    const restoreRequest = envelope("RestoreDevTicket", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 4 }], { workspaceId: testWorkspaceId });
+    expect(await restoreDevTicket(restoreRequest, { devTicketId: ticketId }, deps!)).toMatchObject({ ok: true, value: { resultingVersions: [{ recordKind: "dev_ticket", recordId: ticketId, version: 5 }] } });
+    expect(await archiveDevTicket(envelope("ArchiveDevTicket", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 5 }], { workspaceId: testWorkspaceId }), { devTicketId: ticketId, reason: "Archived again after restore." }, deps!)).toMatchObject({ ok: true });
+    const cycles = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select event_name, aggregate_version from public.dev_board_activity_event
+      where aggregate_id = ${ticketId}::uuid and event_name in ('DevTicketArchived', 'DevTicketRestored') order by aggregate_version
+    `)), database!);
+    expect(cycles.map((event) => ({ ...event, aggregate_version: Number(event["aggregate_version"]) }))).toEqual([
+      { event_name: "DevTicketArchived", aggregate_version: 4 },
+      { event_name: "DevTicketRestored", aggregate_version: 5 },
+      { event_name: "DevTicketArchived", aggregate_version: 6 },
+    ]);
+  });
+  it("rejects active dependents, enforces archive authorization, and round-trips Proposal archive provenance", async () => {
+    const testWorkspaceId = await createWorkspace("Archive guards workspace");
+    const blocker = await createBacklogTicket("archive blocker", testWorkspaceId);
+    const dependent = await createBacklogTicket("archive dependent", testWorkspaceId);
+    const added = await addDependency(envelope("AddDependency", dependent, [
+      { recordKind: "dev_ticket", recordId: dependent, version: 1 }, { recordKind: "dev_ticket", recordId: blocker, version: 1 },
+    ], { workspaceId: testWorkspaceId }), { dependentDevTicketId: dependent, blockerDevTicketId: blocker, reason: "Dependent needs blocker." }, deps!);
+    expect(added).toMatchObject({ ok: true });
+    const blockedArchiveRequest = envelope("ArchiveDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 1 }], { workspaceId: testWorkspaceId });
+    const blockedArchive = await archiveDevTicket(blockedArchiveRequest, { devTicketId: blocker, reason: "Must not strand dependent." }, deps!);
+    expect(blockedArchive).toMatchObject({ ok: false });
+    if (!blockedArchive.ok) expect(blockedArchive.error.code).toBe("dev_board.archive_active_dependents");
+    const blockedArchiveState = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select count(*) from public.dev_board_command_receipt where command_name = 'ArchiveDevTicket' and idempotency_key = ${blockedArchiveRequest.idempotencyKey}) as receipt_count,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${blocker}::uuid) as activity_count,
+        (select count(*) from public.dev_board_planning_decision_entry where aggregate_id = ${blocker}::uuid) as planning_count,
+        (select version from public.dev_board_dev_ticket where id = ${blocker}::uuid) as ticket_version
+    `))[0], database!);
+    const blockedArchiveReplay = await archiveDevTicket(
+      { ...blockedArchiveRequest, commandId: randomUUID() },
+      { devTicketId: blocker, reason: "Must not strand dependent." },
+      deps!,
+    );
+    expect(blockedArchiveReplay).toMatchObject({ ok: false });
+    if (!blockedArchiveReplay.ok && !blockedArchive.ok) expect(blockedArchiveReplay.error.message).toBe(blockedArchive.error.message);
+    const blockedArchiveReplayState = await withTenant(organizationId, async (tx) => rows(await tx.execute(sql`
+      select
+        (select count(*) from public.dev_board_command_receipt where command_name = 'ArchiveDevTicket' and idempotency_key = ${blockedArchiveRequest.idempotencyKey}) as receipt_count,
+        (select count(*) from public.dev_board_activity_event where aggregate_id = ${blocker}::uuid) as activity_count,
+        (select count(*) from public.dev_board_planning_decision_entry where aggregate_id = ${blocker}::uuid) as planning_count,
+        (select version from public.dev_board_dev_ticket where id = ${blocker}::uuid) as ticket_version
+    `))[0], database!);
+    expect(blockedArchiveReplayState).toEqual(blockedArchiveState);
+    expect(Number(blockedArchiveReplayState!["receipt_count"])).toBe(1);
+    if (!added.ok) return;
+    expect((await removeDependency(envelope("RemoveDependency", added.value.dependencyEdgeId!, [], { workspaceId: testWorkspaceId }), { edgeId: added.value.dependencyEdgeId!, expectedEdgeVersion: 1, reason: "Dependency retired." }, deps!)).ok).toBe(true);
+    const stranger = await seedMember(organizationId, "active");
+    const unauthorized = await archiveDevTicket(envelope("ArchiveDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 1 }], { workspaceId: testWorkspaceId, actorRef: { kind: "user", role: "human_owner", stableId: stranger } }), { devTicketId: blocker, reason: "Unauthorized." }, deps!);
+    expect(unauthorized).toMatchObject({ ok: false });
+    if (!unauthorized.ok) expect(unauthorized.error.code).toBe("dev_board.archive_authorization_required");
+    const agentUnauthorized = await archiveDevTicket(envelope("ArchiveDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 1 }], { workspaceId: testWorkspaceId, actorRef: { kind: "agent", role: "agent", stableId: ownerId } }), { devTicketId: blocker, reason: "Agents cannot archive." }, deps!);
+    expect(agentUnauthorized).toMatchObject({ ok: false });
+    if (!agentUnauthorized.ok) expect(agentUnauthorized.error.code).toBe("dev_board.archive_authorization_required");
+    await grantOrganizationRole(stranger, "admin");
+    const adminActor = { kind: "user", role: "human_owner", stableId: stranger } as const;
+    expect((await archiveDevTicket(envelope("ArchiveDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 1 }], { workspaceId: testWorkspaceId, actorRef: adminActor }), { devTicketId: blocker, reason: "Organization admin archive." }, deps!)).ok).toBe(true);
+    expect((await restoreDevTicket(envelope("RestoreDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 2 }], { workspaceId: testWorkspaceId, actorRef: adminActor }), { devTicketId: blocker }, deps!)).ok).toBe(true);
+    expect((await archiveDevTicket(envelope("ArchiveDevTicket", blocker, [{ recordKind: "dev_ticket", recordId: blocker, version: 3 }], { workspaceId: testWorkspaceId }), { devTicketId: blocker, reason: "Dependency retired." }, deps!)).ok).toBe(true);
+    const proposalId = randomUUID();
+    expect((await draftProposal(envelope("DraftProposal", proposalId, [], { workspaceId: testWorkspaceId }), { discoverySummary: "proposal archive restore", blockingAssessment: "non_blocking" }, deps!)).ok).toBe(true);
+    expect((await archiveProposal(envelope("ArchiveProposal", proposalId, [{ recordKind: "proposal", recordId: proposalId, version: 1 }], { workspaceId: testWorkspaceId }), { proposalId, reason: "Captured elsewhere." }, deps!)).ok).toBe(true);
+    const proposalProjection = await withTenant(organizationId, (tx) => deps!.planningStore.listArchivedProposals(tx, organizationId, testWorkspaceId), database!);
+    expect(proposalProjection).toEqual([expect.objectContaining({ recordClass: "archived_proposal", proposalId, archivedByUserId: ownerId, archivedReason: "Captured elsewhere.", activityAggregateId: proposalId, planningAggregateId: proposalId })]);
+    expect((await restoreProposal(envelope("RestoreProposal", proposalId, [{ recordKind: "proposal", recordId: proposalId, version: 2 }], { workspaceId: testWorkspaceId }), { proposalId }, deps!)).ok).toBe(true);
+    const proposalState = await withTenant(organizationId, (tx) => deps!.planningStore.selectProposalForUpdate(tx, organizationId, testWorkspaceId, proposalId), database!);
+    expect(proposalState).toMatchObject({ lifecycleState: "draft", version: 3, archivedAt: null, archivedByUserId: null, archivedReason: null });
+  });
+  it("keeps archived Done history non-executable and never exposes archive projections across tenants", async () => {
+    const testWorkspaceId = await createWorkspace("Done restore archive workspace");
+    const ticketId = await approveTicket("Done history", testWorkspaceId);
+    await withTenant(organizationId, async (tx) => {
+      await deps!.planningStore.deleteTodoQueueMembership(tx, organizationId, testWorkspaceId, ticketId);
+      await tx.execute(sql`update public.dev_board_dev_ticket set lane = 'done' where id = ${ticketId}::uuid`);
+    }, database!);
+    expect((await archiveDevTicket(envelope("ArchiveDevTicket", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 3 }], { workspaceId: testWorkspaceId }), { devTicketId: ticketId, reason: "Done evidence retained." }, deps!)).ok).toBe(true);
+    const restore = await restoreDevTicket(envelope("RestoreDevTicket", ticketId, [{ recordKind: "dev_ticket", recordId: ticketId, version: 4 }], { workspaceId: testWorkspaceId }), { devTicketId: ticketId }, deps!);
+    expect(restore).toMatchObject({ ok: false });
+    if (!restore.ok) expect(restore.error.code).toBe("dev_board.done_restore_history_only");
+    const crossTenantProjection = await withTenant(otherOrganizationId, (tx) => deps!.planningStore.listArchivedDevTickets(tx, otherOrganizationId, testWorkspaceId), database!);
+    expect(crossTenantProjection).toEqual([]);
   });
 });
 
