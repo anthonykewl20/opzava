@@ -11,8 +11,20 @@ export type {
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
 export type { DevBoardPlanningStore, DevTicketRow, InsertDevTicketInput, InsertProposalInput, ProposalRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, ApproveReadyToTodoInput, CommandResult, DevBoardPlanningCommandDependencies, DraftProposalInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
-export { acceptProposal, approveReadyToTodo, draftProposal, submitProposal } from "./application/dev-board-planning-commands.js";
+export type { AcceptProposalInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
+export {
+  acceptProposal,
+  admitDone as admitDevTicketDone,
+  approveReadyToTodo,
+  archiveProposal,
+  claim as claimDevTicket,
+  draftProposal,
+  mergeProposal,
+  rejectProposal,
+  start as startDevTicket,
+  submitForReview as submitDevTicketForReview,
+  submitProposal,
+} from "./application/dev-board-planning-commands.js";
 export { InMemoryCommandReceiptRepository } from "./adapters/in-memory-command-receipt-repository.js";
 export {
   InMemoryDevBoardLedgerAppendStore,

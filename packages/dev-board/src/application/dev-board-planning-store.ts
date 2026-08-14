@@ -1,4 +1,5 @@
 import type { TenantTransaction } from "@opzava/adapters";
+import type { Result } from "@opzava/shared-kernel";
 
 import type { DevTicketLane, OriginKind, ReadyState } from "../domain/dev-ticket.js";
 import type { BlockingAssessment, ProposalLifecycleState } from "../domain/proposal.js";
@@ -58,6 +59,8 @@ export interface UpdateProposalInput {
   readonly lifecycleState: ProposalLifecycleState;
   readonly acceptedCommandId: string | null;
   readonly acceptedDevTicketId: string | null;
+  /** Undefined preserves the overlay; a date applies an archive overlay. */
+  readonly archivedAt?: Date | null;
 }
 
 export interface InsertDevTicketInput {
@@ -85,6 +88,15 @@ export interface UpdateDevTicketForReadyApprovalInput {
 }
 
 export interface DevBoardPlanningStore {
+  /**
+   * Runs a persistence operation behind a transaction savepoint where the adapter supports one.
+   * Constraint failures are returned as stable domain errors so the reserved receipt can be
+   * finalized instead of losing the entire transaction and retrying forever.
+   */
+  executeRiskyMutation<T>(
+    tx: TenantTransaction,
+    mutation: () => Promise<T>,
+  ): Promise<Result<T>>;
   selectProposalForUpdate(
     tx: TenantTransaction,
     organizationId: string,

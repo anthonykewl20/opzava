@@ -1,4 +1,5 @@
 import type { TenantTransaction } from "@opzava/adapters";
+import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
 import type {
   DevBoardPlanningStore,
@@ -18,6 +19,35 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
   public readonly proposals = new Map<string, ProposalRow>();
   public readonly devTickets = new Map<string, DevTicketRow>();
 
+  public async executeRiskyMutation<T>(
+    _tx: TenantTransaction,
+    mutation: () => Promise<T>,
+  ): Promise<Result<T>> {
+    try {
+      return ok(await mutation());
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { readonly code?: unknown }).code
+          : undefined;
+      if (code === "23503" || code === "23505") {
+        return err(
+          new DomainError({
+            code:
+              code === "23503"
+                ? "dev_board.constraint_reference_invalid"
+                : "dev_board.constraint_conflict",
+            message:
+              code === "23503"
+                ? "A referenced Dev Board record is not valid."
+                : "A Dev Board record with this identity already exists.",
+          }),
+        );
+      }
+      throw error;
+    }
+  }
+
   public async selectProposalForUpdate(
     _tx: TenantTransaction,
     organizationId: string,
@@ -31,6 +61,9 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     _tx: TenantTransaction,
     input: InsertProposalInput,
   ): Promise<ProposalRow> {
+    if (this.proposals.has(key(input.organizationId, input.workspaceId, input.id))) {
+      throw { code: "23505" };
+    }
     const row: ProposalRow = {
       id: input.id,
       organizationId: input.organizationId,
@@ -61,6 +94,7 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       lifecycleState: input.lifecycleState,
       acceptedCommandId: input.acceptedCommandId,
       acceptedDevTicketId: input.acceptedDevTicketId,
+      ...(input.archivedAt === undefined ? {} : { archivedAt: input.archivedAt }),
       version: current.version + 1,
     };
     this.proposals.set(mapKey, row);
@@ -80,6 +114,17 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     _tx: TenantTransaction,
     input: InsertDevTicketInput,
   ): Promise<DevTicketRow> {
+    if (
+      this.devTickets.has(key(input.organizationId, input.workspaceId, input.id)) ||
+      (input.sourceProposalId !== null &&
+        [...this.devTickets.values()].some(
+          (row) =>
+            row.organizationId === input.organizationId &&
+            row.sourceProposalId === input.sourceProposalId,
+        ))
+    ) {
+      throw { code: "23505" };
+    }
     const row: DevTicketRow = {
       id: input.id,
       organizationId: input.organizationId,

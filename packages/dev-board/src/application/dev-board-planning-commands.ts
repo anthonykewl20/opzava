@@ -42,6 +42,19 @@ export interface AcceptProposalInput {
   readonly humanOwnerUserId: string;
   readonly initialContractContent?: Readonly<Record<string, unknown>>;
 }
+export interface MergeProposalInput {
+  readonly proposalId: string;
+  readonly existingDevTicketId: string;
+  readonly reason: string;
+}
+export interface RejectProposalInput {
+  readonly proposalId: string;
+  readonly reason: string;
+}
+export interface ArchiveProposalInput {
+  readonly proposalId: string;
+  readonly reason: string;
+}
 export interface ApproveReadyToTodoInput {
   readonly devTicketId: string;
   readonly readyContractContent: Readonly<Record<string, unknown>>;
@@ -56,7 +69,7 @@ function expected(envelope: CommandEnvelope, kind: string, id: string): number |
   const values = envelope.expectedVersions.filter(
     (value) => value.recordKind === kind && value.recordId === id,
   );
-  return envelope.expectedVersions.length === 1 && values.length === 1 ? values[0]!.version : null;
+  return values.length === 1 ? values[0]!.version : null;
 }
 async function reject(
   tx: TenantTransaction,
@@ -70,6 +83,7 @@ async function reject(
     commandId: envelope.commandId,
     outcome: "rejected",
     outcomeCode: code,
+    resultSummary: { message },
   });
   if (!result.ok) throw result.error;
   return err(failure(code, message));
@@ -89,9 +103,19 @@ function replay(receipt: CommandReceiptResult): Result<CommandResult> {
       receipt.outcomeCode ?? "dev_board.command_rejected",
       receipt.state === "reserved"
         ? "The command is already in progress."
-        : "The command was rejected.",
+        : typeof receipt.resultSummary?.["message"] === "string"
+          ? receipt.resultSummary["message"]
+          : "The command was rejected.",
     ),
   );
+}
+function decisionReason(value: string): Result<string> {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length === 0
+    ? err(failure("dev_board.decision_reason_required", "A decision reason is required."))
+    : normalized.length > 4000
+      ? err(failure("dev_board.decision_reason_too_long", "Decision reason must be 4000 characters or fewer."))
+      : ok(normalized);
 }
 async function planning(
   tx: TenantTransaction,
@@ -217,15 +241,26 @@ export async function draftProposal(
           contract.error.code,
           contract.error.message,
         );
-      const proposal = await deps.planningStore.insertProposal(tx, {
-        id: envelope.targetAggregateId,
-        organizationId: envelope.organizationId,
-        workspaceId: envelope.workspaceId,
-        discoverySummary: summary.value,
-        blockingAssessment: assessment.value,
-        suggestedContract: contract.value,
-        createdCommandId: envelope.commandId,
-      });
+      const inserted = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.insertProposal(tx, {
+          id: envelope.targetAggregateId,
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          discoverySummary: summary.value,
+          blockingAssessment: assessment.value,
+          suggestedContract: contract.value,
+          createdCommandId: envelope.commandId,
+        }),
+      );
+      if (!inserted.ok)
+        return reject(
+          tx,
+          deps.commandReceiptRepository,
+          envelope,
+          inserted.error.code,
+          inserted.error.message,
+        );
+      const proposal = inserted.value;
       await planning(
         tx,
         deps.ledger,
@@ -239,9 +274,6 @@ export async function draftProposal(
           suggestedContract: proposal.suggestedContract,
         },
       );
-      await activity(tx, deps.ledger, envelope, proposal.id, proposal.version, "ProposalDrafted", {
-        lifecycleState: proposal.lifecycleState,
-      });
       return accept(
         tx,
         deps.commandReceiptRepository,
@@ -289,15 +321,26 @@ export async function submitProposal(
           "dev_board.proposal_not_draft",
           "Proposal is not a decision draft.",
         );
-      const updated = await deps.planningStore.updateProposal(tx, {
-        organizationId: envelope.organizationId,
-        workspaceId: envelope.workspaceId,
-        proposalId: proposal.id,
-        expectedVersion: version,
-        lifecycleState: "awaiting_decision",
-        acceptedCommandId: null,
-        acceptedDevTicketId: null,
-      });
+      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.updateProposal(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          proposalId: proposal.id,
+          expectedVersion: version,
+          lifecycleState: "awaiting_decision",
+          acceptedCommandId: null,
+          acceptedDevTicketId: null,
+        }),
+      );
+      if (!changed.ok)
+        return reject(
+          tx,
+          deps.commandReceiptRepository,
+          envelope,
+          changed.error.code,
+          changed.error.message,
+        );
+      const updated = changed.value;
       if (updated === null)
         return reject(
           tx,
@@ -372,37 +415,46 @@ export async function acceptProposal(
           contract.error.code,
           contract.error.message,
         );
-      const devTicket = await deps.planningStore.insertDevTicket(tx, {
-        id: randomUUID(),
-        organizationId: envelope.organizationId,
-        workspaceId: envelope.workspaceId,
-        originKind: "proposal",
-        sourceProposalId: proposal.id,
-        humanOwnerUserId: input.humanOwnerUserId,
-        readyContractContent: contract.value,
-        readyContractContentHash: computeReadyContractContentHash({ ...contract.value }),
-        createdCommandId: envelope.commandId,
+      const mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+        const devTicket = await deps.planningStore.insertDevTicket(tx, {
+          id: randomUUID(),
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          originKind: "proposal",
+          sourceProposalId: proposal.id,
+          humanOwnerUserId: input.humanOwnerUserId,
+          readyContractContent: contract.value,
+          readyContractContentHash: computeReadyContractContentHash({ ...contract.value }),
+          createdCommandId: envelope.commandId,
+        });
+        const updated = await deps.planningStore.updateProposal(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          proposalId: proposal.id,
+          expectedVersion: version,
+          lifecycleState: "accepted",
+          acceptedCommandId: envelope.commandId,
+          acceptedDevTicketId: devTicket.id,
+        });
+        return { devTicket, updated };
       });
-      const updated = await deps.planningStore.updateProposal(tx, {
-        organizationId: envelope.organizationId,
-        workspaceId: envelope.workspaceId,
-        proposalId: proposal.id,
-        expectedVersion: version,
-        lifecycleState: "accepted",
-        acceptedCommandId: envelope.commandId,
-        acceptedDevTicketId: devTicket.id,
-      });
+      if (!mutation.ok)
+        return reject(
+          tx,
+          deps.commandReceiptRepository,
+          envelope,
+          mutation.error.code,
+          mutation.error.message,
+        );
+      const { devTicket, updated } = mutation.value;
       if (updated === null)
-        throw failure("dev_board.expected_version_drift", "Proposal version has changed.");
-      await planning(
-        tx,
-        deps.ledger,
-        envelope,
-        updated.id,
-        "ProposalAccepted",
-        "Proposal accepted",
-        { devTicketId: devTicket.id },
-      );
+        return reject(
+          tx,
+          deps.commandReceiptRepository,
+          envelope,
+          "dev_board.expected_version_drift",
+          "Proposal version has changed.",
+        );
       await planning(
         tx,
         deps.ledger,
@@ -439,6 +491,202 @@ export async function acceptProposal(
           { recordKind: "dev_ticket", recordId: devTicket.id, version: devTicket.version },
         ],
         { proposalId: updated.id, devTicketId: devTicket.id },
+      );
+    },
+    deps.database ?? db,
+  );
+}
+
+export async function mergeProposal(
+  envelope: CommandEnvelope,
+  input: MergeProposalInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      const reason = decisionReason(input.reason);
+      if (!reason.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+      const proposalVersion = expected(envelope, "proposal", input.proposalId);
+      const ticketVersion = expected(envelope, "dev_ticket", input.existingDevTicketId);
+      const proposal = await deps.planningStore.selectProposalForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.proposalId,
+      );
+      const ticket = await deps.planningStore.selectDevTicketForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.existingDevTicketId,
+      );
+      if (
+        proposalVersion === null || proposal === null || proposal.version !== proposalVersion ||
+        ticketVersion === null || ticket === null || ticket.version !== ticketVersion
+      )
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift",
+          "Proposal or DevTicket version has changed.",
+        );
+      if (proposal.lifecycleState !== "awaiting_decision" || proposal.archivedAt !== null)
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_not_awaiting_decision",
+          "Proposal is not awaiting a decision.",
+        );
+      if (ticket.archivedAt !== null)
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.dev_ticket_not_active",
+          "DevTicket is archived and cannot receive a Proposal merge.",
+        );
+      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.updateProposal(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          proposalId: proposal.id,
+          expectedVersion: proposalVersion,
+          lifecycleState: "merged",
+          acceptedCommandId: null,
+          acceptedDevTicketId: null,
+        }),
+      );
+      if (!changed.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+      const updated = changed.value;
+      if (updated === null)
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift",
+          "Proposal version has changed.",
+        );
+      await planning(tx, deps.ledger, envelope, ticket.id, "ProposalDecisionRationaleRecorded", "Proposal merged into DevTicket", {
+        proposalId: proposal.id,
+        discoverySummary: proposal.discoverySummary,
+        blockingAssessment: proposal.blockingAssessment,
+        reason: reason.value,
+      });
+      await activity(tx, deps.ledger, envelope, updated.id, updated.version, "ProposalMerged", {
+        devTicketId: ticket.id,
+      });
+      return accept(
+        tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_merged", updated.id,
+        [
+          { recordKind: "proposal", recordId: updated.id, version: updated.version },
+          { recordKind: "dev_ticket", recordId: ticket.id, version: ticket.version },
+        ],
+        { proposalId: updated.id, devTicketId: ticket.id },
+      );
+    },
+    deps.database ?? db,
+  );
+}
+
+export async function rejectProposal(
+  envelope: CommandEnvelope,
+  input: RejectProposalInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return decideProposal(envelope, input, deps, "rejected", "ProposalRejected", "dev_board.proposal_rejected", "Proposal rejected");
+}
+
+export async function archiveProposal(
+  envelope: CommandEnvelope,
+  input: ArchiveProposalInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      const reason = decisionReason(input.reason);
+      if (!reason.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+      const version = expected(envelope, "proposal", input.proposalId);
+      const proposal = await deps.planningStore.selectProposalForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.proposalId,
+      );
+      if (version === null || proposal === null || proposal.version !== version)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+      if (proposal.archivedAt !== null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_already_archived", "Proposal is already archived.");
+      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.updateProposal(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          proposalId: proposal.id,
+          expectedVersion: version,
+          lifecycleState: proposal.lifecycleState,
+          acceptedCommandId: proposal.acceptedCommandId,
+          acceptedDevTicketId: proposal.acceptedDevTicketId,
+          archivedAt: new Date(),
+        }),
+      );
+      if (!changed.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+      const updated = changed.value;
+      if (updated === null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+      await planning(tx, deps.ledger, envelope, updated.id, "ProposalDecisionRationaleRecorded", "Proposal archived", { reason: reason.value });
+      await activity(tx, deps.ledger, envelope, updated.id, updated.version, "ProposalArchived", {
+        lifecycleState: updated.lifecycleState,
+      });
+      return accept(
+        tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_archived", updated.id,
+        [{ recordKind: "proposal", recordId: updated.id, version: updated.version }], { proposalId: updated.id },
+      );
+    },
+    deps.database ?? db,
+  );
+}
+
+async function decideProposal(
+  envelope: CommandEnvelope,
+  input: RejectProposalInput,
+  deps: DevBoardPlanningCommandDependencies,
+  lifecycleState: "rejected",
+  eventName: "ProposalRejected",
+  outcomeCode: string,
+  subject: string,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      const reason = decisionReason(input.reason);
+      if (!reason.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+      const version = expected(envelope, "proposal", input.proposalId);
+      const proposal = await deps.planningStore.selectProposalForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.proposalId,
+      );
+      if (version === null || proposal === null || proposal.version !== version)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+      if (proposal.lifecycleState !== "awaiting_decision" || proposal.archivedAt !== null)
+        return reject(
+          tx, deps.commandReceiptRepository, envelope, "dev_board.proposal_not_awaiting_decision",
+          "Proposal is not awaiting a decision.",
+        );
+      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.updateProposal(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          proposalId: proposal.id,
+          expectedVersion: version,
+          lifecycleState,
+          acceptedCommandId: null,
+          acceptedDevTicketId: null,
+        }),
+      );
+      if (!changed.ok)
+        return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+      const updated = changed.value;
+      if (updated === null)
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Proposal version has changed.");
+      await planning(tx, deps.ledger, envelope, updated.id, "ProposalDecisionRationaleRecorded", subject, { reason: reason.value });
+      await activity(tx, deps.ledger, envelope, updated.id, updated.version, eventName, {
+        lifecycleState: updated.lifecycleState,
+      });
+      return accept(
+        tx, deps.commandReceiptRepository, envelope, outcomeCode, updated.id,
+        [{ recordKind: "proposal", recordId: updated.id, version: updated.version }], { proposalId: updated.id },
       );
     },
     deps.database ?? db,
@@ -499,17 +747,28 @@ export async function approveReadyToTodo(
           contract.error.message,
         );
       const hash = computeReadyContractContentHash({ ...contract.value });
-      const updated = await deps.planningStore.updateDevTicketForReadyApproval(tx, {
-        organizationId: envelope.organizationId,
-        workspaceId: envelope.workspaceId,
-        devTicketId: ticket.id,
-        expectedVersion: version,
-        readyContractVersion: ticket.readyContractVersion + 1,
-        readyContractContent: contract.value,
-        readyContractContentHash: hash,
-        readyApprovedByUserId: envelope.actorRef.stableId,
-        readyApprovalCommandId: envelope.commandId,
-      });
+      const changed = await deps.planningStore.executeRiskyMutation(tx, () =>
+        deps.planningStore.updateDevTicketForReadyApproval(tx, {
+          organizationId: envelope.organizationId,
+          workspaceId: envelope.workspaceId,
+          devTicketId: ticket.id,
+          expectedVersion: version,
+          readyContractVersion: ticket.readyContractVersion + 1,
+          readyContractContent: contract.value,
+          readyContractContentHash: hash,
+          readyApprovedByUserId: envelope.actorRef.stableId,
+          readyApprovalCommandId: envelope.commandId,
+        }),
+      );
+      if (!changed.ok)
+        return reject(
+          tx,
+          deps.commandReceiptRepository,
+          envelope,
+          changed.error.code,
+          changed.error.message,
+        );
+      const updated = changed.value;
       if (updated === null)
         return reject(
           tx,
@@ -537,7 +796,7 @@ export async function approveReadyToTodo(
         envelope,
         updated.id,
         updated.version,
-        "ReadyApprovedToTodo",
+        "ReadyApproved",
         {
           lane: updated.lane,
           readyApprovalContractVersion: updated.readyApprovalContractVersion,
@@ -553,6 +812,57 @@ export async function approveReadyToTodo(
         [{ recordKind: "dev_ticket", recordId: updated.id, version: updated.version }],
         { devTicketId: updated.id },
       );
+    },
+    deps.database ?? db,
+  );
+}
+
+/** TB-01 declares these workflow commands but must not grant execution/review authority yet. */
+export async function claim(
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return rejectUntilGate(envelope, deps, "dev_board.gate.claim_disabled_until_tb02", "Claim is disabled until TB-02 ships.");
+}
+
+export async function start(
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return rejectUntilGate(envelope, deps, "dev_board.gate.start_disabled_until_tb02", "Start is disabled until TB-02 ships.");
+}
+
+export async function submitForReview(
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return rejectUntilGate(
+    envelope,
+    deps,
+    "dev_board.gate.submit_for_review_disabled_until_tb-rv1",
+    "Submit for Review is disabled until TB-RV1 ships.",
+  );
+}
+
+export async function admitDone(
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return rejectUntilGate(envelope, deps, "dev_board.gate.admit_done_disabled_until_tb-rv1", "Done admission is disabled until TB-RV1 ships.");
+}
+
+async function rejectUntilGate(
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+  code: string,
+  message: string,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      return reject(tx, deps.commandReceiptRepository, envelope, code, message);
     },
     deps.database ?? db,
   );
