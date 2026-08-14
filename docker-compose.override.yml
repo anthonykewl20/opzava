@@ -20,7 +20,7 @@ services:
 
   postgres:
     ports:
-      - "15432:5432"
+      - "127.0.0.1:25432:5432"
 
   minio:
     ports:
@@ -32,4 +32,4 @@ services:
   # Host port 18799: 18789 is taken by the developer's own local OpenClaw.
   openclaw-platform-gateway:
     ports:
-      - "18799:18789"
+      - "127.0.0.1:28799:18789"
