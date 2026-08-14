@@ -13,7 +13,7 @@ are surfaced in §2-note + §A so nothing is silently dropped, but they are not 
 report sequences around.
 
 **Headline.** Three independent program roots, **no shared blocker** between them:
-- **Dev Board** — `TB-01` (Frontier 0; the single true start) — **IN PROGRESS**: `TB-01b-1` (atomic command spine + four-ledger skeleton, merged) and `TB-01b-2` (DevTicket aggregate + DraftProposal/SubmitProposal/AcceptProposal/ApproveReadyToTodo + `0021` state schema, merged via #331) `TB-01b-3` (MergeProposal/RejectProposal/ArchiveProposal + fail-closed Claim/Start/SubmitForReview/AdmitDone + savepoint-mapped FK/unique terminal receipts + wf230 event-routing alignment, merged via #333), and `TB-01b-4` (AddDependency/RemoveDependency + cycle detection + completion lock + todo-lane Ready invalidation, merged via #334) have landed. Remaining TB-01 sub-slices: ReorderTodo + lane queue, full classifications, reversible archive + Historical Projection, legacy import.
+- **Dev Board** — `TB-01` (Frontier 0; the single true start) — **IN PROGRESS**: `TB-01b-1` (atomic command spine + four-ledger skeleton, merged) and `TB-01b-2` (DevTicket aggregate + DraftProposal/SubmitProposal/AcceptProposal/ApproveReadyToTodo + `0021` state schema, merged via #331) `TB-01b-3` (MergeProposal/RejectProposal/ArchiveProposal + fail-closed Claim/Start/SubmitForReview/AdmitDone + savepoint-mapped FK/unique terminal receipts + wf230 event-routing alignment, merged via #333), and `TB-01b-4` (AddDependency/RemoveDependency + cycle detection + completion lock + todo-lane Ready invalidation, merged via #334), and `TB-01b-5` (authoritative Todo lane queue + ReorderTodo, migration 0022, merged via #336) have landed. Remaining TB-01 sub-slices: full classifications/roles, reversible archive + Historical Projection, legacy import.
 - **Admin CC** — `TB-F1` (Wave-0 frontier).
 - **Ask Admin** — `A0` (de-risk GATE), `A4` (data layer), `A7` (hard gate; closes #253), all
   unblocked.
@@ -172,6 +172,10 @@ gates. "Blockers" lists only the unmerged *internal* deps (all are foundation-or
 - **Admin CC** (`wf246` §4 D2/D3, §5; marked `[ext]` — composition publishable now, execution-semantics gated):
   - `TB-D3` — Environments leaf → ext **#229** (Review identity/lease; Docker Review = evidence only).
   - `TB-D2` — Runners leaf → ext **#229/#233** for selector/capacity *mutation*; #232 trust contract for attestation (enrollment presentation + capacity projection ship now).
+
+### A7/#335 — Done-gate reconciliation status (2026-08-14)
+
+Consensus-terra HYBRID verdict (recorded in full on #335, closed): Contract B (`markTaskDone`) stands as a **time-boxed legacy exception** — web session paths only, retired at verified Dev Board cutover in favor of wf229's proof-bound `AdmitDone`; never a template for agent surfaces. **A7-AF landed** (PR #337, migration 0023): append-only terminal-transition rejection audit floor — closed 12-value reason vocabulary, own-tx never-masking adapter, RLS append-only. **A12 widening is gated on the floor being present (now satisfied) plus its own readiness gate.** Remaining #335 steps: boundary-layer (zod/parse) audit decision (deferred — pre-auth malformed input); retire `markTaskDone` + legacy terminal APIs at cutover; carry attestation PROPERTIES (not the token) into human Merge Authorization.
 
 ### #253 — Done-gate server-side attestation (spec'd by #218)
 - **#253 is not a TB blocker — it is the code bug that Ask Admin `A7` closes** (`wf220` §1.10;
