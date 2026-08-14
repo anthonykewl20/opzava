@@ -1,5 +1,6 @@
 import {
   mapDatabaseError,
+  PostgresTaskTerminalAttemptAuditAdapter,
   sql,
   withTenant,
   type TenantTransaction,
@@ -71,6 +72,8 @@ export interface CreateTaskInput extends TaskApplicationContext {
   readonly provenanceSource?: string;
   readonly provenanceExternalRef?: string | null;
   readonly idempotencyKey?: string;
+  /** Authoritative source surface; it intentionally takes precedence over attestation.confirmSource. */
+  readonly surface?: TaskTerminalAttemptSurface;
 }
 
 export interface UpdateTaskInput extends TaskApplicationContext {
@@ -86,6 +89,8 @@ export interface MoveTaskInput extends TaskApplicationContext {
   readonly taskId: string;
   readonly status: TaskStatus;
   readonly position: number;
+  /** Authoritative source surface; it intentionally takes precedence over attestation.confirmSource. */
+  readonly surface?: TaskTerminalAttemptSurface;
 }
 
 export interface HumanCommandAttestation {
@@ -102,7 +107,51 @@ export interface MarkTaskDoneInput extends TaskApplicationContext {
   readonly taskId: string;
   readonly position: number;
   readonly humanCommand: HumanCommandAttestation;
+  /** Authoritative source surface; it intentionally takes precedence over attestation.confirmSource. */
+  readonly surface?: TaskTerminalAttemptSurface;
 }
+
+export type TaskTerminalAttemptSurface = "web" | "runtime_control_tool" | "mcp" | "other";
+export type TaskTerminalAttemptAction = "create" | "move" | "mark_done";
+export type TaskTerminalAttemptHardReason =
+  | "create_with_terminal_status"
+  | "terminal_transition_requires_governed_admission"
+  | "attestation_invalid"
+  | "attestation_principal_mismatch"
+  | "nonce_not_found"
+  | "nonce_expired"
+  | "nonce_conflict"
+  | "nonce_bound_to_other_task"
+  | "nonce_scope_mismatch"
+  | "review_missing"
+  | "review_scope_mismatch"
+  | "review_not_approved";
+
+export interface TaskTerminalAttemptAuditInput {
+  readonly organizationId: string;
+  readonly workspaceId?: string | null;
+  readonly surface: TaskTerminalAttemptSurface;
+  readonly attemptedAction: TaskTerminalAttemptAction;
+  readonly targetTaskId?: string | null;
+  readonly actorUserId?: string | null;
+  readonly hardReason: TaskTerminalAttemptHardReason;
+  readonly nonceConfirmationId?: string | null;
+  /** Bounded booleans/enums only; task content and confirmation nonce values are forbidden. */
+  readonly detail?: Readonly<Record<string, boolean | string>> | null;
+}
+
+export interface TaskTerminalAttemptAuditPort {
+  appendTerminalAttempt(input: TaskTerminalAttemptAuditInput): Promise<Result<void>>;
+}
+
+/** Unit-test in-memory adapter: terminal attempts are intentionally discarded. */
+export class InMemoryTaskTerminalAttemptAuditAdapter implements TaskTerminalAttemptAuditPort {
+  public async appendTerminalAttempt(): Promise<Result<void>> {
+    return ok(undefined);
+  }
+}
+
+export const NoopTaskTerminalAttemptAuditAdapter = InMemoryTaskTerminalAttemptAuditAdapter;
 
 export interface GetTaskInput extends TaskApplicationContext {
   readonly taskId: string;
@@ -310,7 +359,11 @@ export interface ApproveQualityReviewInput extends TaskApplicationContext {
 
 export interface TaskApplicationDependencies {
   readonly authorizationPort?: AuthorizationPort;
+  readonly terminalAttemptAuditPort?: TaskTerminalAttemptAuditPort;
 }
+
+const defaultTaskTerminalAttemptAuditPort: TaskTerminalAttemptAuditPort =
+  new PostgresTaskTerminalAttemptAuditAdapter();
 
 export interface CleanupDoneConfirmationsInput {
   readonly orgId: string;
@@ -679,6 +732,78 @@ function hasValidHumanCommandAttestation(input: MarkTaskDoneInput): boolean {
     typeof fields["confirmNonce"] === "string" &&
     uuidPattern.test(fields["confirmNonce"])
   );
+}
+
+function taskTerminalAttemptSurface(
+  input: { readonly surface?: TaskTerminalAttemptSurface },
+): TaskTerminalAttemptSurface {
+  return input.surface ?? "web";
+}
+
+function invalidAttestationReason(input: MarkTaskDoneInput): TaskTerminalAttemptHardReason {
+  const humanCommand: unknown = input.humanCommand;
+  if (typeof humanCommand !== "object" || humanCommand === null) return "attestation_invalid";
+  const fields = humanCommand as Record<string, unknown>;
+  if (
+    fields["confirmSource"] === "admin-web" &&
+    typeof fields["confirmNonce"] === "string" &&
+    uuidPattern.test(fields["confirmNonce"]) &&
+    typeof fields["confirmedByUserId"] === "string" &&
+    fields["confirmedByUserId"] !== input.actor.userId
+  ) {
+    return "attestation_principal_mismatch";
+  }
+  return "attestation_invalid";
+}
+
+async function appendTerminalAttempt(
+  input: TaskTerminalAttemptAuditInput,
+  dependencies: TaskApplicationDependencies,
+): Promise<void> {
+  try {
+    const appended = await (
+      dependencies.terminalAttemptAuditPort ?? defaultTaskTerminalAttemptAuditPort
+    ).appendTerminalAttempt(input);
+    if (appended.ok) return;
+  } catch {
+    // Auditing is best-effort; an injected implementation must not alter terminal denial.
+  }
+  // Project Management has no ErrorCapturePort dependency. This is the reachable operational
+  // alert seam and deliberately omits command content, nonce values, and adapter error details.
+  console.warn(
+    JSON.stringify({
+      marker: "audit_write_failed",
+      operation: "task_terminal_transition_attempt",
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId ?? null,
+      attemptedAction: input.attemptedAction,
+      hardReason: input.hardReason,
+    }),
+  );
+}
+
+async function classifyRejectedDoneConfirmation(
+  tx: TenantTransaction,
+  input: MarkTaskDoneInput,
+): Promise<TaskTerminalAttemptHardReason> {
+  const result = await tx.execute(sql`
+    select task_id, workspace_id, issued_for_user_id,
+      consumed_at is not null as is_consumed,
+      expires_at <= now() as is_expired
+    from public.task_done_confirmation
+    where id = ${input.humanCommand.confirmNonce}
+      and organization_id = ${input.orgId}
+  `);
+  const row = rowsFromExecuteResult(result)[0];
+  if (row === undefined) return "nonce_not_found";
+  if (row["is_consumed"] === true) return "nonce_conflict";
+  if (row["is_expired"] === true) return "nonce_expired";
+  if (String(row["task_id"]) !== input.taskId) return "nonce_bound_to_other_task";
+  if (String(row["workspace_id"]) !== input.workspaceId) return "nonce_scope_mismatch";
+  if (String(row["issued_for_user_id"]) !== input.actor.userId) {
+    return "attestation_principal_mismatch";
+  }
+  return "nonce_conflict";
 }
 
 function assertKnownUuid(value: string, field: string): Result<void> {
@@ -1457,6 +1582,17 @@ export async function createTask(
     return err(status.error);
   }
   if (isTerminalTaskStatus(status.value)) {
+    await appendTerminalAttempt(
+      {
+        organizationId: input.orgId,
+        workspaceId: input.workspaceId,
+        surface: taskTerminalAttemptSurface(input),
+        attemptedAction: "create",
+        actorUserId: input.actor.userId,
+        hardReason: "create_with_terminal_status",
+      },
+      dependencies,
+    );
     return err(taskDoneRequiresHumanAttestation());
   }
 
@@ -1824,6 +1960,18 @@ export async function moveTask(
     return err(status.error);
   }
   if (isTerminalTaskStatus(status.value)) {
+    await appendTerminalAttempt(
+      {
+        organizationId: input.orgId,
+        workspaceId: input.workspaceId,
+        surface: taskTerminalAttemptSurface(input),
+        attemptedAction: "move",
+        targetTaskId: input.taskId,
+        actorUserId: input.actor.userId,
+        hardReason: "terminal_transition_requires_governed_admission",
+      },
+      dependencies,
+    );
     return err(taskDoneRequiresHumanAttestation());
   }
 
@@ -3048,6 +3196,11 @@ export async function markTaskDone(
   input: MarkTaskDoneInput,
   dependencies: TaskApplicationDependencies = {},
 ): Promise<Result<TaskDto>> {
+  /**
+   * Legacy compatibility exception (#335): only apps/web session paths may use this human
+   * confirmation flow. Retire it at verified Dev Board cutover in favour of wf229's proof-bound
+   * AdmitDone; it is never a template for new commands or agent surfaces.
+   */
   const knownIds = assertKnownIds(input);
   if (!knownIds.ok) {
     return err(knownIds.error);
@@ -3074,18 +3227,41 @@ export async function markTaskDone(
   }
 
   if (!hasValidHumanCommandAttestation(input)) {
+    await appendTerminalAttempt(
+      {
+        organizationId: input.orgId,
+        workspaceId: input.workspaceId,
+        surface: taskTerminalAttemptSurface(input),
+        attemptedAction: "mark_done",
+        targetTaskId: input.taskId,
+        actorUserId: input.actor.userId,
+        hardReason: invalidAttestationReason(input),
+      },
+      dependencies,
+    );
     return err(taskDoneRequiresHumanAttestation());
   }
 
   try {
-    return await withTenant(input.orgId, async (tx) => {
+    const outcome = await withTenant(input.orgId, async (tx) => {
       const review = await selectQualityReview(tx, input.taskId);
-      if (
-        review === null ||
-        review.workspaceId !== input.workspaceId ||
-        review.status !== "approved"
-      ) {
-        return err(taskDoneRequiresApprovedReview());
+      if (review === null) {
+        return {
+          result: err(taskDoneRequiresApprovedReview()),
+          hardReason: "review_missing" as const,
+        };
+      }
+      if (review.workspaceId !== input.workspaceId) {
+        return {
+          result: err(taskDoneRequiresApprovedReview()),
+          hardReason: "review_scope_mismatch" as const,
+        };
+      }
+      if (review.status !== "approved") {
+        return {
+          result: err(taskDoneRequiresApprovedReview()),
+          hardReason: "review_not_approved" as const,
+        };
       }
 
       const consumed = await tx.execute(sql`
@@ -3104,7 +3280,16 @@ export async function markTaskDone(
         returning id
       `);
       if (rowsFromExecuteResult(consumed)[0] === undefined) {
-        return err(taskDoneRequiresHumanAttestation());
+        try {
+          return {
+            result: err(taskDoneRequiresHumanAttestation()),
+            hardReason: await classifyRejectedDoneConfirmation(tx, input),
+          };
+        } catch {
+          // The classification SELECT is diagnostic only. If it fails, preserve the legacy coarse
+          // attestation rejection rather than surfacing a different error or changing gate semantics.
+          return { result: err(taskDoneRequiresHumanAttestation()) };
+        }
       }
 
       const result = await tx.execute(sql`
@@ -3141,8 +3326,24 @@ export async function markTaskDone(
         );
       }
 
-      return ok(rowToTaskDto(row));
+      return { result: ok(rowToTaskDto(row)) };
     });
+    if (outcome.hardReason !== undefined) {
+      await appendTerminalAttempt(
+        {
+          organizationId: input.orgId,
+          workspaceId: input.workspaceId,
+          surface: taskTerminalAttemptSurface(input),
+          attemptedAction: "mark_done",
+          targetTaskId: input.taskId,
+          actorUserId: input.actor.userId,
+          hardReason: outcome.hardReason,
+          nonceConfirmationId: input.humanCommand.confirmNonce,
+        },
+        dependencies,
+      );
+    }
+    return outcome.result;
   } catch (error) {
     if (error instanceof TaskCommandRollbackError) {
       return err(error.domainError);

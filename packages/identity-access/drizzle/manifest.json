@@ -90,6 +90,10 @@
       "sha256": "5613d20902f74926fc9c7f0c3c47e7ae44487a06de764f7006a73b2325854204"
     },
     {
+      "path": "0023_task_terminal_transition_attempt.sql",
+      "sha256": "de750ab92f9633f3749af4a34bd63020eaf629f1dbf05c4d28ffadd377fe332e"
+    },
+    {
       "path": "0022_dev_board_lane_queue.sql",
       "sha256": "29b8d6218b446fe76afd4ed7a7ab1a4200b9f4dd798c32165953e25fcb5b48c3"
     }

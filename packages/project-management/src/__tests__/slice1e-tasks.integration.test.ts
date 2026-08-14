@@ -8,9 +8,9 @@ import {
   withTenant,
 } from "@opzava/adapters";
 import type { AuthorizationPort } from "@opzava/ports";
-import { ok } from "@opzava/shared-kernel";
+import { DomainError, err, ok } from "@opzava/shared-kernel";
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   addComment,
@@ -199,11 +199,28 @@ async function selectStepsWithoutWithTenant(
   return rowsFromExecuteResult(result);
 }
 
+async function terminalAttemptRows(
+  tenant: TenantFixture,
+): Promise<ReadonlyArray<Record<string, unknown>>> {
+  return withTenant(tenant.organizationId, async (tx) => {
+    const result = await tx.execute(sql`
+      select surface, attempted_action, target_task_id, actor_user_id, hard_reason, detail
+      from public.task_terminal_transition_attempt
+      order by created_at asc, id asc
+    `);
+    return rowsFromExecuteResult(result);
+  });
+}
+
 async function cleanupCreatedRows(): Promise<void> {
   const organizationIds = [...createdOrganizationIds];
   const userIds = [...createdUserIds];
 
   if (organizationIds.length > 0) {
+    await adminPool.query(
+      "delete from public.task_terminal_transition_attempt where organization_id = any($1::uuid[])",
+      [organizationIds],
+    );
     await adminPool.query(
       "delete from public.task_done_confirmation where organization_id = any($1::uuid[])",
       [organizationIds],
@@ -400,6 +417,7 @@ describe("slice 1e tasks", () => {
       taskId: task.value.id,
       status: "done",
       position: 9,
+      surface: "mcp",
     });
     expect(moved).toMatchObject({
       ok: false,
@@ -422,6 +440,22 @@ describe("slice 1e tasks", () => {
       `),
     );
     expect(rowsFromExecuteResult(doneRows)).toHaveLength(0);
+    expect(await terminalAttemptRows(tenant)).toEqual([
+      expect.objectContaining({
+        surface: "web",
+        attempted_action: "create",
+        target_task_id: null,
+        actor_user_id: tenant.userId,
+        hard_reason: "create_with_terminal_status",
+      }),
+      expect.objectContaining({
+        surface: "mcp",
+        attempted_action: "move",
+        target_task_id: task.value.id,
+        actor_user_id: tenant.userId,
+        hard_reason: "terminal_transition_requires_governed_admission",
+      }),
+    ]);
   });
 
   it("marks Done only with an approved review and a fresh single-use confirmation", async () => {
@@ -453,6 +487,7 @@ describe("slice 1e tasks", () => {
 
     const completed = await markTaskDone(command);
     expect(completed).toMatchObject({ ok: true, value: { status: "done", position: 4 } });
+    expect(await terminalAttemptRows(tenant)).toEqual([]);
 
     const audit = await withTenant(tenant.organizationId, async (tx) =>
       tx.execute(sql`
@@ -475,6 +510,9 @@ describe("slice 1e tasks", () => {
       ok: false,
       error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
+    expect(await terminalAttemptRows(tenant)).toEqual([
+      expect.objectContaining({ hard_reason: "nonce_conflict" }),
+    ]);
   });
 
   it("consumes one Done confirmation exactly once across concurrent commands", async () => {
@@ -583,6 +621,9 @@ describe("slice 1e tasks", () => {
       `),
     );
     expect(rowsFromExecuteResult(state)[0]).toMatchObject({ status: "todo", consumedAt: null });
+    expect(await terminalAttemptRows(tenant)).toEqual([
+      expect.objectContaining({ hard_reason: "review_missing" }),
+    ]);
   });
 
   it("rejects expired, mismatched, unknown, and unauthorized Done confirmations", async () => {
@@ -658,6 +699,30 @@ describe("slice 1e tasks", () => {
       ok: false,
       error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
     });
+    const malformed = await markTaskDone({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: task.value.id,
+      position: 5,
+      humanCommand: {
+        confirmedByUserId: tenant.userId,
+        confirmSource: "admin-web",
+        confirmNonce: "not-a-confirmation-id",
+      },
+    });
+    expect(malformed).toMatchObject({
+      ok: false,
+      error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+    });
+    expect((await terminalAttemptRows(tenant)).map((row) => row["hard_reason"])).toEqual([
+      "nonce_expired",
+      "attestation_principal_mismatch",
+      "nonce_bound_to_other_task",
+      "nonce_not_found",
+      "attestation_principal_mismatch",
+      "attestation_invalid",
+    ]);
 
     const validNonce = await insertDoneConfirmationFixture({ tenant, taskId: task.value.id });
     const unauthorized = await markTaskDone(
@@ -687,6 +752,160 @@ describe("slice 1e tasks", () => {
       taskId: task.value.id,
     });
     expect(loaded).toMatchObject({ ok: true, value: { status: "todo" } });
+  });
+
+  it("classifies nonce workspace and review scope/status rejections without recording task content", async () => {
+    const tenant = await adminCreateTenant("terminal-audit-review-scope");
+    const otherWorkspaceId = randomUUID();
+    await adminPool.query(
+      "insert into public.workspaces (id, organization_id, slug, name) values ($1, $2, $3, $4)",
+      [otherWorkspaceId, tenant.organizationId, `other-${testRunId}`, "Other"],
+    );
+
+    const nonceTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "scope canary TERMINAL-AUDIT-SECRET",
+    });
+    const openReviewTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "open review",
+    });
+    const foreignReviewTask = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "foreign review workspace",
+    });
+    expect(nonceTask.ok && openReviewTask.ok && foreignReviewTask.ok).toBe(true);
+    if (!nonceTask.ok || !openReviewTask.ok || !foreignReviewTask.ok) throw new Error("task fixtures");
+    await approveTaskReview(tenant, nonceTask.value.id);
+    await ensureTaskQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: openReviewTask.value.id,
+    });
+    const foreignReview = await ensureTaskQualityReview({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId: foreignReviewTask.value.id,
+    });
+    expect(foreignReview.ok).toBe(true);
+    if (!foreignReview.ok) throw foreignReview.error;
+    await adminPool.query("update public.task_quality_review set workspace_id = $1 where id = $2", [
+      otherWorkspaceId,
+      foreignReview.value.id,
+    ]);
+
+    const scopedNonce = randomUUID();
+    await withTenant(tenant.organizationId, async (tx) => {
+      await tx.execute(sql`
+        insert into public.task_done_confirmation (
+          id, task_id, organization_id, workspace_id, issued_for_user_id, expires_at
+        ) values (
+          ${scopedNonce}, ${nonceTask.value.id}, ${tenant.organizationId}, ${otherWorkspaceId},
+          ${tenant.userId}, ${new Date(Date.now() + 60_000)}
+        )
+      `);
+    });
+    const command = (taskId: string, nonce: string) => ({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      taskId,
+      position: 0,
+      humanCommand: { confirmedByUserId: tenant.userId, confirmSource: "admin-web" as const, confirmNonce: nonce },
+    });
+    expect(await markTaskDone(command(nonceTask.value.id, scopedNonce))).toMatchObject({ ok: false });
+    expect(
+      await markTaskDone(command(openReviewTask.value.id, randomUUID())),
+    ).toMatchObject({ ok: false, error: { code: "projectManagement.taskDoneRequiresApprovedReview" } });
+    expect(
+      await markTaskDone(command(foreignReviewTask.value.id, randomUUID())),
+    ).toMatchObject({ ok: false, error: { code: "projectManagement.taskDoneRequiresApprovedReview" } });
+
+    const attempts = await terminalAttemptRows(tenant);
+    expect(attempts.map((row) => row["hard_reason"])).toEqual([
+      "nonce_scope_mismatch",
+      "review_not_approved",
+      "review_scope_mismatch",
+    ]);
+    expect(JSON.stringify(attempts)).not.toContain("TERMINAL-AUDIT-SECRET");
+  });
+
+  it("preserves the legacy terminal rejection when its audit append fails loudly", async () => {
+    const tenant = await adminCreateTenant("terminal-audit-append-failure");
+    const task = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "audit append failure",
+    });
+    expect(task.ok).toBe(true);
+    if (!task.ok) throw task.error;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const result = await moveTask(
+        {
+          orgId: tenant.organizationId,
+          workspaceId: tenant.workspaceId,
+          actor: actor(tenant.userId),
+          taskId: task.value.id,
+          status: "done",
+          position: 0,
+        },
+        {
+          terminalAttemptAuditPort: {
+            async appendTerminalAttempt() {
+              return err(
+                new DomainError({ code: "test.auditAppendFailed", message: "intentional failure" }),
+              );
+            },
+          },
+        },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "projectManagement.taskDoneRequiresHumanAttestation" },
+      });
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("audit_write_failed"));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps terminal-attempt rows tenant-scoped and append-only for opzava_app", async () => {
+    const tenant = await adminCreateTenant("terminal-audit-rls-source");
+    const otherTenant = await adminCreateTenant("terminal-audit-rls-other");
+    const rejected = await createTask({
+      orgId: tenant.organizationId,
+      workspaceId: tenant.workspaceId,
+      actor: actor(tenant.userId),
+      title: "source audit row",
+      status: "done",
+    });
+    expect(rejected.ok).toBe(false);
+
+    const crossTenantRows = await withTenant(otherTenant.organizationId, async (tx) => {
+      const result = await tx.execute(sql`
+        select id from public.task_terminal_transition_attempt
+        where organization_id = ${tenant.organizationId}
+      `);
+      return rowsFromExecuteResult(result);
+    });
+    expect(crossTenantRows).toEqual([]);
+
+    await expect(
+      pool.query("update public.task_terminal_transition_attempt set surface = 'other'"),
+    ).rejects.toThrow(/permission denied/i);
+    await expect(
+      pool.query("delete from public.task_terminal_transition_attempt"),
+    ).rejects.toThrow(/permission denied/i);
   });
 
   it("rejects reusing a Done confirmation across tenants", async () => {
