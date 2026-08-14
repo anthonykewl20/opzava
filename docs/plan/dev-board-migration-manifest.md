@@ -84,6 +84,21 @@ The entries below are real code or schema today. They are not the Dev Board targ
 | `0010_slice25_mutation_idempotency.sql`, `0011_slice25_drop_position_unique.sql` | Mutation dedupe and ordering correction                | Frozen migration history; preserve source semantics during backfill.                 |
 | `0013_slice3_per_workspace_card_numbers.sql`                                     | Workspace-scoped card numbers                          | Frozen migration history; retain migrated numbers as historical aliases.             |
 
+### Dev Board expand-contract target storage (landed; legacy still authoritative)
+
+The following forward-only migrations and code are now as-built in `packages/dev-board/`, added
+alongside (not replacing) the legacy Task/Issue storage above. Legacy surfaces remain the product
+surface until cutover (`TB-MG2`).
+
+| Artifact | Scope | Status |
+| --- | --- | --- |
+| `packages/identity-access/drizzle/0020_dev_board_command_spine.sql` | Four-ledger skeleton: `dev_board_command_receipt`, `dev_board_planning_decision_entry`, `dev_board_activity_event`, `dev_board_runner_execution_observation`, `dev_board_sync_outbox_intent`/`provider_delivery`/`conflict`. RLS enable+force + 3-policy + owner/grant pattern. | Landed (TB-01b-1, merged) |
+| `packages/dev-board/` (`CommandEnvelope`, `CommandReceiptRepository` idempotent reserve/replay/finalize, `DevBoardLedgerAppendPort` planning+activity append) | Atomic command spine: transaction-scoped reserve → ledger append → finalize. | Landed (TB-01b-1) |
+| `packages/identity-access/drizzle/0021_dev_board_planning_lifecycle.sql` | State tables `dev_board_proposal`, `dev_board_dev_ticket`, `dev_board_dependency_edge` (same RLS pattern; exact Ready-approval version+content-hash binding CHECKs; `human_owner_user_id → memberships` FK; proposal↔ticket cycle uses `ON DELETE NO ACTION deferrable initially deferred`). | Landed (TB-01b-2, merged, PR #331) |
+| `packages/dev-board/` DevTicket/Proposal domain + `DevBoardPlanningStore` + commands `DraftProposal`/`SubmitProposal`/`AcceptProposal`/`ApproveReadyToTodo` | Planning lifecycle: state-table authoritative (not event-sourced); activity `aggregate_version` mirrors state version; optimistic concurrency via `expectedVersions`; single-winner Accept. | Landed (TB-01b-2) |
+
+GitHub mirror, lane-queue, dependency commands, and active-membership gating are deferred to later TB-01 sub-slices / TB-GH1 (see follow-up #330).
+
 ### Runtime tools and execution projections
 
 | Current artifact                                                     | Current responsibility                                                | Migration disposition                                                                                                                                                                                         |

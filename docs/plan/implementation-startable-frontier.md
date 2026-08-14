@@ -13,7 +13,7 @@ are surfaced in §2-note + §A so nothing is silently dropped, but they are not 
 report sequences around.
 
 **Headline.** Three independent program roots, **no shared blocker** between them:
-- **Dev Board** — `TB-01` (Frontier 0; the single true start).
+- **Dev Board** — `TB-01` (Frontier 0; the single true start) — **IN PROGRESS**: `TB-01b-1` (atomic command spine + four-ledger skeleton, merged) and `TB-01b-2` (DevTicket aggregate + DraftProposal/SubmitProposal/AcceptProposal/ApproveReadyToTodo + `0021` state schema, merged via #331) have landed. Remaining TB-01 sub-slices: Merge/Reject/Archive Proposal, ReorderTodo + lane queue, full classifications, fail-closed Claim/Start/SubmitForReview/AdmitDone, legacy import.
 - **Admin CC** — `TB-F1` (Wave-0 frontier).
 - **Ask Admin** — `A0` (de-risk GATE), `A4` (data layer), `A7` (hard gate; closes #253), all
   unblocked.
@@ -66,7 +66,7 @@ gates. "Blockers" lists only the unmerged *internal* deps (all are foundation-or
 
 | TB | One-line deliverable | Blockers | Acceptance (condensed) |
 | --- | --- | --- | --- |
-| `TB-01` | DevTicket command spine (see §1) | — | (§1) |
+| `TB-01` | DevTicket command spine (see §1; `TB-01b-1` and `TB-01b-2` landed) | — | (§1) |
 | `TB-02` | Execution lifecycle: assignment, two-phase Claim/Start saga, Blocked + ResolveOrSupersedeBlock, Material Revision interruption, Review Handoff skeleton (WIP=3), Absolute Stop, loss/containment. `AdmitDone` *fail-closed* until TB-RV1. | TB-01 (+TB-RN5 real / TB-RN2 fake-runner path) | Review WIP hard cap ≤3; fresh-claim recovery uses new lease/fence/nonce; DB lease fencing alone insufficient |
 | `TB-GH1` | GitHub App bootstrap (see §1) | TB-01 | (§1) |
 | `TB-GH2` | Verified webhook HTTP inbox + Secret-Safe receipt + Postgres RLS/dedupe | TB-GH1 | Real signed raw fixtures through real HTTP route + real Postgres RLS/worker; nothing parses before HMAC |
