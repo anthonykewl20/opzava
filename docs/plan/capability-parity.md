@@ -7,15 +7,17 @@ The frozen grilling, Control-UI port program, and `ux-redesign/mockups/*.html` r
 parity evidence, not current placement authority. OpenClaw capability facts remain grounded in
 `docs/openclaw`.
 
-> **Current versus target (2026-07-16):** the current shell still exposes the root Overview, Tasks,
-> Issues, Ask Admin, and Connections routes. The target Admin Control Center, sidebar, Variant A
-> Overview, dedicated setup pages, and taxonomy below are not built merely because they are mapped
-> here. CRM, Marketing, and Finance are not Admin destinations. Usage & Costs is operational
+> **Current versus target (refreshed 2026-08-15):** Wave-0 (#260) and Wave-1 (#262) have landed the
+> Admin Control Center shell/nav and the Variant A Admin Overview; the Ask Admin entry is pinned.
+> Legacy Tasks, Issues, and Connections routes remain until migrated or redistributed. Remaining
+> destinations are still not built merely because they are mapped here: Sessions & Runs is #306
+> (blocked on owner artifact re-confirmation), and the Usage & Costs, Logs, and Debug pages are
+> unbuilt. CRM, Marketing, and Finance are not Admin destinations. Usage & Costs is operational
 > consumption, quota, capacity, and spend visibility—not billing, invoices, or Finance authority.
 
 > **Dev Board pivot (2026-07-15):** PRD-019/ADR-017 supersede separate Tasks and Issues product surfaces with one **Dev Board**: Summary, List, Board, Sprints, Docs, Development, and Releases. Current `/tasks` and `/issues` modules remain truthful legacy implementation inventory until migrated. OpenClaw Workboard is still deliberately not ported. See `docs/plan/dev-board-migration-manifest.md`; historical issue numbers #147–#157 are not the future implementation source.
 
-## Admin Control Center target (not built)
+## Admin Control Center (shell/nav + Overview landed)
 
 The selected Admin Overview is **Variant A — Priority Command Center**. Its durable visual evidence
 is commit `0dd1bff305e4049d506b997330c5039485107798`, branch `prototype/admin-shell-v1`, file
@@ -85,7 +87,7 @@ do not re-enter through those destinations.
 
 | Mockup screen / feature area                                                                                              | Classification                   | OpenClaw capability / RPC harnessed                                                                                                        | Owning Opzava bounded context     | Effort |
 | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ------ |
-| Admin Control Center shell + Admin Overview (Variant A Priority Command Center; target not built)                        | Composition                      | Sectioned projections from Dev Board, runtime, Connections/Platform-Ops, Observability, and Security; each source retains authority.       | Composition only; no owning bounded context | L |
+| Admin Control Center shell + Admin Overview (Variant A Priority Command Center; landed via #260/#262)              | Composition                      | Sectioned projections from Dev Board, runtime, Connections/Platform-Ops, Observability, and Security; each source retains authority.       | Composition only; no owning bounded context | L |
 | Current root Overview and `shell-overview.html` evidence                                                                  | Current as-built / historical evidence | Current root page/navigation remain until an approved PRD-020 slice replaces them; the mockup does not define target placement.       | web / Notifications/Admin-Observability | S |
 | `essential-home.html`, `essential-projects.html` - Basecamp-style home and project cards                                  | Opzava-owned (build in Postgres) | None for project records; agent/project snippets come from projections.                                                                    | Project Mgmt                      | M      |
 | `essential-my-stuff.html` - personal work rollup, needs-input, following, schedule                                        | Opzava-owned (build in Postgres) | Optional projected `tasks.list`/`cron.runs` for agent-owned work.                                                                          | Project Mgmt                      | M      |
