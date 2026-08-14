@@ -96,8 +96,9 @@ surface until cutover (`TB-MG2`).
 | `packages/dev-board/` (`CommandEnvelope`, `CommandReceiptRepository` idempotent reserve/replay/finalize, `DevBoardLedgerAppendPort` planning+activity append) | Atomic command spine: transaction-scoped reserve → ledger append → finalize. | Landed (TB-01b-1) |
 | `packages/identity-access/drizzle/0021_dev_board_planning_lifecycle.sql` | State tables `dev_board_proposal`, `dev_board_dev_ticket`, `dev_board_dependency_edge` (same RLS pattern; exact Ready-approval version+content-hash binding CHECKs; `human_owner_user_id → memberships` FK; proposal↔ticket cycle uses `ON DELETE NO ACTION deferrable initially deferred`). | Landed (TB-01b-2, merged, PR #331) |
 | `packages/dev-board/` DevTicket/Proposal domain + `DevBoardPlanningStore` + commands `DraftProposal`/`SubmitProposal`/`AcceptProposal`/`ApproveReadyToTodo` | Planning lifecycle: state-table authoritative (not event-sourced); activity `aggregate_version` mirrors state version; optimistic concurrency via `expectedVersions`; single-winner Accept. | Landed (TB-01b-2) |
+| `packages/dev-board/` commands `MergeProposal`/`RejectProposal`/`ArchiveProposal` + fail-closed `Claim`/`Start`/`SubmitForReview`/`AdmitDone` (exported `claimDevTicket`/`startDevTicket`/`submitDevTicketForReview`/`admitDevTicketDone`) + savepoint-mapped 23503/23505 terminal receipts + wf230 event-name/ledger-routing alignment | Proposal lifecycle completed (merge records rationale on target ticket, no second ticket; archive is an overlay); workflow gates fail-closed with named `dev_board.gate.*` reasons and idempotent receipt replay; replay preserves original failure message. | Landed (TB-01b-3, merged, PR #333) |
 
-GitHub mirror, lane-queue, dependency commands, and active-membership gating are deferred to later TB-01 sub-slices / TB-GH1 (see follow-up #330).
+GitHub mirror, lane-queue, dependency commands, classifications/roles, legacy import, and active-membership gating are deferred to later TB-01 sub-slices / TB-GH1 (see follow-up #330).
 
 ### Runtime tools and execution projections
 

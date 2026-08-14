@@ -13,7 +13,7 @@ are surfaced in §2-note + §A so nothing is silently dropped, but they are not 
 report sequences around.
 
 **Headline.** Three independent program roots, **no shared blocker** between them:
-- **Dev Board** — `TB-01` (Frontier 0; the single true start) — **IN PROGRESS**: `TB-01b-1` (atomic command spine + four-ledger skeleton, merged) and `TB-01b-2` (DevTicket aggregate + DraftProposal/SubmitProposal/AcceptProposal/ApproveReadyToTodo + `0021` state schema, merged via #331) have landed. Remaining TB-01 sub-slices: Merge/Reject/Archive Proposal, ReorderTodo + lane queue, full classifications, fail-closed Claim/Start/SubmitForReview/AdmitDone, legacy import.
+- **Dev Board** — `TB-01` (Frontier 0; the single true start) — **IN PROGRESS**: `TB-01b-1` (atomic command spine + four-ledger skeleton, merged) and `TB-01b-2` (DevTicket aggregate + DraftProposal/SubmitProposal/AcceptProposal/ApproveReadyToTodo + `0021` state schema, merged via #331) and `TB-01b-3` (MergeProposal/RejectProposal/ArchiveProposal + fail-closed Claim/Start/SubmitForReview/AdmitDone + savepoint-mapped FK/unique terminal receipts + wf230 event-routing alignment, merged via #333) have landed. Remaining TB-01 sub-slices: dependency graph (b-4), ReorderTodo + lane queue, full classifications, reversible archive + Historical Projection, legacy import.
 - **Admin CC** — `TB-F1` (Wave-0 frontier).
 - **Ask Admin** — `A0` (de-risk GATE), `A4` (data layer), `A7` (hard gate; closes #253), all
   unblocked.
