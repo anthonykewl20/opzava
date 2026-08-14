@@ -90,6 +90,7 @@ import {
   type OpenClawAdminLogger,
 } from "./openclaw-admin-client.js";
 import { PhoneControlDisableReconciler } from "./phone-control-disable-reconciler.js";
+import { ProviderConnectFlowCleanup } from "./provider-connect-flow-cleanup.js";
 import {
   agentsList,
   arrayValue,
@@ -953,6 +954,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
   private readonly modelSetupTokenFlowCleanups = new Map<string, Promise<void>>();
+  private readonly providerConnectFlowCleanup: ProviderConnectFlowCleanup;
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
   private orchestratorReconcileState: OrchestratorReconcileState = { status: "idle" };
   private orchestratorReconcileTail: Promise<void> = Promise.resolve();
@@ -975,6 +977,32 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     this.fetchImpl = options.fetch ?? fetch;
     this.now = options.now ?? (() => new Date());
     this.audit = options.audit ?? noopAuditSink;
+    this.providerConnectFlowCleanup = new ProviderConnectFlowCleanup({
+      gatewayRuntime: () => this.options.gatewayRuntime,
+      now: () => this.now(),
+      configWriteKey,
+      acquireProviderWrite: (key) => this.acquireProviderWrite(key),
+      releaseProviderWrite: (key) => this.releaseProviderWrite(key),
+      store: {
+        getDevice: (flowId) => this.modelDeviceFlows.get(flowId),
+        setDevice: (flowId, flow) => this.modelDeviceFlows.set(flowId, flow),
+        deleteDevice: (flowId) => this.modelDeviceFlows.delete(flowId),
+        deviceFlows: () => [...this.modelDeviceFlows.values()],
+        getDeviceStop: (flowId) => this.modelDeviceFlowStops.get(flowId),
+        setDeviceStop: (flowId, stop) => this.modelDeviceFlowStops.set(flowId, stop),
+        deleteDeviceStop: (flowId) => this.modelDeviceFlowStops.delete(flowId),
+        getSetupToken: (flowId) => this.modelSetupTokenFlows.get(flowId),
+        deleteSetupToken: (flowId) => this.modelSetupTokenFlows.delete(flowId),
+        setupTokenFlows: () => [...this.modelSetupTokenFlows.values()],
+        getSetupTokenCleanup: (flowId) => this.modelSetupTokenFlowCleanups.get(flowId),
+        setSetupTokenCleanup: (flowId, cleanup) =>
+          this.modelSetupTokenFlowCleanups.set(flowId, cleanup),
+        deleteSetupTokenCleanup: (flowId) => this.modelSetupTokenFlowCleanups.delete(flowId),
+      },
+      deviceCleanupRetryMs: modelDeviceFlowCleanupRetryMs,
+      setupTokenCleanupRetryDelaysMs,
+      setupTokenCleanupFinalRetryDelayMs,
+    });
   }
 
   private readonly audit: ErrorCapturePort;
@@ -5220,146 +5248,22 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   private isCurrentActiveModelFlow(flow: PendingModelProviderDeviceFlow): boolean {
-    const current = this.modelDeviceFlows.get(flow.flowId);
-    return current?.generation === flow.generation && current.lifecycle === "active";
+    return this.providerConnectFlowCleanup.isCurrentActiveDeviceFlow(flow);
   }
 
   private async cleanupModelProviderFlow(flow: PendingModelProviderDeviceFlow): Promise<void> {
-    const activeStop = this.modelDeviceFlowStops.get(flow.flowId);
-    if (activeStop !== undefined) {
-      return activeStop;
-    }
-
-    const current = this.modelDeviceFlows.get(flow.flowId);
-    if (current === undefined || current.generation !== flow.generation) {
-      return;
-    }
-    const cancelling: PendingModelProviderDeviceFlow = {
-      ...current,
-      generation: randomUUID(),
-      lifecycle: "cancelling",
-    };
-    // Publish cancellation synchronously before the first await. Initial log parsing and polls use
-    // the same generation+lifecycle guard, so neither can resurrect a stopped flow.
-    this.modelDeviceFlows.set(flow.flowId, cancelling);
-    const reservationKey = configWriteKey(flow.orgId);
-    this.acquireProviderWrite(reservationKey);
-    const stop = (async (): Promise<void> => {
-      try {
-        const runtime = this.options.gatewayRuntime;
-        if (runtime === undefined) {
-          throw new Error("Gateway runtime is unavailable.");
-        }
-        const cancelled = await runtime.cancelDeviceLogin(cancelling.login);
-        if (!cancelled.ok) throw cancelled.error;
-        const mapped = this.modelDeviceFlows.get(flow.flowId);
-        if (mapped?.generation === cancelling.generation && mapped.lifecycle === "cancelling") {
-          clearTimeout(mapped.timeout);
-          this.modelDeviceFlows.delete(flow.flowId);
-        }
-      } catch (error) {
-        const mapped = this.modelDeviceFlows.get(flow.flowId);
-        if (mapped?.generation === cancelling.generation && mapped.lifecycle === "cancelling") {
-          if (this.now().getTime() >= mapped.expiresAt.getTime()) {
-            const retryFlow: PendingModelProviderDeviceFlow = {
-              ...mapped,
-              lifecycle: "active",
-              timeout: setTimeout(() => {
-                const retry = this.modelDeviceFlows.get(flow.flowId);
-                if (retry !== undefined) {
-                  void this.cleanupModelProviderFlow(retry).catch(() => undefined);
-                }
-              }, modelDeviceFlowCleanupRetryMs),
-            };
-            this.modelDeviceFlows.set(flow.flowId, retryFlow);
-          } else {
-            this.modelDeviceFlows.set(flow.flowId, { ...mapped, lifecycle: "active" });
-          }
-        }
-        throw provisioningError(
-          "provisioning.connections.deviceFlowStopUnverified",
-          "Could not confirm that the device-code sign-in stopped.",
-          { causeCode: error instanceof DomainError ? error.code : "runtime_stop_failed" },
-        );
-      } finally {
-        this.releaseProviderWrite(reservationKey);
-      }
-    })();
-    this.modelDeviceFlowStops.set(flow.flowId, stop);
-    try {
-      await stop;
-    } finally {
-      if (this.modelDeviceFlowStops.get(flow.flowId) === stop) {
-        this.modelDeviceFlowStops.delete(flow.flowId);
-      }
-    }
+    return this.providerConnectFlowCleanup.cleanupDeviceFlow(flow);
   }
 
   private async cleanupModelProviderFlowsForProvider(
     providerId: string,
     orgId?: string,
   ): Promise<void> {
-    const flows = [...this.modelDeviceFlows.values()].filter(
-      (flow) => flow.providerId === providerId && (orgId === undefined || flow.orgId === orgId),
-    );
-    await Promise.all(flows.map((flow) => this.cleanupModelProviderFlow(flow)));
+    return this.providerConnectFlowCleanup.cleanupDeviceFlowsForProvider(providerId, orgId);
   }
 
   private async cleanupSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
-    const existing = this.modelSetupTokenFlowCleanups.get(flow.flowId);
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    const cleanup = this.cleanupSetupTokenFlowInner(flow);
-    this.modelSetupTokenFlowCleanups.set(flow.flowId, cleanup);
-    try {
-      await cleanup;
-    } finally {
-      if (this.modelSetupTokenFlowCleanups.get(flow.flowId) === cleanup) {
-        this.modelSetupTokenFlowCleanups.delete(flow.flowId);
-      }
-    }
-  }
-
-  private async cleanupSetupTokenFlowInner(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
-    // Cleanup callers race through public poll paths. Once another caller has successfully
-    // cancelled this opaque handle, it is already clean and a second cancellation returns
-    // interactiveLoginNotFound. Treat that as the idempotent no-op it is.
-    if (!this.isMappedSetupTokenFlow(flow)) return;
-    const runtime = this.options.gatewayRuntime;
-    if (runtime === undefined) {
-      throw new Error("Gateway runtime is unavailable.");
-    }
-    const previousPhase = flow.phase;
-    // Publish cancellation before the first await. In-flight polls and completions now lose
-    // ownership even while the adapter proves the interactive process has stopped.
-    flow.phase = "cancelling";
-    let cancelled: Result<void>;
-    try {
-      cancelled = await runtime.cancelSetupTokenLogin(flow.login);
-    } catch (error) {
-      // Ports should return Result, but a thrown adapter failure cannot prove the process stopped
-      // either. Restore the active flow for the same retry path as a failed Result.
-      if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
-        flow.phase = previousPhase;
-      }
-      throw error;
-    }
-    if (!cancelled.ok) {
-      // Cancellation was not verified. The old process remains authoritative, so restore the
-      // precise previous lifecycle and let callers retry rather than permanently stranding it.
-      if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
-        flow.phase = previousPhase;
-      }
-      if (!this.isMappedSetupTokenFlow(flow)) return;
-      throw cancelled.error;
-    }
-    if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
-      this.modelSetupTokenFlows.delete(flow.flowId);
-      clearTimeout(flow.timeout);
-      if (flow.outcomeCleanupTimeout !== undefined) clearTimeout(flow.outcomeCleanupTimeout);
-    }
+    return this.providerConnectFlowCleanup.cleanupSetupTokenFlow(flow);
   }
 
   private scheduleSetupTokenOutcomeCleanup(
@@ -5368,63 +5272,23 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     retryIndex: number,
     finalAttempt = false,
   ): void {
-    flow.outcomeCleanupTimeout = setTimeout(() => {
-      if (!this.isCurrentSetupTokenFlow(flow) || flow.outcome === undefined) {
-        return;
-      }
-      void this.cleanupSetupTokenFlow(flow).catch((error: unknown) => {
-        if (!this.isCurrentSetupTokenFlow(flow)) {
-          return;
-        }
-        const retryDelayMs = setupTokenCleanupRetryDelaysMs[retryIndex];
-        if (retryDelayMs !== undefined) {
-          this.scheduleSetupTokenOutcomeCleanup(
-            flow,
-            retryDelayMs,
-            retryIndex + 1,
-          );
-          return;
-        }
-
-        // Do not include the opaque handle, error message, or setup token: any could reveal
-        // operational or credential material. Keep the flow mapped so the next long-delay retry
-        // can still verify cancellation and artifact deletion rather than leaking it permanently.
-        console.error("connections.setupToken.cleanupUnverified", {
-          level: "error",
-          providerId: flow.providerId,
-          flowId: flow.flowId,
-          attempts: retryIndex + 1,
-          finalAttempt,
-          causeCode: error instanceof DomainError ? error.code : "runtime_stop_failed",
-        });
-        if (!finalAttempt) {
-          this.scheduleSetupTokenOutcomeCleanup(
-            flow,
-            setupTokenCleanupFinalRetryDelayMs,
-            retryIndex,
-            true,
-          );
-        }
-      });
-    }, delayMs);
+    this.providerConnectFlowCleanup.scheduleSetupTokenOutcomeCleanup(
+      flow,
+      delayMs,
+      retryIndex,
+      finalAttempt,
+    );
   }
 
   private isCurrentSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): boolean {
-    return this.isMappedSetupTokenFlow(flow) && flow.phase !== "cancelling";
-  }
-
-  private isMappedSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): boolean {
-    return this.modelSetupTokenFlows.get(flow.flowId)?.login === flow.login;
+    return this.providerConnectFlowCleanup.isCurrentSetupTokenFlow(flow);
   }
 
   private async cleanupSetupTokenFlowsForProvider(
     providerId: string,
     orgId?: string,
   ): Promise<void> {
-    const flows = [...this.modelSetupTokenFlows.values()].filter(
-      (flow) => flow.providerId === providerId && (orgId === undefined || flow.orgId === orgId),
-    );
-    await Promise.all(flows.map((flow) => this.cleanupSetupTokenFlow(flow)));
+    return this.providerConnectFlowCleanup.cleanupSetupTokenFlowsForProvider(providerId, orgId);
   }
 
   private async pollModelProviderFlow(
