@@ -22,6 +22,7 @@ export interface CommandResult {
   readonly resultingVersions: readonly CommandExpectedVersion[];
   readonly proposalId?: string;
   readonly devTicketId?: string;
+  readonly dependencyEdgeId?: string;
 }
 export interface DevBoardPlanningCommandDependencies {
   readonly commandReceiptRepository: CommandReceiptRepository;
@@ -61,6 +62,21 @@ export interface ApproveReadyToTodoInput {
   readonly expectedContractVersion: number;
   readonly expectedContractContentHash: string;
 }
+export interface AddDependencyInput {
+  readonly dependentDevTicketId: string;
+  readonly blockerDevTicketId: string;
+  readonly reason: string;
+}
+export interface RemoveDependencyInput {
+  readonly edgeId: string;
+  readonly expectedEdgeVersion: number;
+  readonly reason: string;
+}
+export interface DependencyLockStatusInput {
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly devTicketId: string;
+}
 
 function failure(code: string, message: string): DomainError {
   return new DomainError({ code, message });
@@ -77,13 +93,16 @@ async function reject(
   envelope: CommandEnvelope,
   code: string,
   message: string,
+  extra: Readonly<Record<string, unknown>> = {},
+  resultRef?: string,
 ): Promise<Result<never>> {
   const result = await repository.finalizeTransaction(tx, {
     organizationId: envelope.organizationId,
     commandId: envelope.commandId,
     outcome: "rejected",
     outcomeCode: code,
-    resultSummary: { message },
+    resultSummary: { message, ...extra },
+    ...(resultRef === undefined ? {} : { resultRef }),
   });
   if (!result.ok) throw result.error;
   return err(failure(code, message));
@@ -95,7 +114,8 @@ function replay(receipt: CommandReceiptResult): Result<CommandResult> {
       commandId: receipt.commandId,
       resultingVersions: receipt.resultingVersions ?? [],
       ...(typeof summary["proposalId"] === "string" ? { proposalId: summary["proposalId"] } : {}),
-      ...(typeof summary["devTicketId"] === "string" ? { devTicketId: summary["devTicketId"] } : {}),
+        ...(typeof summary["devTicketId"] === "string" ? { devTicketId: summary["devTicketId"] } : {}),
+        ...(typeof summary["dependencyEdgeId"] === "string" ? { dependencyEdgeId: summary["dependencyEdgeId"] } : {}),
     });
   }
   return err(
@@ -189,7 +209,20 @@ async function accept(
     resultingVersions,
     ...(ids["proposalId"] === undefined ? {} : { proposalId: ids["proposalId"] }),
     ...(ids["devTicketId"] === undefined ? {} : { devTicketId: ids["devTicketId"] }),
+    ...(ids["dependencyEdgeId"] === undefined ? {} : { dependencyEdgeId: ids["dependencyEdgeId"] }),
   });
+}
+
+/** Live read gate; it intentionally creates no command receipt or projection cache. */
+export async function dependencyLockStatus(
+  input: DependencyLockStatusInput,
+  deps: Pick<DevBoardPlanningCommandDependencies, "planningStore" | "database">,
+): Promise<import("./dev-board-planning-store.js").DependencyLockStatus> {
+  return withTenant(
+    input.organizationId,
+    (tx) => deps.planningStore.dependencyLockStatus(tx, input.organizationId, input.workspaceId, input.devTicketId),
+    deps.database ?? db,
+  );
 }
 async function reserve(
   tx: TenantTransaction,
@@ -693,6 +726,218 @@ async function decideProposal(
   );
 }
 
+/**
+ * A dependency set is currently unbound from Sprint storage (TB-SP1); therefore no live Sprint
+ * membership can exist in this schema. This guard stays beside the graph command so a future Sprint
+ * store cannot accidentally make the standalone path permissive.
+ */
+function hasLiveSprintMembership(ticketId: string): boolean {
+  void ticketId;
+  return false;
+}
+
+function dependencyEndpointFailure(
+  endpoint: { readonly archivedAt: Date | null; readonly lane: string } | null,
+): { readonly code: string; readonly message: string } | null {
+  if (endpoint === null) {
+    return { code: "dev_board.constraint_reference_invalid", message: "A dependency endpoint does not exist." };
+  }
+  if (endpoint.archivedAt !== null) {
+    return { code: "dev_board.dev_ticket_not_active", message: "Archived DevTickets cannot be dependency endpoints." };
+  }
+  if (endpoint.lane === "done") {
+    return { code: "dev_board.dev_ticket_done_immutable", message: "Done DevTickets cannot be changed in place." };
+  }
+  return null;
+}
+
+async function appendDependencyEffects(
+  tx: TenantTransaction,
+  envelope: CommandEnvelope,
+  deps: DevBoardPlanningCommandDependencies,
+  edge: { readonly id: string; readonly dependentDevTicketId: string; readonly blockerDevTicketId: string },
+  reason: string,
+  eventName: "DependencyAdded" | "DependencyRemoved",
+  previousDependentLane: string,
+  dependent: { readonly id: string; readonly version: number; readonly lane: string },
+): Promise<void> {
+  await planning(
+    tx, deps.ledger, envelope, edge.dependentDevTicketId, "DependencyDecisionRationaleRecorded",
+    eventName === "DependencyAdded" ? "Dependency added" : "Dependency removed",
+    { reason, dependentId: edge.dependentDevTicketId, blockerId: edge.blockerDevTicketId, edgeId: edge.id },
+  );
+  /*
+   * The activity ledger enforces one event per aggregate version. The dependency decision is the
+   * authoritative event at the dependent's bumped version; its payload carries the atomic Ready and
+   * lane consequence rather than manufacturing additional versions for one state transition.
+   */
+  await activity(tx, deps.ledger, envelope, dependent.id, dependent.version, eventName, {
+    edgeId: edge.id,
+    dependentId: edge.dependentDevTicketId,
+    blockerId: edge.blockerDevTicketId,
+    ...(previousDependentLane === "todo" && dependent.lane === "backlog"
+      ? { readyInvalidated: true, laneChanged: { from: "todo", to: "backlog" } }
+      : {}),
+  });
+}
+
+export async function addDependency(
+  envelope: CommandEnvelope,
+  input: AddDependencyInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      const reason = decisionReason(input.reason);
+      if (!reason.ok) return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
+      if (input.dependentDevTicketId === input.blockerDevTicketId) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_cycle_rejected", "A DevTicket cannot depend on itself.");
+      }
+      const duplicate = await deps.planningStore.selectActiveDependencyEdge(
+        tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId, input.blockerDevTicketId,
+      );
+      if (duplicate !== null) {
+        return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_already_active", duplicate.id,
+          [{ recordKind: "dependency_edge", recordId: duplicate.id, version: duplicate.version }],
+          { dependencyEdgeId: duplicate.id, devTicketId: duplicate.dependentDevTicketId },
+        );
+      }
+      const dependentExpected = expected(envelope, "dev_ticket", input.dependentDevTicketId);
+      const blockerExpected = expected(envelope, "dev_ticket", input.blockerDevTicketId);
+      const dependent = await deps.planningStore.selectDevTicketForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId,
+      );
+      const blocker = await deps.planningStore.selectDevTicketForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, input.blockerDevTicketId,
+      );
+      if (dependent === null || blocker === null) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.constraint_reference_invalid", "A dependency endpoint does not exist.");
+      }
+      if (dependentExpected === null || blockerExpected === null || dependent.version !== dependentExpected || blocker.version !== blockerExpected) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Dependency endpoint version has changed.");
+      }
+      const endpointFailure = dependencyEndpointFailure(dependent) ?? dependencyEndpointFailure(blocker);
+      if (endpointFailure !== null) return reject(tx, deps.commandReceiptRepository, envelope, endpointFailure.code, endpointFailure.message);
+      if (hasLiveSprintMembership(dependent.id) || hasLiveSprintMembership(blocker.id)) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.sprint_coordination_required", "Dependency changes for Sprint members require Sprint coordination.");
+      }
+      if (await deps.planningStore.dependencyCreatesCycle(tx, envelope.organizationId, envelope.workspaceId, input.dependentDevTicketId, input.blockerDevTicketId)) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_cycle_rejected", "The dependency would create a cycle.");
+      }
+      const dependentVersionDrift = new Error("Dependent DevTicket version has changed.");
+      let mutation;
+      try {
+        mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+          const edge = await deps.planningStore.insertDependencyEdge(tx, {
+            id: randomUUID(), organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
+            dependentDevTicketId: dependent.id, blockerDevTicketId: blocker.id, createdCommandId: envelope.commandId,
+          });
+          const updated = await deps.planningStore.applyDependencyChangeToDependent(tx, {
+            organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
+            devTicketId: dependent.id, expectedVersion: dependent.version,
+          });
+          if (updated === null) throw dependentVersionDrift;
+          return { edge, updated };
+        });
+      } catch (error) {
+        if (error === dependentVersionDrift)
+          return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", dependentVersionDrift.message);
+        throw error;
+      }
+      if (!mutation.ok) return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+      await appendDependencyEffects(tx, envelope, deps, mutation.value.edge, reason.value, "DependencyAdded", dependent.lane, mutation.value.updated);
+      return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_added", mutation.value.edge.id,
+        [
+          { recordKind: "dependency_edge", recordId: mutation.value.edge.id, version: mutation.value.edge.version },
+          { recordKind: "dev_ticket", recordId: mutation.value.updated.id, version: mutation.value.updated.version },
+          { recordKind: "dev_ticket", recordId: blocker.id, version: blocker.version },
+        ],
+        { dependencyEdgeId: mutation.value.edge.id, devTicketId: mutation.value.updated.id },
+      );
+    },
+    deps.database ?? db,
+  );
+}
+
+export async function removeDependency(
+  envelope: CommandEnvelope,
+  input: RemoveDependencyInput,
+  deps: DevBoardPlanningCommandDependencies,
+): Promise<Result<CommandResult>> {
+  return withTenant(
+    envelope.organizationId,
+    async (tx) => {
+      const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+      if ("ok" in reservation) return reservation;
+      const reason = decisionReason(input.reason);
+      if (!reason.ok) return reject(tx, deps.commandReceiptRepository, envelope, reason.error.code, reason.error.message);
+      await deps.planningStore.lockDependencyGraph(tx, envelope.workspaceId);
+      const edge = await deps.planningStore.selectDependencyEdge(tx, envelope.organizationId, envelope.workspaceId, input.edgeId);
+      if (edge === null) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_not_active", "The dependency edge is not active.");
+      }
+      if (edge.lifecycleState === "retired") {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.already_removed", "The dependency edge was already removed.",
+          { dependencyEdgeId: edge.id, originalRemovalCommandId: edge.retiredCommandId }, edge.retiredCommandId ?? edge.id,
+        );
+      }
+      if (edge.version !== input.expectedEdgeVersion) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_identity_conflict", "The dependency edge identity or version has changed.");
+      }
+      const dependent = await deps.planningStore.selectDevTicketForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, edge.dependentDevTicketId,
+      );
+      const blocker = await deps.planningStore.selectDevTicketForUpdate(
+        tx, envelope.organizationId, envelope.workspaceId, edge.blockerDevTicketId,
+      );
+      if (dependent === null || blocker === null) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.constraint_reference_invalid", "A dependency endpoint does not exist.");
+      }
+      const endpointFailure = dependencyEndpointFailure(dependent) ?? dependencyEndpointFailure(blocker);
+      if (endpointFailure !== null) return reject(tx, deps.commandReceiptRepository, envelope, endpointFailure.code, endpointFailure.message);
+      if (hasLiveSprintMembership(dependent.id) || hasLiveSprintMembership(blocker.id)) {
+        return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.sprint_coordination_required", "Dependency changes for Sprint members require Sprint coordination.");
+      }
+      const dependentVersionDrift = new Error("Dependent DevTicket version has changed.");
+      let mutation;
+      try {
+        mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+          const retired = await deps.planningStore.retireDependencyEdge(tx, {
+            organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, edgeId: edge.id,
+            expectedVersion: input.expectedEdgeVersion, retiredCommandId: envelope.commandId,
+          });
+          if (retired === null) return null;
+          const updated = await deps.planningStore.applyDependencyChangeToDependent(tx, {
+            organizationId: envelope.organizationId, workspaceId: envelope.workspaceId,
+            devTicketId: dependent.id, expectedVersion: dependent.version,
+          });
+          if (updated === null) throw dependentVersionDrift;
+          return { edge: retired, updated };
+        });
+      } catch (error) {
+        if (error === dependentVersionDrift)
+          return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", dependentVersionDrift.message);
+        throw error;
+      }
+      if (!mutation.ok) return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+      if (mutation.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_identity_conflict", "The dependency edge identity or version has changed.");
+      await appendDependencyEffects(tx, envelope, deps, mutation.value.edge, reason.value, "DependencyRemoved", dependent.lane, mutation.value.updated);
+      return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_removed", mutation.value.edge.id,
+        [
+          { recordKind: "dependency_edge", recordId: mutation.value.edge.id, version: mutation.value.edge.version },
+          { recordKind: "dev_ticket", recordId: mutation.value.updated.id, version: mutation.value.updated.version },
+        ],
+        { dependencyEdgeId: mutation.value.edge.id, devTicketId: mutation.value.updated.id },
+      );
+    },
+    deps.database ?? db,
+  );
+}
+
 export async function approveReadyToTodo(
   envelope: CommandEnvelope,
   input: ApproveReadyToTodoInput,
@@ -822,14 +1067,14 @@ export async function claim(
   envelope: CommandEnvelope,
   deps: DevBoardPlanningCommandDependencies,
 ): Promise<Result<CommandResult>> {
-  return rejectUntilGate(envelope, deps, "dev_board.gate.claim_disabled_until_tb02", "Claim is disabled until TB-02 ships.");
+  return rejectUntilGate(envelope, deps, "dev_board.gate.claim_disabled_until_tb02", "Claim is disabled until TB-02 ships.", true);
 }
 
 export async function start(
   envelope: CommandEnvelope,
   deps: DevBoardPlanningCommandDependencies,
 ): Promise<Result<CommandResult>> {
-  return rejectUntilGate(envelope, deps, "dev_board.gate.start_disabled_until_tb02", "Start is disabled until TB-02 ships.");
+  return rejectUntilGate(envelope, deps, "dev_board.gate.start_disabled_until_tb02", "Start is disabled until TB-02 ships.", true);
 }
 
 export async function submitForReview(
@@ -856,12 +1101,26 @@ async function rejectUntilGate(
   deps: DevBoardPlanningCommandDependencies,
   code: string,
   message: string,
+  checkDependencyLock = false,
 ): Promise<Result<CommandResult>> {
   return withTenant(
     envelope.organizationId,
     async (tx) => {
       const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
       if ("ok" in reservation) return reservation;
+      if (checkDependencyLock) {
+        const status = await deps.planningStore.dependencyLockStatus(
+          tx, envelope.organizationId, envelope.workspaceId, envelope.targetAggregateId,
+        );
+        if (status.locked) {
+          const blockerIds = status.blockers.filter((blocker) => !blocker.done).map((blocker) => blocker.devTicketId);
+          return reject(
+            tx, deps.commandReceiptRepository, envelope, "dev_board.dependency_locked",
+            `DevTicket is locked by unfinished dependencies: ${blockerIds.join(", ")}.`,
+            { blockerDevTicketIds: blockerIds },
+          );
+        }
+      }
       return reject(tx, deps.commandReceiptRepository, envelope, code, message);
     },
     deps.database ?? db,

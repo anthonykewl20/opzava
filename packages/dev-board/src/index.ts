@@ -10,17 +10,20 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
-export type { DevBoardPlanningStore, DevTicketRow, InsertDevTicketInput, InsertProposalInput, ProposalRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
+export type { DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, ProposalRow, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, SubmitProposalInput } from "./application/dev-board-planning-commands.js";
 export {
   acceptProposal,
+  addDependency,
   admitDone as admitDevTicketDone,
   approveReadyToTodo,
   archiveProposal,
   claim as claimDevTicket,
   draftProposal,
+  dependencyLockStatus,
   mergeProposal,
   rejectProposal,
+  removeDependency,
   start as startDevTicket,
   submitForReview as submitDevTicketForReview,
   submitProposal,
