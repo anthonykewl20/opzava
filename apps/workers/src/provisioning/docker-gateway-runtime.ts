@@ -11,10 +11,8 @@ import {
   type GatewayRuntimeAuthChoice,
   type GatewayRuntimeAuthProbeQuery,
   type GatewayRuntimeCommandResult,
-  type GatewayRuntimeDeviceCodeLogin,
   type GatewayRuntimeModelRunProbeQuery,
   type GatewayRuntimePort,
-  type GatewayRuntimeSetupTokenLogin,
   type ModelRunProbe,
   type PluginModelCatalog,
   type PluginModelDiscoveryRead,
@@ -271,15 +269,13 @@ function deviceLoginStateFromLog(value: string): DeviceLoginState {
   ) {
     return { kind: "completed" };
   }
-  if (
-    /\b(device[_ ]code(?:[_ ]request)?[_ ]failed|access[_ ]denied|authorization[_ ](?:denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|sign[- ]?in (?:failed|was denied|declined))\b/i.test(
-      text,
-    )
-  ) {
+  if (deviceCodeLogTerminalFailure(text)) {
     return { kind: "terminal-failure", reason: "The provider rejected the device login." };
   }
 
   const verificationUri =
+    hyperlinkTargets(value).find((target) => /device/i.test(target)) ??
+    hyperlinkTargets(value).find((target) => /^https?:\/\/auth\./i.test(target)) ??
     text.match(/https?:\/\/[^\s"']*device[^\s"']*/i)?.[0] ??
     text.match(/https?:\/\/auth\.[^\s"']+/i)?.[0];
   const deviceCode =
@@ -296,31 +292,90 @@ function deviceLoginStateFromLog(value: string): DeviceLoginState {
       expiresInMs,
     };
   }
-  return {
-    kind: "terminal-failure",
-    reason: "The device login did not return a usable challenge.",
-  };
+  return { kind: "pending" };
 }
 
 function setupTokenLoginStateFromLog(value: string): SetupTokenLoginState {
   const text = interactiveLoginText(value);
-  if (
-    /\bsk-ant-oat01-[A-Za-z0-9_-]+\b/.test(text) ||
-    /\bsetup token (?:created|ready)\b/i.test(text)
-  ) {
-    return { kind: "completed" };
+  const setupToken = setupTokenFromLog(text);
+  if (setupToken !== null) {
+    return { kind: "completed", setupToken };
   }
-  if (
-    /\b(access denied|authorization (?:denied|declined)|invalid (?:authorization )?code|sign[- ]?in (?:failed|was denied|declined))\b/i.test(
-      text,
-    )
-  ) {
+  if (setupTokenTerminalFailure(text)) {
     return { kind: "terminal-failure", reason: "The provider rejected the setup-token login." };
   }
-  if (/https?:\/\/[^\s"']*(?:claude|anthropic|oauth)[^\s"']*/i.test(text)) {
-    return { kind: "awaiting-code" };
+  const authorizeUrl = setupTokenAuthorizeUrl(value);
+  if (authorizeUrl !== null) {
+    return { kind: "awaiting-code", authorizeUrl };
   }
-  return { kind: "terminal-failure", reason: "The setup-token login is no longer available." };
+  return { kind: "pending" };
+}
+
+function hyperlinkTargets(value: string): readonly string[] {
+  const targets: string[] = [];
+  // eslint-disable-next-line no-control-regex
+  const pattern = /\x1B\]8;[^;]*;([^\x07\x1B]+)(?:\x07|\x1B\\)/g;
+  let match = pattern.exec(value);
+  while (match !== null) {
+    const target = match[1]?.trim();
+    if (target !== undefined && target !== "" && !targets.includes(target)) targets.push(target);
+    match = pattern.exec(value);
+  }
+  return targets;
+}
+
+function terminalLines(value: string): readonly string[] {
+  return stripAnsi(value).replace(/\r\n?/g, "\n").split("\n");
+}
+
+const setupTokenLength = 108;
+const setupTokenPattern = /(?:^|\s)(sk-ant-oat01-[A-Za-z0-9_-]+)(?=\s|$)/;
+
+function setupTokenFromLog(value: string): string | null {
+  for (const line of terminalLines(value)) {
+    const token = line.match(setupTokenPattern)?.[1];
+    if (token !== undefined && token.length === setupTokenLength) return token;
+    if (token !== undefined) {
+      console.warn("connections.setupToken.rejectedMalformedToken", {
+        reason: token.length > setupTokenLength ? "tooLong" : "tooShort",
+        expectedLength: setupTokenLength,
+        observedLength: token.length,
+      });
+    }
+  }
+  return null;
+}
+
+function setupTokenAuthorizeUrl(value: string): string | null {
+  const host = /oauth|claude\.ai|claude\.com|anthropic\.com/i;
+  const linked = hyperlinkTargets(value).find((target) => /^https?:\/\//i.test(target) && host.test(target));
+  if (linked !== undefined) return linked;
+  for (const line of terminalLines(value)) {
+    const url = (line.match(/https?:\/\/[^\s"'<>)]+/gi) ?? []).find((candidate) =>
+      host.test(`${line} ${candidate}`),
+    );
+    if (url !== undefined) return url;
+  }
+  return null;
+}
+
+function setupTokenTerminalFailure(value: string): boolean {
+  const text = stripAnsi(value);
+  return (
+    /setup[- ]token.*(failed|error|denied)/i.test(text) ||
+    /\binvalid[ _](authorization[ _])?(code|grant|request)\b/i.test(text) ||
+    /login failed/i.test(text)
+  );
+}
+
+function deviceCodeLogTerminalFailure(value: string): boolean {
+  const text = stripAnsi(value);
+  return (
+    /\bdevice[_ ]code(?:[_ ]request)?[_ ]failed\b|\btrouble with device[_ ]code login\b/i.test(text) ||
+    /\b(access[_ ]denied|authorization[_ ](denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|denied by (the )?user|sign[- ]?in (failed|was denied|declined))\b/i.test(
+      text.slice(-4096),
+    )
+  );
 }
 
 function secureDeleteCommand(logPath: string): string {
@@ -377,20 +432,6 @@ function secureDeleteFlowArtifactsCommand(logPath: string): string {
     `rm -f ${shellQuote(controlPath)} ${shellQuote(`${controlPath}.tmp`)} ${shellQuote(`${flowDir}/stdin`)}`,
     `rmdir ${shellQuote(flowDir)}`,
   ].join("; ");
-}
-
-function redactDeviceCodeLog(value: string): string {
-  return value
-    .replace(
-      /(["']?(?:refresh_token|access_token|id_token|api[_-]?key|token)["']?\s*:\s*)["'][^"']+["']/gi,
-      '$1"[redacted]"',
-    )
-    .replace(
-      /\b(refresh_token|access_token|id_token|api[_-]?key|token)\s*[:=]\s*\S+/gi,
-      "$1=[redacted]",
-    )
-    .replace(/\bsk-[a-z0-9_-]{8,}\b/gi, "[redacted]")
-    .replace(/\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b/g, "[redacted]");
 }
 
 function stringValue(value: unknown): string | null {
@@ -1287,8 +1328,10 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         readonly execId: string;
         readonly logPath: string;
         readonly stdinPath: string;
-      }
+    }
   >();
+  /** Handles whose stop is in progress are no longer permitted to read or submit. */
+  private readonly cancellingInteractiveLogins = new Set<string>();
 
   public constructor(
     private readonly options: {
@@ -1700,6 +1743,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     readonly authChoiceId: string;
     readonly keyFlag: string;
     readonly apiKey: string;
+    readonly beforeCredentialWrite?: () => boolean;
   }): Promise<Result<GatewayRuntimeCommandResult>> {
     console.log(
       `provisioning-worker running gateway onboard for provider ${input.providerId} authChoice ${input.authChoiceId}`,
@@ -1707,6 +1751,17 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     const supported = await this.assertOnboardReadsCredentialFromStdin(input.providerId);
     if (!supported.ok) {
       return err(supported.error);
+    }
+    // The capability check above awaits Docker. Re-check ownership at the last possible point
+    // before creating the command that receives the credential, so cancellation cannot write a
+    // superseded setup token in that await window.
+    if (input.beforeCredentialWrite !== undefined && !input.beforeCredentialWrite()) {
+      return err(
+        provisioningError(
+          "provisioning.connections.setupTokenFlowSuperseded",
+          "Setup-token connection flow was replaced before its credential could be stored.",
+        ),
+      );
     }
 
     // `--credential-stdin` keeps the credential out of argv, exec Env, and the shell (#187, #191).
@@ -1728,6 +1783,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         "--json",
       ],
       input.apiKey,
+      input.beforeCredentialWrite,
     );
   }
 
@@ -1741,6 +1797,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
   private async execWithCredentialOnStdin(
     cmd: readonly string[],
     credential: string,
+    beforeCredentialWrite?: () => boolean,
   ): Promise<Result<GatewayRuntimeCommandResult>> {
     if (!this.baseUrlResult.ok) {
       return err(this.baseUrlResult.error);
@@ -1826,9 +1883,22 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     };
     let executionTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      capture(connection.head);
+      // This is the authoritative ownership check. Docker resolution and the transport upgrade
+      // above both await, so a setup-token replacement can cancel the flow after the cheap
+      // early-out in connectApiKey. Keep this synchronous and adjacent to connection.end: this
+      // exact instruction pair is the credential-write linearization point.
+      if (beforeCredentialWrite !== undefined && !beforeCredentialWrite()) {
+        destroyOnce();
+        return err(
+          provisioningError(
+            "provisioning.connections.setupTokenFlowSuperseded",
+            "Setup-token connection flow was replaced before its credential could be stored.",
+          ),
+        );
+      }
+      connection.end(Buffer.from(credential, "utf8"));
       const completed = (async (): Promise<void> => {
-        capture(connection.head);
-        connection.end(Buffer.from(credential, "utf8"));
         for await (const chunk of connection.output) {
           capture(chunk);
         }
@@ -2180,7 +2250,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     readonly providerId: string;
     readonly agentId: string;
   }): Promise<Result<DeviceLoginHandle>> {
-    const login = await this.startDeviceCodeLogin(input.providerId, input.agentId);
+    const login = await this.startDeviceLogin(input.providerId, input.agentId);
     if (!login.ok) return err(login.error);
     const token = randomUUID();
     this.interactiveLogins.set(token, { kind: "device", ...login.value });
@@ -2189,34 +2259,55 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
 
   public async pollDeviceLogin(handle: DeviceLoginHandle): Promise<Result<DeviceLoginState>> {
     const login = this.interactiveLogins.get(handle.token);
-    if (login === undefined || login.kind !== "device") {
+    if (
+      login === undefined ||
+      login.kind !== "device" ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
       return err(this.interactiveLoginNotFound("device"));
     }
-    const log = await this.readDeviceCodeLog(login.logPath);
+    const log = await this.readInteractiveLoginLog(login.logPath);
+    if (
+      this.interactiveLogins.get(handle.token) !== login ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
+      return err(this.interactiveLoginNotFound("device"));
+    }
     return log.ok
       ? ok(deviceLoginStateFromLog(log.value))
-      : ok({
-          kind: "terminal-failure",
-          reason: "The device login process is no longer available.",
-        });
+      : ok({ kind: "unavailable" });
   }
 
   public async cancelDeviceLogin(handle: DeviceLoginHandle): Promise<Result<void>> {
     const login = this.interactiveLogins.get(handle.token);
-    if (login === undefined || login.kind !== "device") {
+    if (
+      login === undefined ||
+      login.kind !== "device" ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
       return err(this.interactiveLoginNotFound("device"));
     }
+    // Publish revocation before the first await. A slow verified stop must not leave a usable
+    // interactive handle in the meantime.
+    this.cancellingInteractiveLogins.add(handle.token);
     try {
-      await this.stopDeviceCodeLogin(login.execId, login.logPath);
-      this.interactiveLogins.delete(handle.token);
+      await this.stopInteractiveLogin(login.execId, login.logPath);
+      if (this.interactiveLogins.get(handle.token) === login) {
+        this.interactiveLogins.delete(handle.token);
+      }
+      this.cancellingInteractiveLogins.delete(handle.token);
       return ok(undefined);
     } catch (error) {
+      // A failed verified stop leaves the process alive, so restore the exact active handle.
+      if (this.interactiveLogins.get(handle.token) === login) {
+        this.cancellingInteractiveLogins.delete(handle.token);
+      }
       return err(this.interactiveLoginCancellationFailed("device", error));
     }
   }
 
   public async beginSetupTokenLogin(): Promise<Result<SetupTokenLoginHandle>> {
-    const login = await this.startSetupTokenLogin();
+    const login = await this.launchSetupTokenLogin();
     if (!login.ok) return err(login.error);
     const token = randomUUID();
     this.interactiveLogins.set(token, { kind: "setup-token", ...login.value });
@@ -2227,16 +2318,23 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     handle: SetupTokenLoginHandle,
   ): Promise<Result<SetupTokenLoginState>> {
     const login = this.interactiveLogins.get(handle.token);
-    if (login === undefined || login.kind !== "setup-token") {
+    if (
+      login === undefined ||
+      login.kind !== "setup-token" ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
       return err(this.interactiveLoginNotFound("setup-token"));
     }
-    const log = await this.readSetupTokenLog(login.logPath);
+    const log = await this.readInteractiveLoginLog(login.logPath);
+    if (
+      this.interactiveLogins.get(handle.token) !== login ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
+      return err(this.interactiveLoginNotFound("setup-token"));
+    }
     return log.ok
       ? ok(setupTokenLoginStateFromLog(log.value))
-      : ok({
-          kind: "terminal-failure",
-          reason: "The setup-token login process is no longer available.",
-        });
+      : ok({ kind: "unavailable" });
   }
 
   public async submitSetupTokenCode(
@@ -2244,22 +2342,46 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     code: string,
   ): Promise<Result<void>> {
     const login = this.interactiveLogins.get(handle.token);
-    if (login === undefined || login.kind !== "setup-token") {
+    if (
+      login === undefined ||
+      login.kind !== "setup-token" ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
       return err(this.interactiveLoginNotFound("setup-token"));
     }
-    return this.writeSetupTokenInput(login.stdinPath, code);
+    const written = await this.writeSetupTokenCode(login.stdinPath, code);
+    if (
+      this.interactiveLogins.get(handle.token) !== login ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
+      return err(this.interactiveLoginNotFound("setup-token"));
+    }
+    return written;
   }
 
   public async cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>> {
     const login = this.interactiveLogins.get(handle.token);
-    if (login === undefined || login.kind !== "setup-token") {
+    if (
+      login === undefined ||
+      login.kind !== "setup-token" ||
+      this.cancellingInteractiveLogins.has(handle.token)
+    ) {
       return err(this.interactiveLoginNotFound("setup-token"));
     }
+    // This is deliberately synchronous. Poll/submit and credential-write guards must observe the
+    // revocation while the bounded, potentially slow Docker stop is still running.
+    this.cancellingInteractiveLogins.add(handle.token);
     try {
-      await this.stopSetupTokenLogin(login.execId, login.logPath);
-      this.interactiveLogins.delete(handle.token);
+      await this.stopInteractiveLogin(login.execId, login.logPath);
+      if (this.interactiveLogins.get(handle.token) === login) {
+        this.interactiveLogins.delete(handle.token);
+      }
+      this.cancellingInteractiveLogins.delete(handle.token);
       return ok(undefined);
     } catch (error) {
+      if (this.interactiveLogins.get(handle.token) === login) {
+        this.cancellingInteractiveLogins.delete(handle.token);
+      }
       return err(this.interactiveLoginCancellationFailed("setup-token", error));
     }
   }
@@ -2282,10 +2404,10 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     );
   }
 
-  public async startDeviceCodeLogin(
+  private async startDeviceLogin(
     providerId: string,
     agentId: string,
-  ): Promise<Result<GatewayRuntimeDeviceCodeLogin>> {
+  ): Promise<Result<{ readonly execId: string; readonly logPath: string }>> {
     const flowDir = `/tmp/opzava-df-${randomUUID()}`;
     const logPath = `${flowDir}/device.log`;
     const controlPath = flowControlPath(logPath);
@@ -2361,16 +2483,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     return ok({ execId, logPath });
   }
 
-  public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
-    const result = await this.exec(["sh", "-lc", `cat ${shellQuote(logPath)} 2>/dev/null || true`]);
-    if (!result.ok) {
-      return err(result.error);
-    }
-
-    return ok(redactDeviceCodeLog(result.value.stdout));
-  }
-
-  public async readSetupTokenLog(logPath: string): Promise<Result<string>> {
+  private async readInteractiveLoginLog(logPath: string): Promise<Result<string>> {
     const result = await this.exec(["sh", "-lc", `cat ${shellQuote(logPath)} 2>/dev/null || true`]);
     if (!result.ok) {
       return err(result.error);
@@ -2379,7 +2492,9 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     return ok(result.value.stdout);
   }
 
-  public async startSetupTokenLogin(): Promise<Result<GatewayRuntimeSetupTokenLogin>> {
+  private async launchSetupTokenLogin(): Promise<
+    Result<{ readonly execId: string; readonly logPath: string; readonly stdinPath: string }>
+  > {
     const flowDir = `/tmp/opzava-st-${randomUUID()}`;
     const logPath = `${flowDir}/setup.log`;
     const stdinPath = `${flowDir}/stdin`;
@@ -2446,7 +2561,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     return ok({ execId, logPath, stdinPath });
   }
 
-  public async writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>> {
+  private async writeSetupTokenCode(stdinPath: string, value: string): Promise<Result<void>> {
     const containerId = await this.resolveContainerId();
     if (!containerId.ok) {
       return err(containerId.error);
@@ -2652,7 +2767,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
       );
     }
     try {
-      await this.stopDeviceCodeLogin(execId, logPath);
+      await this.stopInteractiveLogin(execId, logPath);
       return err(startError);
     } catch {
       return err(
@@ -2664,7 +2779,7 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
     }
   }
 
-  public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
+  private async stopInteractiveLogin(execId: string, logPath: string): Promise<void> {
     const controlPid = await this.readFlowControlPid(logPath);
     const initial = await this.dockerRequest<{
       readonly Running?: unknown;
@@ -2737,10 +2852,6 @@ export class DockerOpenClawGatewayRuntime implements GatewayRuntimePort {
         { exitCode: deleted.value.exitCode },
       );
     }
-  }
-
-  public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {
-    await this.stopDeviceCodeLogin(execId, logPath);
   }
 
   private async exec(

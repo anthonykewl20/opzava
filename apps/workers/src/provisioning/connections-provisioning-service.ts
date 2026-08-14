@@ -13,6 +13,7 @@ import {
   type ConnectionProvisioningPrincipal,
   type ConnectionsProvisioningPort,
   type ConnectionsSnapshot,
+  type DeviceLoginHandle,
   type DeviceFlowCancelState,
   type DeviceFlowChallenge,
   type DeviceFlowPollState,
@@ -46,6 +47,7 @@ import {
   type SetModelProviderModelEnabledInput,
   type SetupTokenFlowPollState,
   type SetupTokenFlowStart,
+  type SetupTokenLoginHandle,
   type StartGitHubDeviceFlowInput,
   type StartModelProviderDeviceFlowInput,
   type StartModelProviderSetupTokenFlowInput,
@@ -227,8 +229,7 @@ interface PendingModelProviderDeviceFlow {
   readonly userCode?: string;
   readonly expiresAt: Date;
   readonly intervalSeconds: number;
-  readonly execId: string;
-  readonly logPath: string;
+  readonly login: DeviceLoginHandle;
   /** Unique lifecycle identity. Post-await writers must still own this generation. */
   readonly generation: string;
   readonly lifecycle: "active" | "cancelling";
@@ -271,16 +272,15 @@ interface PendingModelProviderSetupTokenFlow {
   readonly principal: ConnectionProvisioningPrincipal;
   readonly providerId: string;
   readonly authChoiceId: "setup-token";
-  readonly execId: string;
-  readonly logPath: string;
-  readonly stdinPath: string;
+  readonly login: SetupTokenLoginHandle;
   readonly expiresAt: Date;
   readonly timeout: ReturnType<typeof setTimeout>;
-  phase: "starting" | "awaiting_code" | "completing";
+  phase: "starting" | "awaiting_code" | "completing" | "cancelling";
   authorizeUrl?: string;
   codeSubmittedAt?: Date;
   completionInFlight?: boolean;
   outcome?: SetupTokenFlowPollState;
+  outcomeCleanupTimeout?: ReturnType<typeof setTimeout>;
 }
 
 const modelDeviceFlowRequiredMessage =
@@ -300,6 +300,11 @@ const modelDeviceFlowPollIntervalSeconds = 5;
 const modelApiKeyConnectExpiresMs = 15 * 60 * 1000;
 const modelSetupTokenFlowExpiresMs = 10 * 60 * 1000;
 const setupTokenCodeExchangeTimeoutMs = 30_000;
+// Preserve the terminal result long enough for the browser's next poll, then reap the one-use
+// credential's interactive process and log even when the operator never polls again.
+const setupTokenCompletionOutcomeGraceMs = 30_000;
+const setupTokenCleanupRetryDelaysMs = [1_000, 2_000, 4_000] as const;
+const setupTokenCleanupFinalRetryDelayMs = 5 * 60 * 1000;
 const modelApiKeyPostCheckMaxWaitMs = 30 * 1000;
 const modelApiKeyPostCheckDelayMs = 500;
 const disconnectTransientMaxAttempts = 3;
@@ -451,163 +456,6 @@ function stripAnsi(value: string): string {
   /* eslint-enable no-control-regex */
 }
 
-/**
- * The URLs the CLI prints are OSC-8 hyperlinks: `ESC]8;id=..;<URL>BEL <label> ESC]8;;BEL`.
- *
- * The escape payload carries the URL WHOLE. The visible label next to it is ordinary text, so the
- * terminal WRAPS it at the window width -- which means the rendered URL is broken across lines and
- * any line-oriented reader truncates it (a sign-in link cut off mid-query-string is worse than no
- * link: it looks usable and is not). Read the hyperlink target and the wrapping never applies.
- *
- * Escapes are zero-width, so they are never themselves wrapped.
- */
-function hyperlinkTargets(value: string): readonly string[] {
-  const targets: string[] = [];
-  // eslint-disable-next-line no-control-regex
-  const pattern = /\x1B\]8;[^;]*;([^\x07\x1B]+)(?:\x07|\x1B\\)/g;
-  let match = pattern.exec(value);
-  while (match !== null) {
-    const target = match[1]?.trim();
-    if (target !== undefined && target !== "" && !targets.includes(target)) {
-      targets.push(target);
-    }
-    match = pattern.exec(value);
-  }
-
-  return targets;
-}
-
-function terminalLines(value: string): readonly string[] {
-  // A lone CR returns the cursor to column 0 (spinner repaint), so it separates renders just as a
-  // newline does. Normalising both keeps the line-oriented parsers below from fusing two lines.
-  return stripAnsi(value).replace(/\r\n?/g, "\n").split("\n");
-}
-
-function parseDeviceCodeLog(value: string): {
-  readonly verificationUri: string;
-  readonly userCode: string;
-} | null {
-  const stripped = stripAnsi(value);
-  // Prefer the hyperlink target: the printed URL is wrapped at the window width, so reading it from
-  // the visible text truncates it mid-query-string.
-  const linked = hyperlinkTargets(value);
-  const verificationUri =
-    linked.find((target) => /device/i.test(target)) ??
-    linked.find((target) => /^https?:\/\/auth\./i.test(target)) ??
-    stripped.match(/https?:\/\/[^\s"']*device[^\s"']*/i)?.[0] ??
-    stripped.match(/https?:\/\/auth\.[^\s"']+/i)?.[0] ??
-    null;
-  const userCode =
-    stripped.match(/Code:\s*([A-Z0-9][A-Z0-9-]{3,})/i)?.[1] ??
-    stripped.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/i)?.[1] ??
-    null;
-
-  if (verificationUri === null || userCode === null) {
-    return null;
-  }
-
-  return { verificationUri, userCode: userCode.toUpperCase() };
-}
-
-function deviceCodeLogTerminalFailure(logValue: string): boolean {
-  const stripped = stripAnsi(logValue);
-  // The device-code CLI prints a distinct failure headline when the provider blocks,
-  // rate-limits, or errors the request (e.g. "OpenAI device code failed", "device code
-  // request failed: HTTP 429", "Trouble with device code login?"). None of these appear in
-  // a healthy prompt, so scan the WHOLE log: a provider Cloudflare/429 block pushes the
-  // headline before ~4KB of trailing challenge HTML, out of the recent-tail window below.
-  // Without this the poller stalls on "Requesting device code..." until flow expiry.
-  if (
-    /\bdevice[_ ]code(?:[_ ]request)?[_ ]failed\b|\btrouble with device[_ ]code login\b/i.test(
-      stripped,
-    )
-  ) {
-    return true;
-  }
-  // Deliberately narrow: connected + expiry are the reliable terminals, so match only
-  // unambiguous OAuth-denial signals absent from normal prompter output (a broad
-  // /error|expired|invalid/ would false-kill valid flows: the "Code expires in N minutes"
-  // countdown, stray "error" in the spinner UI, etc.).
-  return /\b(access[_ ]denied|authorization[_ ](denied|declined)|expired[_ ]token|invalid[_ ]grant|invalid[_ ]client|denied by (the )?user|sign[- ]?in (failed|was denied|declined))\b/i.test(
-    stripped.slice(-4096),
-  );
-}
-
-// A minted Claude setup-token is a single unbroken run of token characters, and it is a FIXED
-// length: `sk-ant-oat01-` + 95 payload characters. The length is the only thing that proves the
-// token is whole, because both ways the terminal can damage it leave a value that still looks like
-// a token: prose fused onto the end (the 130-char credential of #145) and a PTY hard-wrap that
-// truncates it mid-token both match prefix-and-charset perfectly. Verified live against
-// api.anthropic.com in #145: the 108-char value authenticates, the 130-char value 401s.
-//
-// If Anthropic ever changes the format this rejects the token and says so, which is a connect that
-// fails loudly and is fixed in one line -- the alternative is storing a secret we cannot prove and
-// discovering it weeks later as an unexplained 401 on every delegation.
-const setupTokenLength = 108;
-const setupTokenPattern = /(?:^|\s)(sk-ant-oat01-[A-Za-z0-9_-]+)(?=\s|$)/;
-
-function setupTokenFromLog(logValue: string): string | null {
-  // Scan LINE BY LINE, and require whitespace on both sides of the match. The predecessor joined
-  // every line in the log before matching, which put the CLI's "Store this token securely." notice
-  // straight against the token and let the charset run swallow it (#145). Nothing here reassembles
-  // a token from fragments.
-  for (const line of terminalLines(logValue)) {
-    const candidate = line.match(setupTokenPattern)?.[1];
-    if (candidate === undefined) {
-      continue;
-    }
-    if (candidate.length === setupTokenLength) {
-      return candidate;
-    }
-
-    console.warn("connections.setupToken.rejectedMalformedToken", {
-      reason: candidate.length > setupTokenLength ? "tooLong" : "tooShort",
-      expectedLength: setupTokenLength,
-      observedLength: candidate.length,
-    });
-  }
-
-  return null;
-}
-
-const authorizeUrlHost = /oauth|claude\.ai|claude\.com|anthropic\.com/i;
-
-function setupTokenAuthorizeUrl(logValue: string): string | null {
-  // The hyperlink target FIRST: this URL is ~300 characters, so the copy the CLI renders is wrapped
-  // across terminal lines and reading it from the visible text yields a link cut off mid-query-string
-  // (no code_challenge -> the sign-in cannot complete). The escape payload is never wrapped (#127).
-  const linked = hyperlinkTargets(logValue).find(
-    (target) => /^https?:\/\//i.test(target) && authorizeUrlHost.test(target),
-  );
-  if (linked !== undefined) {
-    return linked;
-  }
-
-  for (const line of terminalLines(logValue)) {
-    const urls = line.match(/https?:\/\/[^\s"'<>)]+/gi) ?? [];
-    for (const url of urls) {
-      const haystack = `${line} ${url}`.toLowerCase();
-      if (
-        haystack.includes("oauth") ||
-        haystack.includes("claude.ai") ||
-        haystack.includes("anthropic.com")
-      ) {
-        return url;
-      }
-    }
-  }
-  return null;
-}
-
-function setupTokenTerminalFailure(logValue: string): boolean {
-  const stripped = stripAnsi(logValue);
-  return (
-    /setup[- ]token.*(failed|error|denied)/i.test(stripped) ||
-    /\binvalid[ _](authorization[ _])?(code|grant|request)\b/i.test(stripped) ||
-    /login failed/i.test(stripped)
-  );
-}
-
 function redactDeviceCodeLog(value: string): string {
   return value
     .replace(
@@ -627,6 +475,13 @@ function deviceCodeLogReadError(providerId: string): DomainError {
     "provisioning.connections.deviceFlowLogUnavailable",
     "Gateway device-code log could not be read.",
     { providerId },
+  );
+}
+
+function setupTokenFlowCancellingError(): DomainError {
+  return provisioningError(
+    "provisioning.connections.setupTokenFlowCancelling",
+    "Setup-token connection flow is being cancelled. Start a new flow after cancellation completes.",
   );
 }
 
@@ -1097,6 +952,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   private readonly modelDeviceFlowStops = new Map<string, Promise<void>>();
   private readonly modelApiKeyConnects = new Map<string, PendingModelProviderApiKeyConnect>();
   private readonly modelSetupTokenFlows = new Map<string, PendingModelProviderSetupTokenFlow>();
+  private readonly modelSetupTokenFlowCleanups = new Map<string, Promise<void>>();
   private readonly modelProviderDisconnects = new Map<string, PendingModelProviderDisconnect>();
   private orchestratorReconcileState: OrchestratorReconcileState = { status: "idle" };
   private orchestratorReconcileTail: Promise<void> = Promise.resolve();
@@ -2370,7 +2226,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     await this.cleanupSetupTokenFlowsForProvider(input.providerId, input.orgId);
-    const login = await gatewayRuntime.startSetupTokenLogin();
+    const login = await gatewayRuntime.beginSetupTokenLogin();
     if (!login.ok) {
       return err(login.error);
     }
@@ -2382,9 +2238,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       principal: connectionPrincipal(input),
       providerId: input.providerId,
       authChoiceId: "setup-token",
-      execId: login.value.execId,
-      logPath: login.value.logPath,
-      stdinPath: login.value.stdinPath,
+      login: login.value,
       expiresAt: new Date(this.now().getTime() + modelSetupTokenFlowExpiresMs),
       timeout: setTimeout(() => {
         const current = this.modelSetupTokenFlows.get(flowId);
@@ -2414,6 +2268,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ),
       );
     }
+    if (flow.phase === "cancelling") {
+      return err(setupTokenFlowCancellingError());
+    }
     // The deadline is for the OPERATOR's half of the flow — authorizing in the browser. Once a
     // completion is running, the flow is no longer waiting on anybody, and its credential write and
     // possible #183 rollback can legitimately outlast the window. Reporting "expired" here would
@@ -2432,8 +2289,18 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return ok(outcome);
     }
 
-    const log = await this.options.gatewayRuntime?.readSetupTokenLog(flow.logPath);
-    if (log === undefined || !log.ok) {
+    const loginState = await this.options.gatewayRuntime?.pollSetupTokenLogin(flow.login);
+    // All adapter results are stale once replacement cleanup has retired this handle. This must run
+    // before inspecting either success or failure: a stale minted token is a credential write bug.
+    if (!this.isCurrentSetupTokenFlow(flow)) {
+      return ok({ status: "pending" });
+    }
+    if (loginState === undefined || !loginState.ok) {
+      // A concurrent terminal poll or replacement flow can already have cancelled this opaque
+      // handle. Do not turn the adapter's expected not-found Result into a thrown RPC failure.
+      if (!this.isCurrentSetupTokenFlow(flow)) {
+        return ok({ status: "pending" });
+      }
       await this.cleanupSetupTokenFlow(flow);
       return err(deviceCodeLogReadError(flow.providerId));
     }
@@ -2443,15 +2310,14 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       return ok({ status: "pending" });
     }
 
-    const mintedToken = setupTokenFromLog(log.value);
-    if (mintedToken !== null) {
+    if (loginState.value.kind === "completed") {
       flow.phase = "completing";
       flow.completionInFlight = true;
-      void this.runSetupTokenCompletion(flow, mintedToken);
+      void this.runSetupTokenCompletion(flow, loginState.value.setupToken);
       return ok({ status: "pending" });
     }
 
-    if (setupTokenTerminalFailure(log.value)) {
+    if (loginState.value.kind === "terminal-failure") {
       await this.cleanupSetupTokenFlow(flow);
       return ok({
         status: "failed",
@@ -2461,11 +2327,19 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       });
     }
 
-    const authorizeUrl = setupTokenAuthorizeUrl(log.value);
-    if (authorizeUrl !== null && flow.phase !== "completing") {
+    if (loginState.value.kind === "unavailable") {
+      await this.cleanupSetupTokenFlow(flow);
+      return ok({
+        status: "failed",
+        message: "The Claude setup process is unavailable. Start a new setup-token flow and retry.",
+        code: "provisioning.connections.setupTokenLoginUnavailable",
+      });
+    }
+
+    if (loginState.value.kind === "awaiting-code" && flow.phase !== "completing") {
       flow.phase = "awaiting_code";
-      flow.authorizeUrl = authorizeUrl;
-      return ok({ status: "awaiting_code", authorizeUrl });
+      flow.authorizeUrl = loginState.value.authorizeUrl;
+      return ok({ status: "awaiting_code", authorizeUrl: loginState.value.authorizeUrl });
     }
     if (flow.phase === "completing") {
       // A code was already written to the CLI. Never return awaiting_code here: the authorize URL
@@ -2501,6 +2375,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ),
       );
     }
+    if (flow.phase === "cancelling") {
+      return err(setupTokenFlowCancellingError());
+    }
     const code = input.code.trim();
     if (code.length === 0 || code.length > 512) {
       return err(
@@ -2510,12 +2387,30 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         ),
       );
     }
-    const written = await this.options.gatewayRuntime?.writeSetupTokenInput(flow.stdinPath, code);
-    if (written === undefined || !written.ok) {
-      return written === undefined ? err(gatewayRuntimeUnavailableError()) : err(written.error);
+    // The CLI accepts only one code. A second browser submission while the first exchange is
+    // pending must not write a second credential into its FIFO.
+    if (flow.phase === "completing" || flow.completionInFlight === true) {
+      return ok({ status: "pending" });
     }
+    // Set the single-use FIFO guard before opening the adapter await window. A second submit that
+    // begins before Docker resolves the first one must observe this synchronously.
+    const previousPhase = flow.phase;
+    const previousCodeSubmittedAt = flow.codeSubmittedAt;
     flow.phase = "completing";
     flow.codeSubmittedAt = this.now();
+    const written = await this.options.gatewayRuntime?.submitSetupTokenCode(flow.login, code);
+    if (!this.isCurrentSetupTokenFlow(flow)) {
+      return ok({ status: "pending" });
+    }
+    if (written === undefined || !written.ok) {
+      flow.phase = previousPhase;
+      if (previousCodeSubmittedAt === undefined) {
+        delete flow.codeSubmittedAt;
+      } else {
+        flow.codeSubmittedAt = previousCodeSubmittedAt;
+      }
+      return written === undefined ? err(gatewayRuntimeUnavailableError()) : err(written.error);
+    }
     return ok({ status: "pending" });
   }
 
@@ -2544,6 +2439,9 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     flow: PendingModelProviderSetupTokenFlow,
     mintedToken: string,
   ): Promise<void> {
+    if (!this.isCurrentSetupTokenFlow(flow)) {
+      return;
+    }
     const result = await this.completeModelProviderApiKeyConnect({
       op: {
         opId: flow.flowId,
@@ -2566,9 +2464,10 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       authChoices: [
         { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
       ],
+      beforeCredentialWrite: () => this.isCurrentSetupTokenFlow(flow),
     });
     const current = this.modelSetupTokenFlows.get(flow.flowId);
-    if (current === undefined || current.outcome !== undefined) {
+    if (!this.isCurrentSetupTokenFlow(flow) || current === undefined || current.outcome !== undefined) {
       return;
     }
 
@@ -2579,6 +2478,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           message: redactedDomainError(result.error).message,
           code: redactedDomainError(result.error).code,
         };
+    this.scheduleSetupTokenOutcomeCleanup(current, setupTokenCompletionOutcomeGraceMs, 0);
   }
 
   /**
@@ -2593,6 +2493,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     readonly apiKey: string;
     readonly authChoice: ModelProviderAuthChoice;
     readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+    /** Setup-token completions must still own their flow immediately before writing the credential. */
+    readonly beforeCredentialWrite?: () => boolean;
   }): Promise<Result<ProviderConnectionState>> {
     const writeKey = configWriteKey(input.op.orgId);
     if (this.providerWriteReserved(writeKey)) {
@@ -2624,6 +2526,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     readonly apiKey: string;
     readonly authChoice: ModelProviderAuthChoice;
     readonly authChoices: readonly GatewayRuntimeAuthChoice[];
+    readonly beforeCredentialWrite?: () => boolean;
   }): Promise<Result<ProviderConnectionState>> {
     const gatewayRuntime = this.options.gatewayRuntime;
     if (gatewayRuntime === undefined) {
@@ -2661,11 +2564,23 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }
     }
 
+    if (input.beforeCredentialWrite !== undefined && !input.beforeCredentialWrite()) {
+      return err(
+        provisioningError(
+          "provisioning.connections.setupTokenFlowSuperseded",
+          "Setup-token connection flow was replaced before its credential could be stored.",
+        ),
+      );
+    }
+
     const onboard = await gatewayRuntime.connectApiKey({
       providerId: input.op.providerId,
       authChoiceId: input.op.authChoiceId,
       keyFlag: input.authChoice.keyFlag!,
       apiKey: input.apiKey,
+      ...(input.beforeCredentialWrite === undefined
+        ? {}
+        : { beforeCredentialWrite: input.beforeCredentialWrite }),
     });
     if (!onboard.ok) {
       return err(onboard.error);
@@ -3173,13 +3088,13 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       }
 
       await this.cleanupModelProviderFlowsForProvider(input.providerId, input.orgId);
-      const login = await gatewayRuntime.startDeviceCodeLogin(
-        deviceCodeProviderArg({
+      const login = await gatewayRuntime.beginDeviceLogin({
+        providerId: deviceCodeProviderArg({
           providerId: input.providerId,
           authChoiceId: input.authChoiceId,
         }),
-        sharedCredentialAgentId,
-      );
+        agentId: sharedCredentialAgentId,
+      });
       if (!login.ok) {
         return err(login.error);
       }
@@ -3193,8 +3108,7 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         authChoiceId: input.authChoiceId,
         expiresAt: new Date(this.now().getTime() + modelDeviceFlowExpiresMs),
         intervalSeconds: modelDeviceFlowPollIntervalSeconds,
-        execId: login.value.execId,
-        logPath: login.value.logPath,
+        login: login.value,
         generation: randomUUID(),
         lifecycle: "active",
         timeout: setTimeout(() => {
@@ -3210,8 +3124,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
       this.modelDeviceFlows.set(baseFlow.flowId, baseFlow);
 
       for (let attempt = 0; attempt < modelDeviceFlowStartMaxAttempts; attempt += 1) {
-        const log = await gatewayRuntime.readDeviceCodeLog(login.value.logPath);
-        if (!log.ok) {
+        const loginState = await gatewayRuntime.pollDeviceLogin(login.value);
+        if (
+          !loginState.ok ||
+          loginState.value.kind === "unavailable"
+        ) {
           await this.cleanupModelProviderFlow(baseFlow);
           return err(deviceCodeLogReadError(input.providerId));
         }
@@ -3225,12 +3142,11 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
           );
         }
 
-        const parsed = parseDeviceCodeLog(log.value);
-        if (parsed !== null) {
+        if (loginState.value.kind === "awaiting-code") {
           const flow: PendingModelProviderDeviceFlow = {
             ...baseFlow,
-            verificationUri: parsed.verificationUri,
-            userCode: parsed.userCode,
+            verificationUri: loginState.value.verificationUri,
+            userCode: loginState.value.deviceCode,
           };
           if (!this.isCurrentActiveModelFlow(baseFlow)) {
             return err(
@@ -5334,7 +5250,8 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
         if (runtime === undefined) {
           throw new Error("Gateway runtime is unavailable.");
         }
-        await runtime.stopDeviceCodeLogin(cancelling.execId, cancelling.logPath);
+        const cancelled = await runtime.cancelDeviceLogin(cancelling.login);
+        if (!cancelled.ok) throw cancelled.error;
         const mapped = this.modelDeviceFlows.get(flow.flowId);
         if (mapped?.generation === cancelling.generation && mapped.lifecycle === "cancelling") {
           clearTimeout(mapped.timeout);
@@ -5389,15 +5306,115 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
   }
 
   private async cleanupSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
+    const existing = this.modelSetupTokenFlowCleanups.get(flow.flowId);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const cleanup = this.cleanupSetupTokenFlowInner(flow);
+    this.modelSetupTokenFlowCleanups.set(flow.flowId, cleanup);
+    try {
+      await cleanup;
+    } finally {
+      if (this.modelSetupTokenFlowCleanups.get(flow.flowId) === cleanup) {
+        this.modelSetupTokenFlowCleanups.delete(flow.flowId);
+      }
+    }
+  }
+
+  private async cleanupSetupTokenFlowInner(flow: PendingModelProviderSetupTokenFlow): Promise<void> {
+    // Cleanup callers race through public poll paths. Once another caller has successfully
+    // cancelled this opaque handle, it is already clean and a second cancellation returns
+    // interactiveLoginNotFound. Treat that as the idempotent no-op it is.
+    if (!this.isMappedSetupTokenFlow(flow)) return;
     const runtime = this.options.gatewayRuntime;
     if (runtime === undefined) {
       throw new Error("Gateway runtime is unavailable.");
     }
-    await runtime.stopSetupTokenLogin(flow.execId, flow.logPath);
-    if (this.modelSetupTokenFlows.get(flow.flowId)?.execId === flow.execId) {
+    const previousPhase = flow.phase;
+    // Publish cancellation before the first await. In-flight polls and completions now lose
+    // ownership even while the adapter proves the interactive process has stopped.
+    flow.phase = "cancelling";
+    let cancelled: Result<void>;
+    try {
+      cancelled = await runtime.cancelSetupTokenLogin(flow.login);
+    } catch (error) {
+      // Ports should return Result, but a thrown adapter failure cannot prove the process stopped
+      // either. Restore the active flow for the same retry path as a failed Result.
+      if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
+        flow.phase = previousPhase;
+      }
+      throw error;
+    }
+    if (!cancelled.ok) {
+      // Cancellation was not verified. The old process remains authoritative, so restore the
+      // precise previous lifecycle and let callers retry rather than permanently stranding it.
+      if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
+        flow.phase = previousPhase;
+      }
+      if (!this.isMappedSetupTokenFlow(flow)) return;
+      throw cancelled.error;
+    }
+    if (this.isMappedSetupTokenFlow(flow) && flow.phase === "cancelling") {
       this.modelSetupTokenFlows.delete(flow.flowId);
       clearTimeout(flow.timeout);
+      if (flow.outcomeCleanupTimeout !== undefined) clearTimeout(flow.outcomeCleanupTimeout);
     }
+  }
+
+  private scheduleSetupTokenOutcomeCleanup(
+    flow: PendingModelProviderSetupTokenFlow,
+    delayMs: number,
+    retryIndex: number,
+    finalAttempt = false,
+  ): void {
+    flow.outcomeCleanupTimeout = setTimeout(() => {
+      if (!this.isCurrentSetupTokenFlow(flow) || flow.outcome === undefined) {
+        return;
+      }
+      void this.cleanupSetupTokenFlow(flow).catch((error: unknown) => {
+        if (!this.isCurrentSetupTokenFlow(flow)) {
+          return;
+        }
+        const retryDelayMs = setupTokenCleanupRetryDelaysMs[retryIndex];
+        if (retryDelayMs !== undefined) {
+          this.scheduleSetupTokenOutcomeCleanup(
+            flow,
+            retryDelayMs,
+            retryIndex + 1,
+          );
+          return;
+        }
+
+        // Do not include the opaque handle, error message, or setup token: any could reveal
+        // operational or credential material. Keep the flow mapped so the next long-delay retry
+        // can still verify cancellation and artifact deletion rather than leaking it permanently.
+        console.error("connections.setupToken.cleanupUnverified", {
+          level: "error",
+          providerId: flow.providerId,
+          flowId: flow.flowId,
+          attempts: retryIndex + 1,
+          finalAttempt,
+          causeCode: error instanceof DomainError ? error.code : "runtime_stop_failed",
+        });
+        if (!finalAttempt) {
+          this.scheduleSetupTokenOutcomeCleanup(
+            flow,
+            setupTokenCleanupFinalRetryDelayMs,
+            retryIndex,
+            true,
+          );
+        }
+      });
+    }, delayMs);
+  }
+
+  private isCurrentSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): boolean {
+    return this.isMappedSetupTokenFlow(flow) && flow.phase !== "cancelling";
+  }
+
+  private isMappedSetupTokenFlow(flow: PendingModelProviderSetupTokenFlow): boolean {
+    return this.modelSetupTokenFlows.get(flow.flowId)?.login === flow.login;
   }
 
   private async cleanupSetupTokenFlowsForProvider(
@@ -5456,31 +5473,34 @@ export class GatewayAdminConnectionsProvisioningPort implements ConnectionsProvi
     }
 
     let currentFlow = flow;
-    const log = await this.options.gatewayRuntime?.readDeviceCodeLog(flow.logPath);
+    const loginState = await this.options.gatewayRuntime?.pollDeviceLogin(flow.login);
     if (!this.isCurrentActiveModelFlow(flow)) {
       return ok({ status: "expired", message: "Device sign-in not found." });
     }
-    if (log !== undefined && !log.ok) {
+    if (
+      loginState !== undefined &&
+      (!loginState.ok ||
+        loginState.value.kind === "unavailable")
+    ) {
       await this.cleanupModelProviderFlow(flow);
       return err(deviceCodeLogReadError(flow.providerId));
     }
     if (
-      log !== undefined &&
+      loginState !== undefined &&
+      loginState.ok &&
+      loginState.value.kind === "awaiting-code" &&
       (currentFlow.verificationUri === undefined || currentFlow.userCode === undefined)
     ) {
-      const parsed = parseDeviceCodeLog(log.value);
-      if (parsed !== null) {
-        currentFlow = {
-          ...currentFlow,
-          verificationUri: parsed.verificationUri,
-          userCode: parsed.userCode,
-        };
-        if (this.isCurrentActiveModelFlow(flow)) {
-          this.modelDeviceFlows.set(currentFlow.flowId, currentFlow);
-        }
+      currentFlow = {
+        ...currentFlow,
+        verificationUri: loginState.value.verificationUri,
+        userCode: loginState.value.deviceCode,
+      };
+      if (this.isCurrentActiveModelFlow(flow)) {
+        this.modelDeviceFlows.set(currentFlow.flowId, currentFlow);
       }
     }
-    if (log !== undefined && deviceCodeLogTerminalFailure(log.value)) {
+    if (loginState !== undefined && loginState.ok && loginState.value.kind === "terminal-failure") {
       await this.cleanupModelProviderFlow(currentFlow);
       return ok({
         status: "failed",

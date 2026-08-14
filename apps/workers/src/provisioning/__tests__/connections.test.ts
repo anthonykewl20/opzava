@@ -524,6 +524,7 @@ class RecordingGatewayRuntime {
   }[] = [];
   public readonly deviceLoginCalls: string[] = [];
   public readonly deviceLoginAgentIds: string[] = [];
+  /** Poll count, kept separate from the opaque runtime handle. */
   public readonly deviceLogReads: string[] = [];
   public readonly agentCredentialWrites: {
     readonly agentId: string;
@@ -549,19 +550,13 @@ class RecordingGatewayRuntime {
     readonly stdout: string;
     readonly stderr: string;
   }> | null = null;
-  public readonly deviceStops: {
-    readonly execId: string;
-    readonly logPath: string;
-  }[] = [];
+  public readonly deviceStops: DeviceLoginHandle[] = [];
   public readonly setupTokenStarts: string[] = [];
   public readonly setupTokenWrites: {
-    readonly stdinPath: string;
     readonly value: string;
   }[] = [];
-  public readonly setupTokenStops: {
-    readonly execId: string;
-    readonly logPath: string;
-  }[] = [];
+  public readonly setupTokenStops: SetupTokenLoginHandle[] = [];
+  public setupTokenCancelCalls = 0;
   public connectedDeviceProviderId: string | null = null;
   public deviceLogResult: Result<string> | null = null;
   public modelStatusCalls = 0;
@@ -569,14 +564,7 @@ class RecordingGatewayRuntime {
   public deviceLogBarrier: Promise<void> | undefined;
   private readonly opaqueLogins = new Map<
     string,
-    {
-      readonly kind: "device" | "setup-token";
-      readonly login: {
-        readonly execId: string;
-        readonly logPath: string;
-        readonly stdinPath?: string;
-      };
-    }
+    "device" | "setup-token"
   >();
 
   public constructor(
@@ -602,6 +590,14 @@ class RecordingGatewayRuntime {
       readonly deviceCodeLog?: string | (() => string);
       readonly deviceLogBarrier?: Promise<void>;
       readonly setupTokenLog?: string | (() => string);
+      readonly setupTokenPollBarrier?: Promise<void>;
+      readonly setupTokenPollStarted?: () => void;
+      readonly setupTokenWriteBarrier?: Promise<void>;
+      readonly setupTokenWriteStarted?: () => void;
+      readonly setupTokenCancelResult?: (attempt: number) => Result<void>;
+      readonly setupTokenCancelBarrier?: Promise<void>;
+      readonly setupTokenCancelStarted?: () => void;
+      readonly setupTokenLogResult?: Result<string>;
       /** Force every probe to one verdict, e.g. to simulate a rate-limited provider. */
       readonly authProbeResult?: Result<ProviderAuthProbe> | (() => Result<ProviderAuthProbe>);
       /** Force the #251 canary result while retaining the exact elected target. */
@@ -741,12 +737,21 @@ class RecordingGatewayRuntime {
     readonly authChoiceId: string;
     readonly keyFlag: string;
     readonly apiKey: string;
+    readonly beforeCredentialWrite?: () => boolean;
   }): Promise<
     Result<{ readonly exitCode: number; readonly stdout: string; readonly stderr: string }>
   > {
-    this.connectCalls.push(input);
+    this.connectCalls.push({
+      providerId: input.providerId,
+      authChoiceId: input.authChoiceId,
+      keyFlag: input.keyFlag,
+      apiKey: input.apiKey,
+    });
     if (this.options.connectDelayMs !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, this.options.connectDelayMs));
+    }
+    if (input.beforeCredentialWrite !== undefined && !input.beforeCredentialWrite()) {
+      return err(new DomainError({ code: "test.setupTokenSuperseded", message: "superseded" }));
     }
     const result = this.options.connectResult ?? ok({ exitCode: 0, stdout: "{}", stderr: "" });
     if (result.ok && result.value.exitCode === 0) {
@@ -882,16 +887,17 @@ class RecordingGatewayRuntime {
     readonly providerId: string;
     readonly agentId: string;
   }): Promise<Result<DeviceLoginHandle>> {
-    const login = await this.startDeviceCodeLogin(input.providerId, input.agentId);
-    if (!login.ok) return login;
+    this.deviceLoginCalls.push(input.providerId);
+    this.deviceLoginAgentIds.push(input.agentId);
+    await this.options.deviceLoginBarrier;
+    this.storeFor(input.agentId).add(this.connectedDeviceProviderId ?? input.providerId);
     const token = randomUUID();
-    this.opaqueLogins.set(token, { kind: "device", login: login.value });
+    this.opaqueLogins.set(token, "device");
     return ok({ __brand: "DeviceLoginHandle", token });
   }
 
   public async pollDeviceLogin(handle: DeviceLoginHandle): Promise<Result<DeviceLoginState>> {
-    const entry = this.opaqueLogins.get(handle.token);
-    if (entry === undefined || entry.kind !== "device") {
+    if (this.opaqueLogins.get(handle.token) !== "device") {
       return err(
         new DomainError({
           code: "test.deviceLoginNotFound",
@@ -899,19 +905,26 @@ class RecordingGatewayRuntime {
         }),
       );
     }
-    const log = await this.readDeviceCodeLog(entry.login.logPath);
-    if (!log.ok) return ok({ kind: "terminal-failure", reason: "The device login process ended." });
-    if (/success|complete/i.test(log.value)) return ok({ kind: "completed" });
-    const uri = log.value.match(/https?:\/\/\S+/)?.[0];
-    const code = log.value.match(/Code:\s*([A-Z0-9-]+)/i)?.[1];
+    this.deviceLogReads.push(handle.token);
+    await this.deviceLogBarrier;
+    const log = this.deviceLog();
+    if (!log.ok) {
+      return ok({ kind: "unavailable" });
+    }
+    const text = this.interactiveText(log.value);
+    if (/success|complete/i.test(text)) return ok({ kind: "completed" });
+    if (/device[_ ]code(?:[_ ]request)?[_ ]failed|access[_ ]denied|authorization[_ ](?:denied|declined)|invalid[_ ]grant/i.test(text)) {
+      return ok({ kind: "terminal-failure", reason: "The provider rejected the device login." });
+    }
+    const uri = text.match(/https?:\/\/\S+/)?.[0];
+    const code = text.match(/Code:\s*([A-Z0-9-]+)/i)?.[1];
     return uri !== undefined && code !== undefined
       ? ok({ kind: "awaiting-code", deviceCode: code, verificationUri: uri, expiresInMs: 900_000 })
-      : ok({ kind: "terminal-failure", reason: "The device login process ended." });
+      : ok({ kind: "pending" });
   }
 
   public async cancelDeviceLogin(handle: DeviceLoginHandle): Promise<Result<void>> {
-    const entry = this.opaqueLogins.get(handle.token);
-    if (entry === undefined || entry.kind !== "device") {
+    if (this.opaqueLogins.get(handle.token) !== "device") {
       return err(
         new DomainError({
           code: "test.deviceLoginNotFound",
@@ -919,24 +932,24 @@ class RecordingGatewayRuntime {
         }),
       );
     }
-    await this.stopDeviceCodeLogin(entry.login.execId, entry.login.logPath);
+    this.deviceStops.push(handle);
+    await this.options.deviceStopBarrier;
+    if (this.options.deviceStopError !== undefined) throw this.options.deviceStopError;
     this.opaqueLogins.delete(handle.token);
     return ok(undefined);
   }
 
   public async beginSetupTokenLogin(): Promise<Result<SetupTokenLoginHandle>> {
-    const login = await this.startSetupTokenLogin();
-    if (!login.ok) return login;
+    this.setupTokenStarts.push("start");
     const token = randomUUID();
-    this.opaqueLogins.set(token, { kind: "setup-token", login: login.value });
+    this.opaqueLogins.set(token, "setup-token");
     return ok({ __brand: "SetupTokenLoginHandle", token });
   }
 
   public async pollSetupTokenLogin(
     handle: SetupTokenLoginHandle,
   ): Promise<Result<SetupTokenLoginState>> {
-    const entry = this.opaqueLogins.get(handle.token);
-    if (entry === undefined || entry.kind !== "setup-token") {
+    if (this.opaqueLogins.get(handle.token) !== "setup-token") {
       return err(
         new DomainError({
           code: "test.setupTokenLoginNotFound",
@@ -944,24 +957,28 @@ class RecordingGatewayRuntime {
         }),
       );
     }
-    const log = await this.readSetupTokenLog(entry.login.logPath);
-    if (!log.ok)
-      return ok({ kind: "terminal-failure", reason: "The setup-token login process ended." });
-    return ok(
-      /sk-ant-oat01-|complete/i.test(log.value) ? { kind: "completed" } : { kind: "awaiting-code" },
-    );
+    this.options.setupTokenPollStarted?.();
+    await this.options.setupTokenPollBarrier;
+    const log = this.setupTokenLog();
+    if (!log.ok) return ok({ kind: "unavailable" });
+    const text = this.interactiveText(log.value);
+    const setupToken = text.match(/(?:^|\s)(sk-ant-oat01-[A-Za-z0-9_-]+)(?=\s|$)/)?.[1];
+    if (setupToken !== undefined && setupToken.length === 108) return ok({ kind: "completed", setupToken });
+    if (/invalid[ _](authorization[ _])?(code|grant|request)|access denied|login failed/i.test(text)) {
+      return ok({ kind: "terminal-failure", reason: "The provider rejected the setup-token login." });
+    }
+    // An OSC-8 target is unwrapped while its printed label can be split across terminal lines.
+    // eslint-disable-next-line no-control-regex
+    const authorizeUrl = log.value.match(/\x1B\]8;[^;]*;(https?:\/\/[^\x07\x1B]+)(?:\x07|\x1B\\)/)?.[1]
+      ?? text.match(/https?:\/\/[^\s"']*(?:claude|anthropic|oauth)[^\s"']*/i)?.[0];
+    return authorizeUrl === undefined ? ok({ kind: "pending" }) : ok({ kind: "awaiting-code", authorizeUrl });
   }
 
   public async submitSetupTokenCode(
     handle: SetupTokenLoginHandle,
     code: string,
   ): Promise<Result<void>> {
-    const entry = this.opaqueLogins.get(handle.token);
-    if (
-      entry === undefined ||
-      entry.kind !== "setup-token" ||
-      entry.login.stdinPath === undefined
-    ) {
+    if (this.opaqueLogins.get(handle.token) !== "setup-token") {
       return err(
         new DomainError({
           code: "test.setupTokenLoginNotFound",
@@ -969,12 +986,14 @@ class RecordingGatewayRuntime {
         }),
       );
     }
-    return this.writeSetupTokenInput(entry.login.stdinPath, code);
+    this.setupTokenWrites.push({ value: code });
+    this.options.setupTokenWriteStarted?.();
+    await this.options.setupTokenWriteBarrier;
+    return ok(undefined);
   }
 
   public async cancelSetupTokenLogin(handle: SetupTokenLoginHandle): Promise<Result<void>> {
-    const entry = this.opaqueLogins.get(handle.token);
-    if (entry === undefined || entry.kind !== "setup-token") {
+    if (this.opaqueLogins.get(handle.token) !== "setup-token") {
       return err(
         new DomainError({
           code: "test.setupTokenLoginNotFound",
@@ -982,37 +1001,24 @@ class RecordingGatewayRuntime {
         }),
       );
     }
-    await this.stopSetupTokenLogin(entry.login.execId, entry.login.logPath);
+    this.setupTokenStops.push(handle);
+    this.setupTokenCancelCalls += 1;
+    this.options.setupTokenCancelStarted?.();
+    await this.options.setupTokenCancelBarrier;
+    const cancelled = this.options.setupTokenCancelResult?.(this.setupTokenCancelCalls);
+    if (cancelled !== undefined && !cancelled.ok) {
+      return cancelled;
+    }
     this.opaqueLogins.delete(handle.token);
     return ok(undefined);
   }
 
-  public async startDeviceCodeLogin(
-    providerId: string,
-    agentId: string,
-  ): Promise<Result<{ readonly execId: string; readonly logPath: string }>> {
-    this.deviceLoginCalls.push(providerId);
-    this.deviceLoginAgentIds.push(agentId);
-    await this.options.deviceLoginBarrier;
-    this.storeFor(agentId).add(this.connectedDeviceProviderId ?? providerId);
-    return ok({ execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" });
-  }
-
-  public async readDeviceCodeLog(logPath: string): Promise<Result<string>> {
-    this.deviceLogReads.push(logPath);
-    await this.deviceLogBarrier;
+  private deviceLog(): Result<string> {
     if (this.deviceLogResult !== null) {
       return this.deviceLogResult;
     }
     if (this.options.deviceCodeLogResult !== undefined) {
       return this.options.deviceCodeLogResult;
-    }
-    if (logPath.includes("opzava-st")) {
-      const setupValue =
-        typeof this.options.setupTokenLog === "function"
-          ? this.options.setupTokenLog()
-          : this.options.setupTokenLog;
-      return ok(setupValue ?? "Authorize: https://claude.ai/oauth/authorize\n");
     }
     const value =
       typeof this.options.deviceCodeLog === "function"
@@ -1023,36 +1029,20 @@ class RecordingGatewayRuntime {
     );
   }
 
-  public async readSetupTokenLog(logPath: string): Promise<Result<string>> {
-    return this.readDeviceCodeLog(logPath);
-  }
-
-  public async stopDeviceCodeLogin(execId: string, logPath: string): Promise<void> {
-    this.deviceStops.push({ execId, logPath });
-    await this.options.deviceStopBarrier;
-    if (this.options.deviceStopError !== undefined) {
-      throw this.options.deviceStopError;
+  private setupTokenLog(): Result<string> {
+    if (this.options.setupTokenLogResult !== undefined) {
+      return this.options.setupTokenLogResult;
     }
+    const value =
+      typeof this.options.setupTokenLog === "function"
+        ? this.options.setupTokenLog()
+        : this.options.setupTokenLog;
+    return ok(value ?? "Authorize: https://claude.ai/oauth/authorize\n");
   }
 
-  public async startSetupTokenLogin(): Promise<
-    Result<{ readonly execId: string; readonly logPath: string; readonly stdinPath: string }>
-  > {
-    this.setupTokenStarts.push("start");
-    return ok({
-      execId: "exec-setup-1",
-      logPath: "/tmp/opzava-st-test/setup.log",
-      stdinPath: "/tmp/opzava-st-test/stdin",
-    });
-  }
-
-  public async writeSetupTokenInput(stdinPath: string, value: string): Promise<Result<void>> {
-    this.setupTokenWrites.push({ stdinPath, value });
-    return ok(undefined);
-  }
-
-  public async stopSetupTokenLogin(execId: string, logPath: string): Promise<void> {
-    this.setupTokenStops.push({ execId, logPath });
+  private interactiveText(value: string): string {
+    // eslint-disable-next-line no-control-regex
+    return value.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, "").replace(/\r\n?/g, "\n");
   }
 }
 
@@ -3991,9 +3981,236 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(submitted).toMatchObject({ ok: true, value: { status: "pending" } });
-    expect(gatewayRuntime.setupTokenWrites).toEqual([
-      { stdinPath: "/tmp/opzava-st-test/stdin", value: "oauth-code-123" },
-    ]);
+    expect(gatewayRuntime.setupTokenWrites).toEqual([{ value: "oauth-code-123" }]);
+  });
+
+  it("does not submit a second setup-token code while the first exchange is completing", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    const flowId = start.ok ? start.value.flowId : "";
+
+    await port.submitModelProviderSetupTokenCode({ ...principal(), flowId, code: "first-code" });
+    const repeated = await port.submitModelProviderSetupTokenCode({
+      ...principal(),
+      flowId,
+      code: "second-code",
+    });
+
+    expect(repeated).toEqual(ok({ status: "pending" }));
+    expect(gatewayRuntime.setupTokenWrites).toEqual([{ value: "first-code" }]);
+  });
+
+  it("serializes concurrent setup-token code submissions before the FIFO write resolves", async () => {
+    let releaseWrite: (() => void) | undefined;
+    const writeBarrier = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let notifyWriteStarted: (() => void) | undefined;
+    const writeStarted = new Promise<void>((resolve) => {
+      notifyWriteStarted = resolve;
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenWriteBarrier: writeBarrier,
+      setupTokenWriteStarted: () => notifyWriteStarted?.(),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    const flowId = start.ok ? start.value.flowId : "";
+
+    const first = port.submitModelProviderSetupTokenCode({ ...principal(), flowId, code: "first-code" });
+    await writeStarted;
+    const second = await port.submitModelProviderSetupTokenCode({
+      ...principal(),
+      flowId,
+      code: "second-code",
+    });
+    releaseWrite?.();
+
+    await expect(first).resolves.toEqual(ok({ status: "pending" }));
+    expect(second).toEqual(ok({ status: "pending" }));
+    expect(gatewayRuntime.setupTokenWrites).toEqual([{ value: "first-code" }]);
+  });
+
+  it("returns a Result when a setup-token poll races replacement cleanup", async () => {
+    let releasePoll: (() => void) | undefined;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    let notifyPollStarted: (() => void) | undefined;
+    const pollStarted = new Promise<void>((resolve) => {
+      notifyPollStarted = resolve;
+    });
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenPollBarrier: pollBarrier,
+      setupTokenPollStarted: () => notifyPollStarted?.(),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const first = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    const racingPoll = port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: first.ok ? first.value.flowId : "",
+    });
+    await pollStarted;
+
+    const replacement = await port.startModelProviderSetupTokenFlow({
+      ...principal(),
+      providerId: "anthropic",
+    });
+    releasePoll?.();
+    const raced = await racingPoll;
+
+    expect(replacement.ok).toBe(true);
+    expect(raced).toEqual(ok({ status: "pending" }));
+    expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
+  });
+
+  it("drops a delayed successful setup-token poll released after replacement cancellation", async () => {
+    let releasePoll: (() => void) | undefined;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    let notifyPollStarted: (() => void) | undefined;
+    const pollStarted = new Promise<void>((resolve) => {
+      notifyPollStarted = resolve;
+    });
+    const token = `sk-ant-oat01-${"f".repeat(95)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `Done ${token}\n`,
+      setupTokenPollBarrier: pollBarrier,
+      setupTokenPollStarted: () => notifyPollStarted?.(),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const first = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    const racingPoll = port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: first.ok ? first.value.flowId : "",
+    });
+    await pollStarted;
+
+    await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    releasePoll?.();
+
+    await expect(racingPoll).resolves.toEqual(ok({ status: "pending" }));
+    await delay(0);
+    expect(gatewayRuntime.connectCalls).toEqual([]);
+  });
+
+  it("revokes completed setup-token ownership before a blocked replacement stop", async () => {
+    let releasePoll: (() => void) | undefined;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    let notifyPollStarted: (() => void) | undefined;
+    const pollStarted = new Promise<void>((resolve) => {
+      notifyPollStarted = resolve;
+    });
+    let releaseStop: (() => void) | undefined;
+    const stopBarrier = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    let notifyStopStarted: (() => void) | undefined;
+    const stopStarted = new Promise<void>((resolve) => {
+      notifyStopStarted = resolve;
+    });
+    const token = `sk-ant-oat01-${"z".repeat(95)}`;
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLog: `Done ${token}\n`,
+      setupTokenPollBarrier: pollBarrier,
+      setupTokenPollStarted: () => notifyPollStarted?.(),
+      setupTokenCancelBarrier: stopBarrier,
+      setupTokenCancelStarted: () => notifyStopStarted?.(),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const first = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    const flowId = first.ok ? first.value.flowId : "";
+    const poll = port.pollModelProviderSetupTokenFlow({ ...principal(), flowId });
+    await pollStarted;
+
+    const replacement = port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    await stopStarted;
+    releasePoll?.();
+
+    await expect(poll).resolves.toEqual(ok({ status: "pending" }));
+    expect(gatewayRuntime.connectCalls).toEqual([]);
+    await expect(
+      port.pollModelProviderSetupTokenFlow({ ...principal(), flowId }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "provisioning.connections.setupTokenFlowCancelling" } });
+
+    releaseStop?.();
+    await expect(replacement).resolves.toMatchObject({ ok: true });
+    expect(
+      (port as unknown as { readonly modelSetupTokenFlows: ReadonlyMap<string, unknown> })
+        .modelSetupTokenFlows.has(flowId),
+    ).toBe(false);
+  });
+
+  it("restores a setup-token service flow after replacement cancellation fails", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenCancelResult: () =>
+        err(new DomainError({ code: "test.setupTokenStopFailed", message: "stop failed" })),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const first = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+    const flowId = first.ok ? first.value.flowId : "";
+
+    await expect(
+      port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" }),
+    ).rejects.toMatchObject({ code: "test.setupTokenStopFailed" });
+    await expect(port.pollModelProviderSetupTokenFlow({ ...principal(), flowId })).resolves.toEqual(
+      ok({ status: "awaiting_code", authorizeUrl: "https://claude.ai/oauth/authorize" }),
+    );
+  });
+
+  it("maps an unavailable setup-token process to an infrastructure failure, not provider denial", async () => {
+    const gatewayRuntime = new RecordingGatewayRuntime({
+      choices: [
+        { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+      ],
+      setupTokenLogResult: err(
+        new DomainError({ code: "test.setupTokenLogUnavailable", message: "private runtime failure" }),
+      ),
+    });
+    const port = setupTokenPort({ gatewayRuntime });
+    const start = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+
+    const poll = await port.pollModelProviderSetupTokenFlow({
+      ...principal(),
+      flowId: start.ok ? start.value.flowId : "",
+    });
+
+    expect(poll).toEqual(
+      ok({
+        status: "failed",
+        message: "The Claude setup process is unavailable. Start a new setup-token flow and retry.",
+        code: "provisioning.connections.setupTokenLoginUnavailable",
+      }),
+    );
   });
 
   it("keeps setup-token submitted-code exchanges pending while stale authorize URLs remain", async () => {
@@ -4145,9 +4362,7 @@ describe("Connections provisioning helpers", () => {
       { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
     ]);
     expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
-    expect(gatewayRuntime.setupTokenStops).toEqual([
-      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
-    ]);
+    expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
   });
 
   it("does not double-submit setup-token completion under overlapping polls", async () => {
@@ -4209,9 +4424,7 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.connectCalls).toEqual([
       { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
     ]);
-    expect(gatewayRuntime.setupTokenStops).toEqual([
-      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
-    ]);
+    expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
     expect(JSON.stringify([inFlight, terminal])).not.toContain("sk-ant-oat01");
   });
 
@@ -4260,10 +4473,137 @@ describe("Connections provisioning helpers", () => {
     expect(gatewayRuntime.connectCalls).toEqual([
       { providerId: "anthropic", authChoiceId: "setup-token", keyFlag: "token", apiKey: token },
     ]);
-    expect(gatewayRuntime.setupTokenStops).toEqual([
-      { execId: "exec-setup-1", logPath: "/tmp/opzava-st-test/setup.log" },
-    ]);
+    expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
     expect(JSON.stringify([firstPoll, terminalPoll])).not.toContain("sk-ant-oat01");
+  });
+
+  it("reaps a completed setup-token flow when no later poll consumes its outcome", async () => {
+    vi.useFakeTimers();
+    try {
+      const token = `sk-ant-oat01-${"e".repeat(95)}`;
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        setupTokenLog: `Done ${token}\n`,
+        status: {
+          allowed: ["anthropic/claude-sonnet-5"],
+          auth: {
+            providers: [
+              {
+                provider: "anthropic",
+                profiles: { count: 1, token: 1, labels: ["anthropic:manual=Setup token"] },
+              },
+            ],
+          },
+        },
+      });
+      const port = setupTokenPort({ gatewayRuntime });
+      const start = await port.startModelProviderSetupTokenFlow({
+        ...principal(),
+        providerId: "anthropic",
+      });
+      const flowId = start.ok ? start.value.flowId : "";
+
+      await port.pollModelProviderSetupTokenFlow({ ...principal(), flowId });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(gatewayRuntime.setupTokenStops).toHaveLength(1);
+      expect(
+        (port as unknown as { readonly modelSetupTokenFlows: ReadonlyMap<string, unknown> })
+          .modelSetupTokenFlows.has(flowId),
+      ).toBe(false);
+      await expect(
+        port.pollModelProviderSetupTokenFlow({ ...principal(), flowId }),
+      ).resolves.toMatchObject({ ok: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries failed completed-flow cleanup and reaps the flow after cancellation is verified", async () => {
+    vi.useFakeTimers();
+    try {
+      const token = `sk-ant-oat01-${"g".repeat(95)}`;
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        setupTokenLog: `Done ${token}\n`,
+        setupTokenCancelResult: (attempt) =>
+          attempt === 1
+            ? err(new DomainError({ code: "test.setupTokenStopFailed", message: "stop failed" }))
+            : ok(undefined),
+        status: {
+          allowed: ["anthropic/claude-sonnet-5"],
+          auth: { providers: [{ provider: "anthropic", profiles: { count: 1, token: 1 } }] },
+        },
+      });
+      const port = setupTokenPort({ gatewayRuntime });
+      const start = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+      const flowId = start.ok ? start.value.flowId : "";
+
+      await port.pollModelProviderSetupTokenFlow({ ...principal(), flowId });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(gatewayRuntime.setupTokenCancelCalls).toBe(2);
+      expect(
+        (port as unknown as { readonly modelSetupTokenFlows: ReadonlyMap<string, unknown> })
+          .modelSetupTokenFlows.has(flowId),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains a completed flow and logs loudly when every bounded cleanup retry fails", async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const token = `sk-ant-oat01-${"h".repeat(95)}`;
+      const gatewayRuntime = new RecordingGatewayRuntime({
+        choices: [
+          { id: "setup-token", label: "Anthropic setup-token", mode: "api-key", keyFlag: "token" },
+        ],
+        setupTokenLog: `Done ${token}\n`,
+        setupTokenCancelResult: () =>
+          err(new DomainError({ code: "test.setupTokenStopFailed", message: "stop failed" })),
+        status: {
+          allowed: ["anthropic/claude-sonnet-5"],
+          auth: { providers: [{ provider: "anthropic", profiles: { count: 1, token: 1 } }] },
+        },
+      });
+      const port = setupTokenPort({ gatewayRuntime });
+      const start = await port.startModelProviderSetupTokenFlow({ ...principal(), providerId: "anthropic" });
+      const flowId = start.ok ? start.value.flowId : "";
+
+      await port.pollModelProviderSetupTokenFlow({ ...principal(), flowId });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(30_000 + 1_000 + 2_000 + 4_000);
+
+      expect(gatewayRuntime.setupTokenCancelCalls).toBe(4);
+      expect(
+        (port as unknown as { readonly modelSetupTokenFlows: ReadonlyMap<string, unknown> })
+          .modelSetupTokenFlows.has(flowId),
+      ).toBe(true);
+      expect(error).toHaveBeenCalledWith(
+        "connections.setupToken.cleanupUnverified",
+        expect.objectContaining({
+          level: "error",
+          providerId: "anthropic",
+          attempts: 4,
+          finalAttempt: false,
+          causeCode: "test.setupTokenStopFailed",
+        }),
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(token);
+    } finally {
+      error.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   // Fixtures below are built from a REAL `claude setup-token` PTY capture taken from the running
@@ -8542,9 +8882,7 @@ describe("Connections provisioning helpers", () => {
       code: "provisioning.connections.providerConnectInFlight",
     });
     expect(gatewayRuntime.deviceLoginCalls).toEqual(["openai", "openai"]);
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(firstPoll.ok ? firstPoll.value : null).toMatchObject({
       status: "expired",
       message: "Device sign-in not found.",
@@ -8680,9 +9018,7 @@ describe("Connections provisioning helpers", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 
@@ -8718,9 +9054,7 @@ describe("Connections provisioning helpers", () => {
     const result = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
 
     expect(result.ok).toBe(false);
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain("poll-read-secret");
   });
 
@@ -8868,9 +9202,7 @@ describe("Connections provisioning helpers", () => {
         connectedAuthMode: "oauth",
       },
     });
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(duplicate).toEqual(connected);
     expect(
       info.mock.calls.filter(([message]) => message === "connections.orchestrator.reconciled"),
@@ -9042,9 +9374,7 @@ describe("Connections provisioning helpers", () => {
       status: "expired",
       message: "Could not get a device code, try again.",
     });
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
   });
 
   it("cleans up an unpolled model-provider device flow when its timeout elapses", async () => {
@@ -9074,9 +9404,7 @@ describe("Connections provisioning helpers", () => {
 
       await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
 
-      expect(gatewayRuntime.deviceStops).toEqual([
-        { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-      ]);
+      expect(gatewayRuntime.deviceStops).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -9131,9 +9459,7 @@ describe("Connections provisioning helpers", () => {
     const poll = await port.pollDeviceFlow({ ...principal(), flowId: challenge.value.flowId });
 
     expect(disconnected.ok).toBe(true);
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(poll.ok ? poll.value : null).toMatchObject({
       status: "expired",
       message: "Device sign-in not found.",
@@ -9184,9 +9510,7 @@ describe("Connections provisioning helpers", () => {
       message:
         "The provider blocked, rate-limited, or denied the device-code request. Wait a minute and retry, or connect with an API key.",
     });
-    expect(gatewayRuntime.deviceStops).toEqual([
-      { execId: "exec-device-1", logPath: "/tmp/opzava-df-test.log" },
-    ]);
+    expect(gatewayRuntime.deviceStops).toHaveLength(1);
     expect(JSON.stringify(failed)).not.toContain("secret-terminal-token");
     expect(JSON.stringify(failed)).not.toContain("authorization denied");
   });
@@ -9242,12 +9566,12 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    const started = await runtime.startDeviceCodeLogin("openai", "main");
+    const started = await runtime.beginDeviceLogin({ providerId: "openai", agentId: "main" });
     expect(started.ok).toBe(true);
     if (!started.ok) {
       throw started.error;
     }
-    await runtime.stopDeviceCodeLogin(started.value.execId, started.value.logPath);
+    await expect(runtime.cancelDeviceLogin(started.value)).resolves.toMatchObject({ ok: true });
 
     const execBodies = requests
       .filter((request) => request.url.endsWith("/containers/gateway/exec"))
@@ -9255,7 +9579,6 @@ describe("Connections provisioning helpers", () => {
     const startShell = execBodies[0]?.["Cmd"];
     expect(Array.isArray(startShell) ? startShell[2] : null).toEqual(expect.any(String));
     const startCommand = Array.isArray(startShell) ? String(startShell[2]) : "";
-    expect(started.value.logPath).toMatch(/^\/tmp\/opzava-df-[^/]+\/device\.log$/);
     // The OAuth profile must land in the shared store, not the default agent's private one (#169).
     // The login runs inside `script -qfc '...'`, so its own quoting is escaped once more.
     expect(startCommand).toMatch(
@@ -9332,9 +9655,9 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    const started = await runtime.startSetupTokenLogin();
+    const started = await runtime.beginSetupTokenLogin();
     if (!started.ok) throw started.error;
-    await runtime.stopSetupTokenLogin(started.value.execId, started.value.logPath);
+    await expect(runtime.cancelSetupTokenLogin(started.value)).resolves.toMatchObject({ ok: true });
 
     const commands = [...commandsByExecId.values()];
     expect(commands[0]).toContain("setsid sh -c");
@@ -9392,11 +9715,11 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    const started = await runtime.startDeviceCodeLogin("qwen", "main");
+    const started = await runtime.beginDeviceLogin({ providerId: "qwen", agentId: "main" });
     if (!started.ok) throw started.error;
     await expect(
-      runtime.stopDeviceCodeLogin(started.value.execId, started.value.logPath),
-    ).resolves.toBeUndefined();
+      runtime.cancelDeviceLogin(started.value),
+    ).resolves.toMatchObject({ ok: true });
 
     const readinessCommand = [...commandsByExecId.values()].find((command) =>
       command.includes("attempt=0"),
@@ -9449,7 +9772,7 @@ describe("Connections provisioning helpers", () => {
         fetch: fetchImpl,
       });
 
-      const result = await runtime.startDeviceCodeLogin("openai", "main");
+      const result = await runtime.beginDeviceLogin({ providerId: "openai", agentId: "main" });
 
       expect(result.ok).toBe(false);
       expect([...commandsByExecId.values()].some((command) => command.includes("shred -u"))).toBe(
@@ -9521,7 +9844,7 @@ describe("Connections provisioning helpers", () => {
         fetch: fetchImpl,
       });
       return {
-        result: await runtime.startDeviceCodeLogin("qwen", "main"),
+        result: await runtime.beginDeviceLogin({ providerId: "qwen", agentId: "main" }),
         commands: [...commandsByExecId.values()],
       };
     };
@@ -9586,7 +9909,7 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    const result = await runtime.startDeviceCodeLogin("openai", "main");
+    const result = await runtime.beginDeviceLogin({ providerId: "openai", agentId: "main" });
 
     expect(result.ok ? null : result.error.code).toBe(
       "provisioning.docker.flowControlUnavailableRunning",
@@ -9638,9 +9961,12 @@ describe("Connections provisioning helpers", () => {
         fetch: fetchImpl,
       });
 
-      const stopping = runtime.stopDeviceCodeLogin("device-exec", "/tmp/device.log");
-      const assertion = expect(stopping).rejects.toMatchObject({
-        code: "provisioning.docker.deviceCodeStopTimeout",
+      const begun = await runtime.beginDeviceLogin({ providerId: "openai", agentId: "main" });
+      if (!begun.ok) throw begun.error;
+      const stopping = runtime.cancelDeviceLogin(begun.value);
+      const assertion = expect(stopping).resolves.toMatchObject({
+        ok: false,
+        error: { code: "provisioning.docker.interactiveLoginCancellationFailed" },
       });
       await vi.advanceTimersByTimeAsync(5_100);
       await assertion;
@@ -9696,9 +10022,12 @@ describe("Connections provisioning helpers", () => {
       fetch: fetchImpl,
     });
 
-    await expect(
-      runtime.stopDeviceCodeLogin("device-exec", "/tmp/device.log"),
-    ).rejects.toMatchObject({ code: "provisioning.docker.deviceCodeLogDeleteFailed" });
+    const begun = await runtime.beginDeviceLogin({ providerId: "openai", agentId: "main" });
+    if (!begun.ok) throw begun.error;
+    await expect(runtime.cancelDeviceLogin(begun.value)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provisioning.docker.interactiveLoginCancellationFailed" },
+    });
   });
 
   it("returns a structured Docker timeout error instead of hanging an exec request", async () => {
