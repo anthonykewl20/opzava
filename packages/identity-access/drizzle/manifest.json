@@ -104,6 +104,10 @@
     {
       "path": "0025_dev_board_archive.sql",
       "sha256": "cda0c6266d67c7c339eb6294ebac2bd85f9e05dd3567d2fa5e916dada57209b0"
+    },
+    {
+      "path": "0026_dev_board_legacy_import.sql",
+      "sha256": "31691ace1a542a095ddec8124ac8b93a6c7b03d60d8f2586869ebdfa755b06b7"
     }
   ]
 }

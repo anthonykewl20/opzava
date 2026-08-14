@@ -7,6 +7,11 @@ import type {
   DependencyLockStatus,
   ArchivedDevTicketProjection,
   ArchivedProposalProjection,
+  HistoricalRecordProjection,
+  HistoricalRecordRow,
+  InsertHistoricalRecordInput,
+  LegacyTaskAliasRow,
+  LegacyTaskSource,
   ArchiveDevTicketInput,
   DevTicketRow,
   InsertDependencyEdgeInput,
@@ -31,6 +36,9 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
   public readonly dependencyEdges = new Map<string, DependencyEdgeRow>();
   public readonly todoQueueHeaders = new Map<string, LaneQueueHeaderRow>();
   public readonly todoQueueMemberships = new Map<string, TodoQueueMembershipRow>();
+  public readonly legacyTaskSources = new Map<string, LegacyTaskSource>();
+  public readonly legacyTaskAliases = new Map<string, LegacyTaskAliasRow>();
+  public readonly historicalRecords = new Map<string, HistoricalRecordRow>();
   /** Deterministic authorization fixtures; production authorization is always DB-derived. */
   public readonly activeMembers = new Set<string>();
   public readonly organizationRoles = new Set<string>();
@@ -49,6 +57,9 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     const dependencyEdges = new Map(this.dependencyEdges);
     const todoQueueHeaders = new Map(this.todoQueueHeaders);
     const todoQueueMemberships = new Map(this.todoQueueMemberships);
+    const legacyTaskSources = new Map(this.legacyTaskSources);
+    const legacyTaskAliases = new Map(this.legacyTaskAliases);
+    const historicalRecords = new Map(this.historicalRecords);
     try {
       return ok(await mutation());
     } catch (error) {
@@ -57,6 +68,9 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       this.dependencyEdges.clear(); dependencyEdges.forEach((value, mapKey) => this.dependencyEdges.set(mapKey, value));
       this.todoQueueHeaders.clear(); todoQueueHeaders.forEach((value, mapKey) => this.todoQueueHeaders.set(mapKey, value));
       this.todoQueueMemberships.clear(); todoQueueMemberships.forEach((value, mapKey) => this.todoQueueMemberships.set(mapKey, value));
+      this.legacyTaskSources.clear(); legacyTaskSources.forEach((value, mapKey) => this.legacyTaskSources.set(mapKey, value));
+      this.legacyTaskAliases.clear(); legacyTaskAliases.forEach((value, mapKey) => this.legacyTaskAliases.set(mapKey, value));
+      this.historicalRecords.clear(); historicalRecords.forEach((value, mapKey) => this.historicalRecords.set(mapKey, value));
       const code =
         typeof error === "object" && error !== null && "code" in error
           ? (error as { readonly code?: unknown }).code
@@ -193,6 +207,52 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     };
     this.devTickets.set(key(input.organizationId, input.workspaceId, input.id), row);
     return row;
+  }
+
+  public async selectLegacyTaskSource(_tx: TenantTransaction, legacyTaskId: string): Promise<LegacyTaskSource | null> {
+    return this.legacyTaskSources.get(legacyTaskId) ?? null;
+  }
+  public async selectLegacyTaskAliasForUpdate(_tx: TenantTransaction, organizationId: string, legacyTaskId: string): Promise<LegacyTaskAliasRow | null> {
+    return this.legacyTaskAliases.get(`${organizationId}:${legacyTaskId}`) ?? null;
+  }
+  public async selectHistoricalRecordForUpdate(_tx: TenantTransaction, organizationId: string, workspaceId: string, historicalRecordId: string): Promise<HistoricalRecordRow | null> {
+    const row = this.historicalRecords.get(historicalRecordId);
+    return row?.organizationId === organizationId && row.workspaceId === workspaceId ? row : null;
+  }
+  public async insertHistoricalRecord(_tx: TenantTransaction, input: InsertHistoricalRecordInput): Promise<HistoricalRecordRow> {
+    if (this.historicalRecords.has(input.id)) throw { code: "23505" };
+    const row: HistoricalRecordRow = { recordClass: "legacy_historical", historicalRecordId: input.id, organizationId: input.organizationId, workspaceId: input.workspaceId, sourceKind: "legacy_task", sourceTableRowIdentity: input.sourceTableRowIdentity, completionGate: input.completionGate, sourceDisposition: input.sourceDisposition, sourceEpoch: input.sourceEpoch, sourceRecordedAt: input.sourceRecordedAt, sourceUpdatedAt: input.sourceUpdatedAt, importedAt: new Date(), preservedPayloadDigest: input.preservedPayloadDigest, evidenceRefs: input.evidenceRefs, promotionCommandId: input.promotionCommandId, version: 1 };
+    this.historicalRecords.set(input.id, row); return row;
+  }
+  public async insertLegacyTaskAlias(_tx: TenantTransaction, input: LegacyTaskAliasRow): Promise<void> {
+    const aliasKey = `${input.organizationId}:${input.legacyTaskId}`;
+    if (this.legacyTaskAliases.has(aliasKey)) throw { code: "23505" };
+    this.legacyTaskAliases.set(aliasKey, input);
+  }
+  public async resolveImportedHistoricalRecord(_tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number; readonly sourceDisposition: HistoricalRecordRow["sourceDisposition"]; readonly completionGate: HistoricalRecordRow["completionGate"]; readonly promotionCommandId: string | null; readonly devTicketId: string | null }): Promise<HistoricalRecordRow | null> {
+    const current = await this.selectHistoricalRecordForUpdate(_tx, input.organizationId, input.workspaceId, input.historicalRecordId);
+    if (current === null || current.version !== input.expectedVersion) return null;
+    const dispositionAllowed = current.sourceDisposition === "quarantined_no_owner"
+      ? input.sourceDisposition === "quarantined_no_owner" || input.sourceDisposition === "promoted_backlog" || input.sourceDisposition === "historical_candidate"
+      : input.sourceDisposition === current.sourceDisposition;
+    const gateAllowed = input.completionGate === current.completionGate;
+    if (!dispositionAllowed || !gateAllowed) {
+      throw new DomainError({
+        code: "dev_board.historical_transition_invalid",
+        message: "Imported historical records may only advance from quarantine without regressing their completion gate.",
+      });
+    }
+    const row: HistoricalRecordRow = { ...current, sourceDisposition: input.sourceDisposition, completionGate: input.completionGate, promotionCommandId: input.promotionCommandId, version: current.version + 1 };
+    this.historicalRecords.set(row.historicalRecordId, row);
+    const alias = this.legacyTaskAliases.get(`${input.organizationId}:${current.sourceTableRowIdentity}`);
+    if (alias !== undefined) this.legacyTaskAliases.set(`${input.organizationId}:${current.sourceTableRowIdentity}`, { ...alias, devTicketId: input.devTicketId });
+    return row;
+  }
+  public async reconcileHistoricalCompletion(_tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number }): Promise<HistoricalRecordRow | null> {
+    const current = await this.selectHistoricalRecordForUpdate(_tx, input.organizationId, input.workspaceId, input.historicalRecordId);
+    if (current === null || current.version !== input.expectedVersion) return null;
+    const row: HistoricalRecordRow = { ...current, completionGate: "reconciled_historical", version: current.version + 1 };
+    this.historicalRecords.set(row.historicalRecordId, row); return row;
   }
 
   public async updateDevTicketForReadyApproval(
@@ -459,5 +519,11 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       .map((row) => ({ recordClass: "archived_proposal" as const, proposalId: row.id, archivedAt: row.archivedAt!,
         archivedByUserId: row.archivedByUserId, archivedReason: row.archivedReason,
         activityAggregateId: row.id, planningAggregateId: row.id }));
+  }
+
+  public async listHistoricalRecords(_tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly HistoricalRecordProjection[]> {
+    return [...this.historicalRecords.values()].filter((row) => row.organizationId === organizationId && row.workspaceId === workspaceId)
+      .sort((left, right) => right.importedAt.getTime() - left.importedAt.getTime() || left.historicalRecordId.localeCompare(right.historicalRecordId))
+      .map(({ recordClass, historicalRecordId, sourceTableRowIdentity, completionGate, sourceDisposition, importedAt, sourceRecordedAt, preservedPayloadDigest }) => ({ recordClass, historicalRecordId, sourceTableRowIdentity, completionGate, sourceDisposition, importedAt, sourceRecordedAt, preservedPayloadDigest }));
   }
 }

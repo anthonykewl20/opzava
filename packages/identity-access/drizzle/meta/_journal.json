@@ -183,6 +183,13 @@
       "when": 1787097600000,
       "tag": "0025_dev_board_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787184000000,
+      "tag": "0026_dev_board_legacy_import",
+      "breakpoints": true
     }
   ]
 }

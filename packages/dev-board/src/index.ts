@@ -10,8 +10,8 @@ export type {
   AppendPlanningDecisionEntryInput,
   DevBoardLedgerAppendPort
 } from "./application/dev-board-ledger-append-port.js";
-export type { ArchivedDevTicketProjection, ArchivedProposalProjection, ArchiveDevTicketInput as ArchiveDevTicketStoreInput, DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, RestoreDevTicketInput as RestoreDevTicketStoreInput, TodoQueueMembershipRow, UpdateDevTicketClassificationInput, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
-export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveDevTicketInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, MergeProposalInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, RestoreDevTicketInput, RestoreProposalInput, SetDevTicketClassificationInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
+export type { ArchivedDevTicketProjection, ArchivedProposalProjection, ArchiveDevTicketInput as ArchiveDevTicketStoreInput, DependencyEdgeRow, DependencyLockStatus, DevBoardPlanningStore, DevTicketRow, HistoricalRecordProjection, HistoricalRecordRow, InsertDependencyEdgeInput, InsertDevTicketInput, InsertHistoricalRecordInput, LegacyTaskAliasRow, LegacyTaskSource, InsertProposalInput, LaneQueueHeaderRow, ProposalRow, RestoreDevTicketInput as RestoreDevTicketStoreInput, TodoQueueMembershipRow, UpdateDevTicketClassificationInput, UpdateDevTicketForReadyApprovalInput, UpdateProposalInput } from "./application/dev-board-planning-store.js";
+export type { AcceptProposalInput, AddDependencyInput, ApproveReadyToTodoInput, ArchiveDevTicketInput, ArchiveProposalInput, CommandResult, DependencyLockStatusInput, DevBoardPlanningCommandDependencies, DraftProposalInput, ImportLegacyDevTicketInput, MergeProposalInput, ReconcileHistoricalCompletionInput, RejectProposalInput, RemoveDependencyInput, ReorderTodoInput, RestoreDevTicketInput, RestoreProposalInput, SetDevTicketClassificationInput, SubmitProposalInput, TodoReorderAnchor } from "./application/dev-board-planning-commands.js";
 export {
   acceptProposal,
   addDependency,
@@ -23,6 +23,8 @@ export {
   draftProposal,
   dependencyLockStatus,
   mergeProposal,
+  importLegacyDevTicket,
+  reconcileHistoricalCompletion,
   rejectProposal,
   reorderTodo,
   restoreDevTicket,
