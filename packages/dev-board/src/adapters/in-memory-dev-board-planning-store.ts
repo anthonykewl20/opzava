@@ -5,6 +5,9 @@ import type {
   DevBoardPlanningStore,
   DependencyEdgeRow,
   DependencyLockStatus,
+  ArchivedDevTicketProjection,
+  ArchivedProposalProjection,
+  ArchiveDevTicketInput,
   DevTicketRow,
   InsertDependencyEdgeInput,
   InsertDevTicketInput,
@@ -15,6 +18,7 @@ import type {
   UpdateDevTicketClassificationInput,
   UpdateDevTicketForReadyApprovalInput,
   UpdateProposalInput,
+  RestoreDevTicketInput,
 } from "../application/dev-board-planning-store.js";
 
 function key(organizationId: string, workspaceId: string, id: string): string {
@@ -38,9 +42,21 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     _tx: TenantTransaction,
     mutation: () => Promise<T>,
   ): Promise<Result<T>> {
+    // Mirror the Postgres adapter's savepoint semantics: callers may stage queue/aggregate updates
+    // before a later constraint or optimistic-concurrency failure.
+    const proposals = new Map(this.proposals);
+    const devTickets = new Map(this.devTickets);
+    const dependencyEdges = new Map(this.dependencyEdges);
+    const todoQueueHeaders = new Map(this.todoQueueHeaders);
+    const todoQueueMemberships = new Map(this.todoQueueMemberships);
     try {
       return ok(await mutation());
     } catch (error) {
+      this.proposals.clear(); proposals.forEach((value, mapKey) => this.proposals.set(mapKey, value));
+      this.devTickets.clear(); devTickets.forEach((value, mapKey) => this.devTickets.set(mapKey, value));
+      this.dependencyEdges.clear(); dependencyEdges.forEach((value, mapKey) => this.dependencyEdges.set(mapKey, value));
+      this.todoQueueHeaders.clear(); todoQueueHeaders.forEach((value, mapKey) => this.todoQueueHeaders.set(mapKey, value));
+      this.todoQueueMemberships.clear(); todoQueueMemberships.forEach((value, mapKey) => this.todoQueueMemberships.set(mapKey, value));
       const code =
         typeof error === "object" && error !== null && "code" in error
           ? (error as { readonly code?: unknown }).code
@@ -86,6 +102,8 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       version: 1,
       lifecycleState: "draft",
       archivedAt: null,
+      archivedByUserId: null,
+      archivedReason: null,
       discoverySummary: input.discoverySummary,
       blockingAssessment: input.blockingAssessment,
       suggestedContract: input.suggestedContract,
@@ -110,6 +128,8 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       acceptedCommandId: input.acceptedCommandId,
       acceptedDevTicketId: input.acceptedDevTicketId,
       ...(input.archivedAt === undefined ? {} : { archivedAt: input.archivedAt }),
+      ...(input.archivedByUserId === undefined ? {} : { archivedByUserId: input.archivedByUserId }),
+      ...(input.archivedReason === undefined ? {} : { archivedReason: input.archivedReason }),
       version: current.version + 1,
     };
     this.proposals.set(mapKey, row);
@@ -155,6 +175,9 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       sourceProposalId: input.sourceProposalId,
       lane: "backlog",
       archivedAt: null,
+      archivedByUserId: null,
+      archivedReason: null,
+      lastActiveLane: null,
       humanOwnerUserId: input.humanOwnerUserId,
       devTicketType: null, workAreas: [], priority: null, severity: null, declaredChangeRisk: null,
       minimumChangeRisk: null, changeRiskPolicyVersion: null, changeRiskPolicyHash: null,
@@ -206,6 +229,29 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
       changeRiskPolicyVersion: input.changeRiskPolicyVersion, changeRiskPolicyHash: input.changeRiskPolicyHash,
       readyContractVersion: current.readyContractVersion + 1, readyContractContent: input.readyContractContent,
       readyContractContentHash: input.readyContractContentHash };
+    this.devTickets.set(mapKey, row);
+    return row;
+  }
+
+  public async archiveDevTicket(_tx: TenantTransaction, input: ArchiveDevTicketInput): Promise<DevTicketRow | null> {
+    const mapKey = key(input.organizationId, input.workspaceId, input.devTicketId);
+    const current = this.devTickets.get(mapKey);
+    if (current === undefined || current.version !== input.expectedVersion || current.archivedAt !== null) return null;
+    const row: DevTicketRow = { ...current, version: current.version + 1, archivedAt: new Date(),
+      archivedByUserId: input.archivedByUserId, archivedReason: input.archivedReason, lastActiveLane: current.lane,
+      lane: "backlog", readyState: "draft", readyApprovalContractVersion: null, readyApprovalContentHash: null,
+      readyApprovedByUserId: null, readyApprovalCommandId: null };
+    this.devTickets.set(mapKey, row);
+    return row;
+  }
+
+  public async restoreDevTicket(_tx: TenantTransaction, input: RestoreDevTicketInput): Promise<DevTicketRow | null> {
+    const mapKey = key(input.organizationId, input.workspaceId, input.devTicketId);
+    const current = this.devTickets.get(mapKey);
+    if (current === undefined || current.version !== input.expectedVersion || current.archivedAt === null) return null;
+    const row: DevTicketRow = { ...current, version: current.version + 1, archivedAt: null, archivedByUserId: null,
+      archivedReason: null, lane: "backlog", readyState: "draft", readyApprovalContractVersion: null,
+      readyApprovalContentHash: null, readyApprovedByUserId: null, readyApprovalCommandId: null };
     this.devTickets.set(mapKey, row);
     return row;
   }
@@ -304,6 +350,15 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
     ) ?? null;
   }
 
+  public async selectActiveBlockerEdges(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string, blockerDevTicketId: string,
+  ): Promise<readonly DependencyEdgeRow[]> {
+    return [...this.dependencyEdges.values()].filter((edge) =>
+      edge.organizationId === organizationId && edge.workspaceId === workspaceId &&
+      edge.blockerDevTicketId === blockerDevTicketId && edge.lifecycleState === "active",
+    );
+  }
+
   public async dependencyCreatesCycle(
     _tx: TenantTransaction, organizationId: string, workspaceId: string,
     dependentDevTicketId: string, blockerDevTicketId: string,
@@ -382,5 +437,27 @@ export class InMemoryDevBoardPlanningStore implements DevBoardPlanningStore {
         done: this.devTickets.get(key(organizationId, workspaceId, edge.blockerDevTicketId))?.lane === "done",
       }));
     return { locked: blockers.some((blocker) => !blocker.done), blockers };
+  }
+
+  public async listArchivedDevTickets(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<readonly ArchivedDevTicketProjection[]> {
+    return [...this.devTickets.values()]
+      .filter((row) => row.organizationId === organizationId && row.workspaceId === workspaceId && row.archivedAt !== null)
+      .sort((left, right) => right.archivedAt!.getTime() - left.archivedAt!.getTime() || left.id.localeCompare(right.id))
+      .map((row) => ({ recordClass: "archived_dev_ticket" as const, devTicketId: row.id,
+        lastActiveLane: row.lastActiveLane, archivedAt: row.archivedAt!, archivedByUserId: row.archivedByUserId,
+        archivedReason: row.archivedReason, activityAggregateId: row.id, planningAggregateId: row.id }));
+  }
+
+  public async listArchivedProposals(
+    _tx: TenantTransaction, organizationId: string, workspaceId: string,
+  ): Promise<readonly ArchivedProposalProjection[]> {
+    return [...this.proposals.values()]
+      .filter((row) => row.organizationId === organizationId && row.workspaceId === workspaceId && row.archivedAt !== null)
+      .sort((left, right) => right.archivedAt!.getTime() - left.archivedAt!.getTime() || left.id.localeCompare(right.id))
+      .map((row) => ({ recordClass: "archived_proposal" as const, proposalId: row.id, archivedAt: row.archivedAt!,
+        archivedByUserId: row.archivedByUserId, archivedReason: row.archivedReason,
+        activityAggregateId: row.id, planningAggregateId: row.id }));
   }
 }

@@ -100,6 +100,10 @@
     {
       "path": "0024_dev_board_classifications.sql",
       "sha256": "b8eba9e47ced5c47b60822521a0fc32353672f42ef1cfebb34d6cce2ef9b4b30"
+    },
+    {
+      "path": "0025_dev_board_archive.sql",
+      "sha256": "cda0c6266d67c7c339eb6294ebac2bd85f9e05dd3567d2fa5e916dada57209b0"
     }
   ]
 }

@@ -12,6 +12,8 @@ export interface ProposalRow {
   readonly version: number;
   readonly lifecycleState: ProposalLifecycleState;
   readonly archivedAt: Date | null;
+  readonly archivedByUserId: string | null;
+  readonly archivedReason: string | null;
   readonly discoverySummary: string;
   readonly blockingAssessment: BlockingAssessment;
   readonly suggestedContract: Readonly<Record<string, unknown>>;
@@ -29,6 +31,9 @@ export interface DevTicketRow {
   readonly sourceProposalId: string | null;
   readonly lane: DevTicketLane;
   readonly archivedAt: Date | null;
+  readonly archivedByUserId: string | null;
+  readonly archivedReason: string | null;
+  readonly lastActiveLane: DevTicketLane | null;
   readonly humanOwnerUserId: string;
   readonly devTicketType: DevTicketType | null;
   readonly workAreas: readonly WorkArea[];
@@ -47,6 +52,27 @@ export interface DevTicketRow {
   readonly readyApprovedByUserId: string | null;
   readonly readyApprovalCommandId: string | null;
   readonly createdCommandId: string;
+}
+
+export interface ArchivedDevTicketProjection {
+  readonly recordClass: "archived_dev_ticket";
+  readonly devTicketId: string;
+  readonly lastActiveLane: DevTicketLane | null;
+  readonly archivedAt: Date;
+  readonly archivedByUserId: string | null;
+  readonly archivedReason: string | null;
+  readonly activityAggregateId: string;
+  readonly planningAggregateId: string;
+}
+
+export interface ArchivedProposalProjection {
+  readonly recordClass: "archived_proposal";
+  readonly proposalId: string;
+  readonly archivedAt: Date;
+  readonly archivedByUserId: string | null;
+  readonly archivedReason: string | null;
+  readonly activityAggregateId: string;
+  readonly planningAggregateId: string;
 }
 
 export interface LaneQueueHeaderRow {
@@ -98,6 +124,25 @@ export interface UpdateProposalInput {
   readonly acceptedDevTicketId: string | null;
   /** Undefined preserves the overlay; a date applies an archive overlay. */
   readonly archivedAt?: Date | null;
+  /** Archive provenance is only changed by archive/restore commands. */
+  readonly archivedByUserId?: string | null;
+  readonly archivedReason?: string | null;
+}
+
+export interface ArchiveDevTicketInput {
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly devTicketId: string;
+  readonly expectedVersion: number;
+  readonly archivedByUserId: string;
+  readonly archivedReason: string;
+}
+
+export interface RestoreDevTicketInput {
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly devTicketId: string;
+  readonly expectedVersion: number;
 }
 
 export interface InsertDevTicketInput {
@@ -177,6 +222,9 @@ export interface DevBoardPlanningStore {
     input: UpdateDevTicketForReadyApprovalInput,
   ): Promise<DevTicketRow | null>;
   updateDevTicketClassification(tx: TenantTransaction, input: UpdateDevTicketClassificationInput): Promise<DevTicketRow | null>;
+  /** One statement clears every current Ready-approval field while moving the archive overlay to Backlog. */
+  archiveDevTicket(tx: TenantTransaction, input: ArchiveDevTicketInput): Promise<DevTicketRow | null>;
+  restoreDevTicket(tx: TenantTransaction, input: RestoreDevTicketInput): Promise<DevTicketRow | null>;
   isActiveMember(tx: TenantTransaction, organizationId: string, userId: string): Promise<boolean>;
   hasOrganizationRole(tx: TenantTransaction, organizationId: string, userId: string, roleKey: "owner" | "admin"): Promise<boolean>;
   hasActiveDependencies(tx: TenantTransaction, organizationId: string, workspaceId: string, devTicketId: string): Promise<boolean>;
@@ -214,6 +262,8 @@ export interface DevBoardPlanningStore {
     dependentDevTicketId: string,
     blockerDevTicketId: string,
   ): Promise<DependencyEdgeRow | null>;
+  /** Active edges for which this ticket is the blocker; archive must not strand dependents. */
+  selectActiveBlockerEdges(tx: TenantTransaction, organizationId: string, workspaceId: string, blockerDevTicketId: string): Promise<readonly DependencyEdgeRow[]>;
   dependencyCreatesCycle(
     tx: TenantTransaction,
     organizationId: string,
@@ -237,4 +287,6 @@ export interface DevBoardPlanningStore {
     workspaceId: string,
     devTicketId: string,
   ): Promise<DependencyLockStatus>;
+  listArchivedDevTickets(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly ArchivedDevTicketProjection[]>;
+  listArchivedProposals(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly ArchivedProposalProjection[]>;
 }
