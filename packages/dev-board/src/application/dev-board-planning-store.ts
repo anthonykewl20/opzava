@@ -75,6 +75,39 @@ export interface ArchivedProposalProjection {
   readonly planningAggregateId: string;
 }
 
+export interface HistoricalRecordProjection {
+  readonly recordClass: "legacy_historical";
+  readonly historicalRecordId: string;
+  readonly sourceTableRowIdentity: string;
+  readonly completionGate: "legacy_unverified" | "reconciled_historical" | null;
+  readonly sourceDisposition: "promoted_backlog" | "quarantined_no_owner" | "historical_candidate";
+  readonly importedAt: Date;
+  readonly sourceRecordedAt: Date;
+  readonly preservedPayloadDigest: string;
+}
+export interface HistoricalRecordRow extends HistoricalRecordProjection {
+  readonly organizationId: string;
+  readonly workspaceId: string;
+  readonly sourceKind: "legacy_task";
+  readonly sourceEpoch: string | null;
+  readonly sourceUpdatedAt: Date;
+  readonly evidenceRefs: readonly Readonly<Record<string, unknown>>[];
+  readonly promotionCommandId: string | null;
+  readonly version: number;
+}
+export interface LegacyTaskAliasRow {
+  readonly organizationId: string; readonly workspaceId: string; readonly legacyTaskId: string;
+  readonly legacyCardNumber: bigint; readonly devTicketId: string | null; readonly historicalRecordId: string;
+  readonly createdCommandId: string;
+}
+export interface LegacyTaskSource {
+  readonly id: string; readonly organizationId: string; readonly workspaceId: string; readonly status: string;
+  readonly assigneeUserId: string | null; readonly cardNumber: bigint; readonly createdAt: Date; readonly updatedAt: Date;
+  /** Complete source-row JSON. Keys are recursively sorted by canonicalJson before hashing. */
+  readonly row: Readonly<Record<string, unknown>>;
+  readonly evidenceRefs: readonly Readonly<Record<string, unknown>>[];
+}
+
 export interface LaneQueueHeaderRow {
   readonly organizationId: string;
   readonly workspaceId: string;
@@ -156,6 +189,14 @@ export interface InsertDevTicketInput {
   readonly readyContractContentHash: string;
   readonly createdCommandId: string;
 }
+export interface InsertHistoricalRecordInput {
+  readonly id: string; readonly organizationId: string; readonly workspaceId: string; readonly sourceTableRowIdentity: string;
+  readonly completionGate: "legacy_unverified" | null;
+  readonly sourceDisposition: "promoted_backlog" | "quarantined_no_owner" | "historical_candidate";
+  readonly sourceEpoch: string | null; readonly sourceRecordedAt: Date; readonly sourceUpdatedAt: Date;
+  readonly preservedPayloadDigest: string; readonly evidenceRefs: readonly Readonly<Record<string, unknown>>[];
+  readonly promotionCommandId: string | null;
+}
 
 export interface UpdateDevTicketForReadyApprovalInput {
   readonly organizationId: string;
@@ -217,6 +258,15 @@ export interface DevBoardPlanningStore {
     ticketId: string,
   ): Promise<DevTicketRow | null>;
   insertDevTicket(tx: TenantTransaction, input: InsertDevTicketInput): Promise<DevTicketRow>;
+  selectLegacyTaskSource(tx: TenantTransaction, legacyTaskId: string): Promise<LegacyTaskSource | null>;
+  selectLegacyTaskAliasForUpdate(tx: TenantTransaction, organizationId: string, legacyTaskId: string): Promise<LegacyTaskAliasRow | null>;
+  selectHistoricalRecordForUpdate(tx: TenantTransaction, organizationId: string, workspaceId: string, historicalRecordId: string): Promise<HistoricalRecordRow | null>;
+  insertHistoricalRecord(tx: TenantTransaction, input: InsertHistoricalRecordInput): Promise<HistoricalRecordRow>;
+  insertLegacyTaskAlias(tx: TenantTransaction, input: LegacyTaskAliasRow): Promise<void>;
+  /** The only historical-record update paths are import re-resolution and reconciliation. */
+  resolveImportedHistoricalRecord(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number; readonly sourceDisposition: HistoricalRecordRow["sourceDisposition"]; readonly completionGate: HistoricalRecordRow["completionGate"]; readonly promotionCommandId: string | null; readonly devTicketId: string | null }): Promise<HistoricalRecordRow | null>;
+  /** The only historical-record update paths are import re-resolution and reconciliation. */
+  reconcileHistoricalCompletion(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number }): Promise<HistoricalRecordRow | null>;
   updateDevTicketForReadyApproval(
     tx: TenantTransaction,
     input: UpdateDevTicketForReadyApprovalInput,
@@ -289,4 +339,6 @@ export interface DevBoardPlanningStore {
   ): Promise<DependencyLockStatus>;
   listArchivedDevTickets(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly ArchivedDevTicketProjection[]>;
   listArchivedProposals(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly ArchivedProposalProjection[]>;
+  /** Legacy sources have no Dev Board row to derive from; this is the justified b-7 derive-only pivot. */
+  listHistoricalRecords(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly HistoricalRecordProjection[]>;
 }

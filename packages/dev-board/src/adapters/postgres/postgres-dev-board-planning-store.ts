@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { rowsFromExecuteResult, type QueryRow, type TenantTransaction } from "@opzava/adapters";
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 
@@ -8,6 +9,11 @@ import type {
   DependencyLockStatus,
   ArchivedDevTicketProjection,
   ArchivedProposalProjection,
+  HistoricalRecordProjection,
+  HistoricalRecordRow,
+  InsertHistoricalRecordInput,
+  LegacyTaskAliasRow,
+  LegacyTaskSource,
   ArchiveDevTicketInput,
   DevTicketRow,
   InsertDependencyEdgeInput,
@@ -154,6 +160,21 @@ function edge(row: QueryRow): DependencyEdgeRow {
   };
 }
 
+function date(value: unknown): Date {
+  const parsed = nullableDate(value); if (parsed === null) throw new Error("Dev Board row contained a required null timestamp."); return parsed;
+}
+function historical(row: QueryRow): HistoricalRecordRow {
+  return {
+    recordClass: "legacy_historical", historicalRecordId: String(row["id"]), organizationId: String(row["organization_id"]),
+    workspaceId: String(row["workspace_id"]), sourceKind: "legacy_task", sourceTableRowIdentity: String(row["source_table_row_identity"]),
+    completionGate: row["completion_gate"] as HistoricalRecordRow["completionGate"], sourceDisposition: row["source_disposition"] as HistoricalRecordRow["sourceDisposition"],
+    sourceEpoch: typeof row["source_epoch"] === "string" ? row["source_epoch"] : null, sourceRecordedAt: date(row["source_recorded_at"]),
+    sourceUpdatedAt: date(row["source_updated_at"]), importedAt: date(row["imported_at"]), preservedPayloadDigest: String(row["preserved_payload_digest"]),
+    evidenceRefs: Array.isArray(row["evidence_refs"]) ? row["evidence_refs"] as readonly Readonly<Record<string, unknown>>[] : [],
+    promotionCommandId: typeof row["promotion_command_id"] === "string" ? row["promotion_command_id"] : null, version: number(row["version"]),
+  };
+}
+
 const proposalColumns = sql`id, organization_id, workspace_id, version, lifecycle_state, archived_at,
   archived_by_user_id, archived_reason,
   discovery_summary, blocking_assessment, suggested_contract, created_command_id, accepted_command_id,
@@ -166,6 +187,9 @@ const ticketColumns = sql`t.id, t.organization_id, t.workspace_id, t.version, t.
     t.created_command_id`;
 const edgeColumns = sql`id, organization_id, workspace_id, version, dependent_dev_ticket_id,
   blocker_dev_ticket_id, lifecycle_state, created_command_id, retired_command_id`;
+const historicalColumns = sql`id, organization_id, workspace_id, source_table_row_identity, completion_gate,
+  source_disposition, source_epoch, source_recorded_at, source_updated_at, imported_at,
+  preserved_payload_digest, evidence_refs, promotion_command_id, version`;
 
 export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
   public async executeRiskyMutation<T>(
@@ -308,6 +332,73 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
     `);
     const row = rowsFromExecuteResult(result)[0]; if (row === undefined) throw new Error("DevTicket insert returned no row.");
     const inserted = await this.selectDevTicketForUpdate(tx, input.organizationId, input.workspaceId, String(row["id"])); if (inserted === null) throw new Error("DevTicket insert could not be read."); return inserted;
+  }
+
+  public async selectLegacyTaskSource(tx: TenantTransaction, legacyTaskId: string): Promise<LegacyTaskSource | null> {
+    const taskResult = await tx.execute(sql`
+      select t.id, t.organization_id, t.workspace_id, t.status, t.assignee_user_id, t.card_number,
+        t.created_at, t.updated_at, to_jsonb(t) as source_row
+      from public.tasks t where t.id = ${legacyTaskId}::uuid
+    `);
+    const row = rowsFromExecuteResult(taskResult)[0];
+    if (row === undefined) return null;
+    const evidenceResult = await tx.execute(sql`
+      select e.id, e.kind, e.object_ref, e.url, e.filename, e.created_at
+      from public.task_evidence e where e.task_id = ${legacyTaskId}::uuid order by e.created_at, e.id
+    `);
+    const evidenceRefs: Readonly<Record<string, unknown>>[] = rowsFromExecuteResult(evidenceResult).map((e) => {
+      const identity = { evidenceId: String(e["id"]), kind: String(e["kind"]), objectRef: e["object_ref"] ?? null, url: e["url"] ?? null, filename: e["filename"] ?? null, createdAt: date(e["created_at"]).toISOString() };
+      return { ...identity, digest: createHash("sha256").update(JSON.stringify(identity)).digest("hex") };
+    });
+    const reviewResult = await tx.execute(sql`
+      select id, status, approved_at from public.task_quality_review where task_id = ${legacyTaskId}::uuid
+    `);
+    const review = rowsFromExecuteResult(reviewResult)[0];
+    if (review !== undefined) {
+      const identity = { reviewId: String(review["id"]), status: String(review["status"]), approvedAt: review["approved_at"] === null ? null : date(review["approved_at"]).toISOString() };
+      evidenceRefs.push({ taskQualityReview: identity, digest: createHash("sha256").update(JSON.stringify(identity)).digest("hex") });
+    }
+    return { id: String(row["id"]), organizationId: String(row["organization_id"]), workspaceId: String(row["workspace_id"]),
+      status: String(row["status"]), assigneeUserId: typeof row["assignee_user_id"] === "string" ? row["assignee_user_id"] : null,
+      cardNumber: bigint(row["card_number"]), createdAt: date(row["created_at"]), updatedAt: date(row["updated_at"]),
+      row: record(row["source_row"]), evidenceRefs };
+  }
+
+  public async selectLegacyTaskAliasForUpdate(tx: TenantTransaction, organizationId: string, legacyTaskId: string): Promise<LegacyTaskAliasRow | null> {
+    const result = await tx.execute(sql`select organization_id, workspace_id, legacy_task_id, legacy_card_number, dev_ticket_id, historical_record_id, created_command_id from public.dev_board_legacy_task_alias where organization_id = ${organizationId}::uuid and legacy_task_id = ${legacyTaskId}::uuid for update`);
+    const row = rowsFromExecuteResult(result)[0];
+    return row === undefined ? null : { organizationId: String(row["organization_id"]), workspaceId: String(row["workspace_id"]), legacyTaskId: String(row["legacy_task_id"]), legacyCardNumber: bigint(row["legacy_card_number"]), devTicketId: typeof row["dev_ticket_id"] === "string" ? row["dev_ticket_id"] : null, historicalRecordId: String(row["historical_record_id"]), createdCommandId: String(row["created_command_id"]) };
+  }
+  public async selectHistoricalRecordForUpdate(tx: TenantTransaction, organizationId: string, workspaceId: string, historicalRecordId: string): Promise<HistoricalRecordRow | null> {
+    const result = await tx.execute(sql`select ${historicalColumns} from public.dev_board_historical_record where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid and id = ${historicalRecordId}::uuid for update`);
+    const row = rowsFromExecuteResult(result)[0]; return row === undefined ? null : historical(row);
+  }
+  public async insertHistoricalRecord(tx: TenantTransaction, input: InsertHistoricalRecordInput): Promise<HistoricalRecordRow> {
+    const result = await tx.execute(sql`insert into public.dev_board_historical_record (id, organization_id, workspace_id, record_class, source_kind, source_table_row_identity, completion_gate, source_disposition, source_epoch, source_recorded_at, source_updated_at, preserved_payload_digest, evidence_refs, promotion_command_id) values (${input.id}::uuid, ${input.organizationId}::uuid, ${input.workspaceId}::uuid, 'legacy_historical', 'legacy_task', ${input.sourceTableRowIdentity}::uuid, ${input.completionGate}, ${input.sourceDisposition}, ${input.sourceEpoch}, ${input.sourceRecordedAt}, ${input.sourceUpdatedAt}, ${input.preservedPayloadDigest}, ${JSON.stringify(input.evidenceRefs)}::jsonb, ${input.promotionCommandId}::uuid) returning ${historicalColumns}`);
+    const row = rowsFromExecuteResult(result)[0]; if (row === undefined) throw new Error("Historical record insert returned no row."); return historical(row);
+  }
+  public async insertLegacyTaskAlias(tx: TenantTransaction, input: LegacyTaskAliasRow): Promise<void> {
+    await tx.execute(sql`insert into public.dev_board_legacy_task_alias (organization_id, workspace_id, legacy_task_id, legacy_card_number, dev_ticket_id, historical_record_id, created_command_id) values (${input.organizationId}::uuid, ${input.workspaceId}::uuid, ${input.legacyTaskId}::uuid, ${input.legacyCardNumber}, ${input.devTicketId}::uuid, ${input.historicalRecordId}::uuid, ${input.createdCommandId}::uuid)`);
+  }
+  public async resolveImportedHistoricalRecord(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number; readonly sourceDisposition: HistoricalRecordRow["sourceDisposition"]; readonly completionGate: HistoricalRecordRow["completionGate"]; readonly promotionCommandId: string | null; readonly devTicketId: string | null }): Promise<HistoricalRecordRow | null> {
+    const current = await this.selectHistoricalRecordForUpdate(tx, input.organizationId, input.workspaceId, input.historicalRecordId);
+    if (current === null || current.version !== input.expectedVersion) return null;
+    const dispositionAllowed = current.sourceDisposition === "quarantined_no_owner"
+      ? input.sourceDisposition === "quarantined_no_owner" || input.sourceDisposition === "promoted_backlog" || input.sourceDisposition === "historical_candidate"
+      : input.sourceDisposition === current.sourceDisposition;
+    const gateAllowed = input.completionGate === current.completionGate;
+    if (!dispositionAllowed || !gateAllowed) {
+      throw new DomainError({
+        code: "dev_board.historical_transition_invalid",
+        message: "Imported historical records may only advance from quarantine without regressing their completion gate.",
+      });
+    }
+    const result = await tx.execute(sql`with updated_record as (update public.dev_board_historical_record set source_disposition = ${input.sourceDisposition}, completion_gate = ${input.completionGate}, promotion_command_id = ${input.promotionCommandId}::uuid, version = version + 1 where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid and id = ${input.historicalRecordId}::uuid and version = ${input.expectedVersion} returning ${historicalColumns}) update public.dev_board_legacy_task_alias a set dev_ticket_id = ${input.devTicketId}::uuid from updated_record r where a.organization_id = ${input.organizationId}::uuid and a.historical_record_id = r.id returning r.*`);
+    const row = rowsFromExecuteResult(result)[0]; return row === undefined ? null : historical(row);
+  }
+  public async reconcileHistoricalCompletion(tx: TenantTransaction, input: { readonly organizationId: string; readonly workspaceId: string; readonly historicalRecordId: string; readonly expectedVersion: number }): Promise<HistoricalRecordRow | null> {
+    const result = await tx.execute(sql`update public.dev_board_historical_record set completion_gate = 'reconciled_historical', version = version + 1 where organization_id = ${input.organizationId}::uuid and workspace_id = ${input.workspaceId}::uuid and id = ${input.historicalRecordId}::uuid and version = ${input.expectedVersion} returning ${historicalColumns}`);
+    const row = rowsFromExecuteResult(result)[0]; return row === undefined ? null : historical(row);
   }
 
   public async updateDevTicketForReadyApproval(
@@ -666,5 +757,10 @@ export class PostgresDevBoardPlanningStore implements DevBoardPlanningStore {
       archivedReason: typeof row["archived_reason"] === "string" ? row["archived_reason"] : null,
       activityAggregateId: String(row["id"]), planningAggregateId: String(row["id"]),
     }));
+  }
+
+  public async listHistoricalRecords(tx: TenantTransaction, organizationId: string, workspaceId: string): Promise<readonly HistoricalRecordProjection[]> {
+    const result = await tx.execute(sql`select ${historicalColumns} from public.dev_board_historical_record where organization_id = ${organizationId}::uuid and workspace_id = ${workspaceId}::uuid order by imported_at desc, id`);
+    return rowsFromExecuteResult(result).map((row) => { const value = historical(row); return { recordClass: value.recordClass, historicalRecordId: value.historicalRecordId, sourceTableRowIdentity: value.sourceTableRowIdentity, completionGate: value.completionGate, sourceDisposition: value.sourceDisposition, importedAt: value.importedAt, sourceRecordedAt: value.sourceRecordedAt, preservedPayloadDigest: value.preservedPayloadDigest }; });
   }
 }

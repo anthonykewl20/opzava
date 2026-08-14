@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   db,
   withTenant,
@@ -8,7 +8,7 @@ import {
 import { DomainError, err, ok, type Result } from "@opzava/shared-kernel";
 import type { CommandReceiptRepository, CommandReceiptResult } from "./command-receipt-store.js";
 import type { DevBoardLedgerAppendPort } from "./dev-board-ledger-append-port.js";
-import type { DevBoardPlanningStore } from "./dev-board-planning-store.js";
+import type { DevBoardPlanningStore, LegacyTaskAliasRow } from "./dev-board-planning-store.js";
 import { parseCommandActorRef, type CommandEnvelope, type CommandExpectedVersion } from "../domain/command-envelope.js";
 import {
   canonicalJson,
@@ -109,6 +109,8 @@ export interface DependencyLockStatusInput {
   readonly workspaceId: string;
   readonly devTicketId: string;
 }
+export interface ImportLegacyDevTicketInput { readonly legacyTaskId: string; readonly humanOwnerUserId?: string; }
+export interface ReconcileHistoricalCompletionInput { readonly historicalRecordId: string; readonly reconciliationEpoch: string; }
 
 export const RANK_STRIDE = 1_000_000n;
 const FIRST_TODO_RANK = 2n * RANK_STRIDE;
@@ -322,6 +324,141 @@ async function authorizedProposalArchiveActor(
     await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "owner") ||
     await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "admin")
   );
+}
+async function authorizedLegacyImportActor(tx: TenantTransaction, envelope: CommandEnvelope, deps: DevBoardPlanningCommandDependencies): Promise<boolean> {
+  return envelope.actorRef.kind === "user" && (
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "owner") ||
+    await deps.planningStore.hasOrganizationRole(tx, envelope.organizationId, envelope.actorRef.stableId, "admin")
+  );
+}
+
+function legacyDigest(row: Readonly<Record<string, unknown>>): string {
+  // canonicalJson recursively sorts object keys; every persisted Task source column is therefore hashed independent of driver key order.
+  return createHash("sha256").update(canonicalJson(row)).digest("hex");
+}
+function legacyOutcome(disposition: "promoted_backlog" | "quarantined_no_owner" | "historical_candidate"): string {
+  return disposition === "promoted_backlog" ? "dev_board.legacy_import_promoted" : disposition === "historical_candidate" ? "dev_board.legacy_import_historical" : "dev_board.legacy_import_quarantined";
+}
+function legacyCompletionGate(status: string, disposition: "promoted_backlog" | "quarantined_no_owner" | "historical_candidate"): "legacy_unverified" | null {
+  return status === "done" && disposition !== "promoted_backlog" ? "legacy_unverified" : null;
+}
+function frozenEvidenceHasReference(refs: readonly Readonly<Record<string, unknown>>[]): boolean {
+  return refs.some((ref) =>
+    typeof ref["evidenceId"] === "string" &&
+    [ref["objectRef"], ref["url"], ref["filename"]].some((value) => value !== null && value !== undefined),
+  );
+}
+
+export async function importLegacyDevTicket(envelope: CommandEnvelope, input: ImportLegacyDevTicketInput, deps: DevBoardPlanningCommandDependencies): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    // Authorization must precede receipt reservation/replay so an untrusted caller cannot
+    // discover or pin a command key.
+    const actor = parseCommandActorRef(envelope.actorRef);
+    if (!actor.ok) return err(actor.error);
+    if (!await authorizedLegacyImportActor(tx, envelope, deps)) return err(failure("dev_board.import_authorization_required", "Legacy import requires an authorized organization owner or admin."));
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const source = await deps.planningStore.selectLegacyTaskSource(tx, input.legacyTaskId);
+    if (source === null || source.organizationId !== envelope.organizationId) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_task_not_found", "Legacy Task was not found in this organization.");
+    if (source.workspaceId !== envelope.workspaceId) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_workspace_mismatch", "Legacy Task belongs to another workspace.");
+    if (!["todo", "in_progress", "blocked", "done"].includes(source.status)) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_task_not_found", "Legacy Task is not importable.");
+    const ownerConfirmed = input.humanOwnerUserId !== undefined && await deps.planningStore.isActiveMember(tx, envelope.organizationId, input.humanOwnerUserId);
+    const disposition = source.status === "done" ? (ownerConfirmed ? "historical_candidate" : "quarantined_no_owner") : (ownerConfirmed ? "promoted_backlog" : "quarantined_no_owner");
+    const digest = legacyDigest(source.row);
+    const resolveExistingAlias = async (existingAlias: LegacyTaskAliasRow): Promise<Result<CommandResult>> => {
+      const historical = await deps.planningStore.selectHistoricalRecordForUpdate(tx, envelope.organizationId, envelope.workspaceId, existingAlias.historicalRecordId);
+      if (historical === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_task_not_found", "Legacy import alias has no historical record.");
+      if (historical.preservedPayloadDigest !== digest) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.idempotency_conflict", "source changed since the original import");
+      const requestedVersion = expected(envelope, "historical_record", historical.historicalRecordId);
+      if (requestedVersion !== null && requestedVersion !== historical.version) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Historical record version has changed.");
+      let promotedId = existingAlias.devTicketId;
+      if (disposition === "promoted_backlog" && promotedId === null) {
+        const collision = await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, source.id);
+        if (collision !== null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_ticket_id_collision", "Legacy Task UUID already belongs to a DevTicket.");
+        const mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+          const ticket = await deps.planningStore.insertDevTicket(tx, { id: source.id, organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, originKind: "legacy", sourceProposalId: null, humanOwnerUserId: input.humanOwnerUserId!, readyContractContent: {}, readyContractContentHash: computeReadyContractContentHash({}), createdCommandId: envelope.commandId });
+          const resolved = await deps.planningStore.resolveImportedHistoricalRecord(tx, { organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, historicalRecordId: historical.historicalRecordId, expectedVersion: historical.version, sourceDisposition: disposition, completionGate: historical.completionGate, promotionCommandId: envelope.commandId, devTicketId: ticket.id });
+          if (resolved === null) throw new Error("Historical record version has changed."); return { ticket, resolved };
+        });
+        if (!mutation.ok) return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+        promotedId = mutation.value.ticket.id;
+        await planning(tx, deps.ledger, envelope, promotedId, "LegacyDevTicketImported", "Legacy DevTicket imported", { status: source.status, cardNumber: source.cardNumber.toString(), sourceRecordedAt: source.createdAt.toISOString(), sourceUpdatedAt: source.updatedAt.toISOString(), assigneeUserId: source.assigneeUserId });
+        return accept(tx, deps.commandReceiptRepository, envelope, legacyOutcome(disposition), historical.historicalRecordId, [{ recordKind: "historical_record", recordId: historical.historicalRecordId, version: mutation.value.resolved.version }, { recordKind: "dev_ticket", recordId: promotedId, version: mutation.value.ticket.version }], { devTicketId: promotedId });
+      }
+      // Re-import may only advance a quarantined record. Reconciliation is terminal and a
+      // non-done record's null gate is immutable. Preserve an already-terminal disposition
+      // rather than demoting it merely because this attempt omitted an owner.
+      const resolvedDisposition = historical.sourceDisposition === "quarantined_no_owner"
+        ? disposition
+        : historical.sourceDisposition;
+      const resolvedCompletionGate = historical.completionGate;
+      // A matched re-attempt with no state or alias transition must not manufacture another
+      // version or ledger entry. The fresh receipt still captures the current state snapshot.
+      if (
+        resolvedDisposition === historical.sourceDisposition &&
+        resolvedCompletionGate === historical.completionGate
+      ) {
+        const ticket = promotedId === null
+          ? null
+          : await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, promotedId);
+        return accept(tx, deps.commandReceiptRepository, envelope, legacyOutcome(historical.sourceDisposition), historical.historicalRecordId, [{ recordKind: "historical_record", recordId: historical.historicalRecordId, version: historical.version }, ...(ticket === null ? [] : [{ recordKind: "dev_ticket" as const, recordId: ticket.id, version: ticket.version }])], promotedId === null ? {} : { devTicketId: promotedId });
+      }
+      const resolved = await deps.planningStore.executeRiskyMutation(tx, () => deps.planningStore.resolveImportedHistoricalRecord(tx, { organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, historicalRecordId: historical.historicalRecordId, expectedVersion: historical.version, sourceDisposition: resolvedDisposition, completionGate: resolvedCompletionGate, promotionCommandId: resolvedDisposition === "promoted_backlog" ? historical.promotionCommandId : null, devTicketId: promotedId }));
+      if (!resolved.ok) return reject(tx, deps.commandReceiptRepository, envelope, resolved.error.code, resolved.error.message);
+      if (resolved.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Historical record version has changed.");
+      const aggregateId = promotedId ?? resolved.value.historicalRecordId;
+      await planning(tx, deps.ledger, envelope, aggregateId, "LegacyDevTicketImported", "Legacy DevTicket imported", { status: source.status, cardNumber: source.cardNumber.toString(), sourceRecordedAt: source.createdAt.toISOString(), sourceUpdatedAt: source.updatedAt.toISOString(), assigneeUserId: source.assigneeUserId });
+      return accept(tx, deps.commandReceiptRepository, envelope, legacyOutcome(disposition), resolved.value.historicalRecordId, [{ recordKind: "historical_record", recordId: resolved.value.historicalRecordId, version: resolved.value.version }], promotedId === null ? {} : { devTicketId: promotedId });
+    };
+    const existingAlias = await deps.planningStore.selectLegacyTaskAliasForUpdate(tx, envelope.organizationId, source.id);
+    if (existingAlias !== null) return resolveExistingAlias(existingAlias);
+    const collision = disposition === "promoted_backlog" ? await deps.planningStore.selectDevTicketForUpdate(tx, envelope.organizationId, envelope.workspaceId, source.id) : null;
+    if (collision !== null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.legacy_ticket_id_collision", "Legacy Task UUID already belongs to a DevTicket.");
+    const historicalId = randomUUID();
+    const mutation = await deps.planningStore.executeRiskyMutation(tx, async () => {
+      const ticket = disposition === "promoted_backlog" ? await deps.planningStore.insertDevTicket(tx, { id: source.id, organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, originKind: "legacy", sourceProposalId: null, humanOwnerUserId: input.humanOwnerUserId!, readyContractContent: {}, readyContractContentHash: computeReadyContractContentHash({}), createdCommandId: envelope.commandId }) : null;
+      const historical = await deps.planningStore.insertHistoricalRecord(tx, { id: historicalId, organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, sourceTableRowIdentity: source.id, completionGate: legacyCompletionGate(source.status, disposition), sourceDisposition: disposition, sourceEpoch: source.updatedAt.toISOString(), sourceRecordedAt: source.createdAt, sourceUpdatedAt: source.updatedAt, preservedPayloadDigest: digest, evidenceRefs: source.evidenceRefs, promotionCommandId: ticket === null ? null : envelope.commandId });
+      await deps.planningStore.insertLegacyTaskAlias(tx, { organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, legacyTaskId: source.id, legacyCardNumber: source.cardNumber, devTicketId: ticket?.id ?? null, historicalRecordId: historical.historicalRecordId, createdCommandId: envelope.commandId });
+      return { ticket, historical };
+    });
+    if (!mutation.ok) {
+      if (mutation.error.code === "dev_board.constraint_conflict") {
+        const winnerAlias = await deps.planningStore.selectLegacyTaskAliasForUpdate(tx, envelope.organizationId, source.id);
+        if (winnerAlias !== null) return resolveExistingAlias(winnerAlias);
+      }
+      return reject(tx, deps.commandReceiptRepository, envelope, mutation.error.code, mutation.error.message);
+    }
+    const aggregateId = mutation.value.ticket?.id ?? mutation.value.historical.historicalRecordId;
+    const aggregateVersion = mutation.value.ticket?.version ?? mutation.value.historical.version;
+    await planning(tx, deps.ledger, envelope, aggregateId, "LegacyDevTicketImported", "Legacy DevTicket imported", { status: source.status, cardNumber: source.cardNumber.toString(), sourceRecordedAt: source.createdAt.toISOString(), sourceUpdatedAt: source.updatedAt.toISOString(), assigneeUserId: source.assigneeUserId });
+    await activity(tx, deps.ledger, envelope, aggregateId, aggregateVersion, "LegacyDevTicketImported", { historicalRecordId: mutation.value.historical.historicalRecordId, status: source.status });
+    return accept(tx, deps.commandReceiptRepository, envelope, legacyOutcome(disposition), mutation.value.historical.historicalRecordId, [{ recordKind: "historical_record", recordId: mutation.value.historical.historicalRecordId, version: mutation.value.historical.version }, ...(mutation.value.ticket === null ? [] : [{ recordKind: "dev_ticket" as const, recordId: mutation.value.ticket.id, version: mutation.value.ticket.version }])], mutation.value.ticket === null ? {} : { devTicketId: mutation.value.ticket.id });
+  }, deps.database ?? db);
+}
+
+export async function reconcileHistoricalCompletion(envelope: CommandEnvelope, input: ReconcileHistoricalCompletionInput, deps: DevBoardPlanningCommandDependencies): Promise<Result<CommandResult>> {
+  return withTenant(envelope.organizationId, async (tx) => {
+    // Do not reserve or replay a migration receipt before authentication and authorization.
+    const actor = parseCommandActorRef(envelope.actorRef);
+    if (!actor.ok) return err(actor.error);
+    if (!await authorizedLegacyImportActor(tx, envelope, deps)) return err(failure("dev_board.import_authorization_required", "Historical reconciliation requires an authorized organization owner or admin."));
+    const reservation = await reserve(tx, deps.commandReceiptRepository, envelope);
+    if ("ok" in reservation) return reservation;
+    const historical = await deps.planningStore.selectHistoricalRecordForUpdate(tx, envelope.organizationId, envelope.workspaceId, input.historicalRecordId);
+    if (historical === null || historical.sourceKind !== "legacy_task" || historical.sourceDisposition === "promoted_backlog") return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.reconcile_target_invalid", "Historical record is not eligible for reconciliation.");
+    if (historical.completionGate === "reconciled_historical") return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.already_reconciled", "Historical record is already reconciled.");
+    if (historical.completionGate !== "legacy_unverified") return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.reconcile_target_invalid", "Historical record is not eligible for reconciliation.");
+    const source = await deps.planningStore.selectLegacyTaskSource(tx, historical.sourceTableRowIdentity);
+    const approved = source?.evidenceRefs.some((ref) => { const review = ref["taskQualityReview"]; return typeof review === "object" && review !== null && (review as Record<string, unknown>)["status"] === "approved"; }) ?? false;
+    if (!approved || !frozenEvidenceHasReference(historical.evidenceRefs)) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.reconcile_evidence_insufficient", "Approved legacy review and frozen evidence are required.");
+    const changed = await deps.planningStore.executeRiskyMutation(tx, () => deps.planningStore.reconcileHistoricalCompletion(tx, { organizationId: envelope.organizationId, workspaceId: envelope.workspaceId, historicalRecordId: historical.historicalRecordId, expectedVersion: historical.version }));
+    if (!changed.ok) return reject(tx, deps.commandReceiptRepository, envelope, changed.error.code, changed.error.message);
+    if (changed.value === null) return reject(tx, deps.commandReceiptRepository, envelope, "dev_board.expected_version_drift", "Historical record version has changed.");
+    // The epoch is command identity and audit provenance, not mutable historical-source state.
+    await planning(tx, deps.ledger, envelope, changed.value.historicalRecordId, "HistoricalCompletionReconciled", "Historical completion reconciled", { reconciliationEpoch: input.reconciliationEpoch, evidenceRefs: changed.value.evidenceRefs });
+    await activity(tx, deps.ledger, envelope, changed.value.historicalRecordId, changed.value.version, "HistoricalCompletionReconciled", { reconciliationEpoch: input.reconciliationEpoch, evidenceRefs: changed.value.evidenceRefs });
+    return accept(tx, deps.commandReceiptRepository, envelope, "dev_board.historical_completion_reconciled", changed.value.historicalRecordId, [{ recordKind: "historical_record", recordId: changed.value.historicalRecordId, version: changed.value.version }], {});
+  }, deps.database ?? db);
 }
 
 export async function draftProposal(
