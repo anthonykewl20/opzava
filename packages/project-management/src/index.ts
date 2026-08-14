@@ -24,6 +24,11 @@ export type {
   TaskActor,
   TaskApplicationContext,
   TaskApplicationDependencies,
+  TaskTerminalAttemptAction,
+  TaskTerminalAttemptAuditInput,
+  TaskTerminalAttemptAuditPort,
+  TaskTerminalAttemptHardReason,
+  TaskTerminalAttemptSurface,
   TaskCommentDto,
   TaskEvidenceDto,
   TaskEvidenceKind,
@@ -65,6 +70,8 @@ export {
   toggleQualityCheck,
   toggleStep,
   updateTask,
+  NoopTaskTerminalAttemptAuditAdapter,
+  InMemoryTaskTerminalAttemptAuditAdapter,
 } from "./application/index.js";
 export type {
   CreateTrackedIssueInput,

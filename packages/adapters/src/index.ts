@@ -59,6 +59,13 @@ export {
 } from "./in-memory-observability-adapter.js";
 export { PostgresObservabilityAdapter } from "./postgres/observability-adapter.js";
 export {
+  PostgresTaskTerminalAttemptAuditAdapter,
+  type AppendTaskTerminalAttemptInput,
+  type TaskTerminalAttemptAction,
+  type TaskTerminalAttemptHardReason,
+  type TaskTerminalAttemptSurface,
+} from "./postgres/task-terminal-attempt-audit-adapter.js";
+export {
   PostgresDoctorScanRepository,
   InMemoryDoctorScanRepository,
   type ClaimDoctorScanInput,
