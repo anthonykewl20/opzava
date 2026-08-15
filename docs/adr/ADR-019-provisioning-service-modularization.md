@@ -5,6 +5,10 @@
 Accepted — ratified 2026-08-12
 **Ratified by:** merged PRs #293, #295, #296, #294, #298, #302 below.
 
+**Current status (2026-08-15):** #164's opaque interactive-login facade is complete via #350; its
+seven raw Docker-shaped methods and two raw types are deleted. #166 remains open after the #351
+cleanup-seam extraction.
+
 ## Context
 
 `apps/workers/src/provisioning/connections-provisioning-service.ts:1-8395` is now 8,395 lines, up
@@ -21,9 +25,8 @@ Four architecture issues therefore converge on this service:
 - #166 must split the service without changing its behavior.
 - #163 must stop workers from independently reimplementing the Gateway frame protocol and Ed25519
   signing already implemented by the broker.
-- #164 must stop `GatewayRuntimePort` from exposing Docker execution IDs and filesystem paths. The
-  leak is explicit in `packages/ports/src/gateway-runtime.ts:211-224`, where application code starts
-  a login and then reads log paths, writes stdin paths, and stops execution by `execId`.
+- #164 is complete: `GatewayRuntimePort` now exposes opaque interactive-login handles and typed
+  state, keeping Docker execution IDs and filesystem paths private to its adapter (#350).
 - #162 must remove inline SQL and `TenantTransaction` from bounded-context application layers. The
   current dependency is visible, for example, in
   `packages/project-management/src/application/issues.ts:1` and

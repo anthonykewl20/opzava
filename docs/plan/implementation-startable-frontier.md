@@ -20,6 +20,8 @@ report sequences around.
 
 P0 Foundations audit (2026-08-14): ADR umbrellas #88 (ADR-001) and #89 (ADR-002, as amended by Q18) closed as landed; #90–#94 carry named gap-slice records (see issues). Docs accuracy sweep landed via #344; the ADR-004 same-transaction outbox defect fixed via #345/#346.
 
+**Session close-out (2026-08-15).** `TB-01`/issues #305 and #343 are complete through legacy import (`0026`, #348). The #93 auth program is complete through its five P0-audit slices: TOTP/recovery (`0027`, #349), password reset/change + GHSA runbook (`0028`, #352), invitations/guest magic links/reset-handoff hardening (`0029`–`0031`, #354), and passkeys (`0032`, #355). #164 is complete: the opaque `GatewayRuntimePort` facade removed seven raw Docker-shaped methods (#350). #166's cleanup seam landed (#351); next extraction order is start-poll-finalization + API-key flow, disconnect protocol, orchestrator reconciler, GitHub flow, then thin facade. A0 ran on #341: its memory-flush fork is resolved to a rung-3 Mainframe patch; live effective-tool confirmation still requires a connected provider credential.
+
 #229 gates exactly **6 Dev Board TBs** + **2 Admin CC leaves** (execution-semantics only).
 #253 and #194 are **code bugs whose fixes are already spec'd** (`wf218`/ADR-018) and **slot INTO
 the foundation slice** (§5) — they do not block the frontier.
@@ -52,7 +54,7 @@ own critical path. Acceptance criteria quoted/condensed from the owning graph.
 
 | Foundation slice | Deliverable | Acceptance (condensed) | Cite |
 | --- | --- | --- | --- |
-| **`A0`** | De-risk spike (throwaway, GATE): prove tool-policy recipe + the 2 `#217` memory gates on a real per-tenant Gateway. | `tools.effective` prints **exactly** the 25-name surface; `appendMemoryFlushContent` writes under write-denied policy (CRITICAL); `memory_get`/`memory_search` scoped to own workspace; workspace-escape `read` rejected. **Deps: none.** | `wf220` Part 2, Slice A0 |
+| **`A0`** | De-risk spike (throwaway, GATE): prove tool-policy recipe + the 2 `#217` memory gates on a real per-tenant Gateway. | Executed on #341: workspace scoping passed and the memory-flush policy assumption was falsified; consensus selected the rung-3 Mainframe patch. Exact 25-name live proof remains blocked on a connected provider credential. | `wf220` Part 2, Slice A0; #341 |
 | **`A4`** | Conversation-history data model + lifecycle (Postgres truth; `title` column, retention, soft-delete+grace+purge, re-bind/re-seed, compaction divider, idempotent send coalescing). | Admin sends a turn, reloads after simulated session loss, sees full transcript restored from PG; rename persists; deleted chat disappears then purges after grace. **Deps: none (data layer).** | `wf220` Part 2, Slice A4 |
 | **`A1`** | Agent tool surface: port card tools + net-new platform/conversation reads onto the runtime-control session-principal registry. | Ask Admin turn calls `opzava_tasks_get` + `opzava_conversations_search` through broker, receives RLS-scoped results; agent comment labeled AI; projected tool names pinned. **Deps: A0.** | `wf220` Part 2, Slice A1 |
 | **`A2`** | Tool policy: `minimal → coding` + exact keep-only `allow` (25 names) + surgical `deny` + broker inventory, landed atomically. | `tools.effective` on live gateway = exactly 25 names; broker session admitted (no `toolInventoryMismatch`); skills/memory/delegation tools now model-visible. **Deps: A0, A1.** | `wf220` Part 2, Slice A2 |
@@ -200,30 +202,31 @@ Consensus-terra HYBRID verdict (recorded in full on #335, closed): Contract B (`
 
 ---
 
-## 4. RECOMMENDED FIRST SLICE
+## 4. COMPLETED FIRST SLICE — TB-01 (2026-08-15)
 
-**Start with Dev Board `TB-01` — the DevTicket command spine & planning lifecycle** (`wf237` §2
-Vertical A; §1 frontier).
+**Dev Board `TB-01` — the DevTicket command spine & planning lifecycle — is complete** through
+`TB-01b-8` (#348; issues #305/#343). Do not start it again; its successor migration/cutover work
+remains `TB-MG1`/`TB-MG2`.
 
-Why it is the single highest-value start:
-1. **Foundations in place (none needed).** `TB-01` is Frontier 0 — zero open blockers, not gated by
-   #229/#253/#194. It is the one TB whose preconditions are already fully met.
-2. **Unblocks the most.** It is the root of the largest fan-out in any of the three graphs: after
+Why it was the single highest-value start:
+1. **Foundations were in place (none needed).** `TB-01` was Frontier 0 — zero open blockers, not
+   gated by #229/#253/#194.
+2. **It unblocked the most.** It is the root of the largest fan-out in any of the three graphs: after
    `TB-01` the next claimable set is `{ TB-GH1, TB-RN1, TB-DC1(partial) }` (`wf237` §3), and from
    there 24 of 33 Dev Board TBs become reachable without touching #229. It is also the seam the
    Ask Admin delegation path (`A12`/`#216`) and the Admin CC Dev Board redirect (`TB-M2`) consume.
 3. **Provable end-to-end on the real stack.** Per `wf230:2092-2097` + the manifest sequencing
-   rule, it ships first on **real Postgres with no runner and no GitHub** — and its acceptance is a
+   rule, it shipped first on **real Postgres with no runner and no GitHub** — and its acceptance is a
    real user flow: *admin shapes a Proposal, accepts to Backlog, completes + approves Ready → Todo,
    edits managed contract → material edit returns to Backlog; dependency lock visible in Todo*
    (`wf237` §2 TB-01 e2e-evidence; PRD-019:957-963). That is a complete, falsifiable product
    vertical, not a horizontal layer.
-4. **Establishes the load-bearing invariants every later TB inherits:** trusted `CommandEnvelope`,
+4. **Established the load-bearing invariants every later TB inherits:** trusted `CommandEnvelope`,
    idempotency, authorization-version, `withTenant` transaction-first outbox, four-ledger skeleton,
    tenant-RLS-denial-as-hard-403.
 
-**Parallel tracks (no shared blocker — a team can run all three at once):** while `TB-01` proceeds,
-Admin CC `TB-F1` and Ask Admin `A0`→`A4`→`A7` are independent frontiers and may advance concurrently.
+**Parallel tracks (no shared blocker):** Admin CC `TB-F1` and the Ask Admin frontier remain
+independent; A0's live exact-tool proof is pending a connected provider credential (#341).
 
 ---
 

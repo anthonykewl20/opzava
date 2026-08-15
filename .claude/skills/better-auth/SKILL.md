@@ -12,9 +12,9 @@ Auth.js v5 + Postgres adapter is the real fallback. **Pin releases; watch the `b
 Building login/signup, sessions, MFA/passkeys, invitations, password reset, guest access, or the PWA auth + Web-Push binding.
 
 ## Rules (non-negotiable)
-- **Better Auth owns authentication + coarse org membership ONLY.** Fine-grained authz lives in the `AuthorizationPort` (RBAC — ADR-007 / `opzava-conventions`). Org membership **syncs INTO** our RBAC, not the reverse.
+- **Better Auth supplies compatible schema/algorithm conventions + coarse org membership ONLY.** The `AuthPort` adapter owns every authentication ceremony and **ALL session issuance**. Fine-grained authz lives in the `AuthorizationPort` (RBAC — ADR-007 / `opzava-conventions`). Org membership **syncs INTO** our RBAC, not the reverse.
 - **DB-backed, REVOCABLE sessions** (no JWT). Revoke on logout-all-devices, **password reset, org removal, role/membership change**. **`session.cookieCache` DISABLED** (a known 2FA-bypass advisory class — non-negotiable).
-- **MFA:** TOTP + single-use recovery codes + **passkeys (SimpleWebAuthn)** step-up; **org-admin-enforceable** MFA.
+- **MFA:** TOTP + single-use recovery codes + passkeys through exact-pinned **`@simplewebauthn/server` directly behind `AuthPort`** (never the endpoint-coupled Better Auth passkey plugin); **org-admin-enforceable** MFA. Passkey user verification satisfies MFA; passwordless passkey sign-in deliberately bypasses password brute-force lockout by policy.
 - **PWA:** a service worker **cannot read httpOnly cookies** → the only session read is a server `/api/auth/session`; bind the **Web Push subscription ↔ session server-side** (validate at enqueue, **not** in the SW — a SW can't hold the HMAC key). **No "two-cookie split."**
 - **Guest-Clients:** per-project scoped **magic-link** (TTL ≤ 24h, single-use, audited), and **never** org membership.
 - **INVARIANT:** a provider invite-callback grants **nothing** without re-validating the Opzava `Invitation` row **in the same DB transaction**; `revokeSessionsOnRoleChange` runs in-tx.
