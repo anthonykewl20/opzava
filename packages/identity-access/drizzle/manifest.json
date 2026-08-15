@@ -116,6 +116,18 @@
     {
       "path": "0028_password_reset.sql",
       "sha256": "85b993c7e4198183993ece1c59149975ee191091f7d8719fa667767c15dbeab6"
+    },
+    {
+      "path": "0029_identity_security_hardening.sql",
+      "sha256": "b4d518159d5f57ba24e669c860bfc9cfee7f8845c640333a8f88a1240ca1f82f"
+    },
+    {
+      "path": "0030_auth_invitations.sql",
+      "sha256": "447313d84596a68073b1551078b0b5febfb74118f199ea998824d1dc03c6aa97"
+    },
+    {
+      "path": "0031_guest_magic_links.sql",
+      "sha256": "e8699ba6fed30f05f5d0e54c07173c7bed8e998938eeb6f51b80122c56c82e31"
     }
   ]
 }

@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -10,7 +12,7 @@ import {
   uuid
 } from "drizzle-orm/pg-core";
 
-import { organizations } from "./tenancy.js";
+import { organizations, workspaces } from "./tenancy.js";
 
 export const authUsers = pgTable(
   "auth_users",
@@ -143,15 +145,123 @@ export const authPasswordResetTokens = pgTable(
       .notNull()
       .references(() => authUsers.id, { onDelete: "cascade" }),
     salt: text("salt").notNull(),
-    tokenHash: text("token_hash").notNull(),
+    handleHash: text("handle_hash").notNull(),
+    handleLookupDigest: text("handle_lookup_digest").notNull(),
+    handleExpiresAt: timestamp("handle_expires_at", { withTimezone: true }).notNull(),
+    handleUsedAt: timestamp("handle_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
-    failedAttempts: integer("failed_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     index("auth_password_reset_tokens_user_id_idx").on(table.userId),
-    index("auth_password_reset_tokens_expires_at_idx").on(table.expiresAt)
+    index("auth_password_reset_tokens_expires_at_idx").on(table.expiresAt),
+    index("auth_password_reset_tokens_handle_expires_at_idx").on(table.handleExpiresAt),
+    uniqueIndex("auth_password_reset_tokens_handle_lookup_digest_unique").on(table.handleLookupDigest)
+  ]
+);
+
+export const authInvitations = pgTable(
+  "auth_invitations",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull(),
+    salt: text("salt").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenLookupDigest: text("token_lookup_digest").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull().references(() => authUsers.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '24 hours'`),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true })
+  },
+  (table) => [
+    check("auth_invitations_role_check", sql`${table.role} in ('admin', 'member')`),
+    check("auth_invitations_max_ttl_check", sql`${table.expiresAt} <= ${table.createdAt} + interval '24 hours'`),
+    index("auth_invitations_org_idx").on(table.organizationId),
+    index("auth_invitations_org_email_idx").on(table.organizationId, sql`lower(${table.email})`),
+    uniqueIndex("auth_invitations_token_lookup_digest_unique").on(table.tokenLookupDigest)
+  ]
+);
+
+export const authExternalIdentities = pgTable(
+  "auth_external_identities",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").notNull(),
+    email: text("email").notNull(),
+    emailHash: text("email_hash").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex("auth_external_identities_org_project_email_unique").on(table.organizationId, table.projectId, table.emailHash),
+    uniqueIndex("auth_external_identities_id_org_project_unique").on(table.id, table.organizationId, table.projectId),
+    foreignKey({
+      columns: [table.projectId, table.organizationId],
+      foreignColumns: [workspaces.id, workspaces.organizationId],
+      name: "auth_external_identities_project_organization_fk"
+    }).onDelete("cascade")
+  ]
+);
+
+export const authGuestMagicLinks = pgTable(
+  "auth_guest_magic_links",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").notNull(),
+    email: text("email").notNull(),
+    salt: text("salt").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenLookupDigest: text("token_lookup_digest").notNull(),
+    createdByUserId: text("created_by_user_id").notNull().references(() => authUsers.id, { onDelete: "restrict" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("auth_guest_magic_links_max_ttl_check", sql`${table.expiresAt} <= ${table.createdAt} + interval '24 hours'`),
+    index("auth_guest_magic_links_org_project_idx").on(table.organizationId, table.projectId),
+    uniqueIndex("auth_guest_magic_links_token_lookup_digest_unique").on(table.tokenLookupDigest),
+    foreignKey({
+      columns: [table.projectId, table.organizationId],
+      foreignColumns: [workspaces.id, workspaces.organizationId],
+      name: "auth_guest_magic_links_project_organization_fk"
+    }).onDelete("cascade")
+  ]
+);
+
+export const authGuestSessions = pgTable(
+  "auth_guest_sessions",
+  {
+    id: uuid("id").primaryKey(),
+    externalIdentityId: uuid("external_identity_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    salt: text("salt").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenLookupDigest: text("token_lookup_digest").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true })
+  },
+  (table) => [
+    index("auth_guest_sessions_expires_at_idx").on(table.expiresAt),
+    uniqueIndex("auth_guest_sessions_token_lookup_digest_unique").on(table.tokenLookupDigest),
+    foreignKey({
+      columns: [table.projectId, table.organizationId],
+      foreignColumns: [workspaces.id, workspaces.organizationId],
+      name: "auth_guest_sessions_project_organization_fk"
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.externalIdentityId, table.organizationId, table.projectId],
+      foreignColumns: [authExternalIdentities.id, authExternalIdentities.organizationId, authExternalIdentities.projectId],
+      name: "auth_guest_sessions_external_identity_organization_project_fk"
+    }).onDelete("cascade")
   ]
 );
 
@@ -167,5 +277,9 @@ export const betterAuthSchema = {
   auth_verifications: authVerifications,
   auth_two_factor: authTwoFactor,
   auth_mfa_challenges: authMfaChallenges,
-  auth_password_reset_tokens: authPasswordResetTokens
+  auth_password_reset_tokens: authPasswordResetTokens,
+  auth_invitations: authInvitations,
+  auth_external_identities: authExternalIdentities,
+  auth_guest_magic_links: authGuestMagicLinks,
+  auth_guest_sessions: authGuestSessions
 };

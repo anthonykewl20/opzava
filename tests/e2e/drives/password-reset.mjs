@@ -3,8 +3,8 @@
 // Usage: node tests/e2e/drives/password-reset.mjs [outDir]
 import { chromium } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { createHmac, randomBytes, randomUUID, scrypt } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { randomBytes, randomUUID, scrypt } from "node:crypto";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,6 +12,7 @@ import { BASE, artifactDir } from "../lib/session.mjs";
 
 const OUT = process.argv[2] ?? artifactDir("password-reset");
 const POSTGRES = process.env.OPZAVA_POSTGRES_CONTAINER ?? "opzava-postgres-1";
+const WEB = process.env.OPZAVA_WEB_CONTAINER ?? "opzava-web-1";
 const OLD_PASSWORD = "ResetDisposable!2026";
 const NEW_PASSWORD = "ResetDisposableNew!2026";
 const THIRD_PASSWORD = "ResetDisposableThird!2026";
@@ -24,6 +25,16 @@ function record(name, ok, detail = "") { results.push({ name, ok, detail }); con
 function literal(value) { return `'${String(value).replaceAll("'", "''")}'`; }
 function psql(query) { return execFileSync("docker", ["exec", POSTGRES, "psql", "-v", "ON_ERROR_STOP=1", "-U", "opzava_owner", "-d", "opzava", "-c", query], { encoding: "utf8" }); }
 function scalar(query) { return execFileSync("docker", ["exec", POSTGRES, "psql", "-tA", "-v", "ON_ERROR_STOP=1", "-U", "opzava_owner", "-d", "opzava", "-c", query], { encoding: "utf8" }).trim(); }
+function webEnvironment(name) { return execFileSync("docker", ["exec", WEB, "printenv", name], { encoding: "utf8" }).trim(); }
+function hostDatabaseUrl() {
+  const databaseUrl = new URL(webEnvironment("DATABASE_URL"));
+  const publishedAddress = execFileSync("docker", ["port", POSTGRES, "5432/tcp"], { encoding: "utf8" }).trim().split("\n")[0];
+  if (publishedAddress === undefined || publishedAddress === "") throw new Error("Postgres has no published host port for the production reset seam.");
+  const host = new URL(`postgresql://${publishedAddress}`);
+  databaseUrl.hostname = host.hostname;
+  databaseUrl.port = host.port;
+  return databaseUrl.toString();
+}
 async function passwordHash(password) { const salt = randomBytes(16); const hash = await derive(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }); return `opzava_scrypt_v1$N=16384,r=8,p=1,keylen=64$${salt.toString("base64url")}$${Buffer.from(hash).toString("base64url")}`; }
 async function seed() {
   const hash = await passwordHash(OLD_PASSWORD);
@@ -33,11 +44,25 @@ async function seed() {
     insert into public.workspaces (id,organization_id,slug,name) values (${literal(fixture.workspaceId)},${literal(fixture.organizationId)},'reset','Reset');
     insert into public.memberships (organization_id,user_id,status,membership_version) values (${literal(fixture.organizationId)},${literal(fixture.userId)},'active',1);`);
 }
-function seedResetToken() {
-  const id = randomUUID(); const token = `${id}.${randomBytes(32).toString("base64url")}`; const salt = randomBytes(16).toString("hex"); const digest = createHmac("sha256", salt).update(token).digest("hex");
-  psql(`insert into public.auth_password_reset_tokens (id,user_id,salt,token_hash,expires_at) values (${literal(id)}::uuid,${literal(fixture.userId)},${literal(salt)},${literal(digest)},now()+interval '30 minutes');
-    insert into public.auth_mfa_challenges (id,user_id,active_organization_id,membership_version,expires_at) values (${literal(randomUUID().replaceAll("-", ""))},${literal(fixture.userId)},${literal(fixture.organizationId)}::uuid,1,now()+interval '5 minutes');`);
-  return token;
+function seedResetHandle() {
+  const outputFile = `/tmp/opzava-password-reset-${randomUUID()}.url`;
+  // Reuse the running web container's credentials without printing them. The
+  // tiny tsx helper runs the real AuthPort production seam from this worktree.
+  const databaseUrl = hostDatabaseUrl();
+  const betterAuthSecret = webEnvironment("BETTER_AUTH_SECRET");
+  try {
+    execFileSync(join(process.cwd(), "packages/adapters/node_modules/.bin/tsx"), ["../../tests/e2e/drives/password-reset-handle.ts", fixture.email, OLD_PASSWORD, outputFile], {
+      cwd: join(process.cwd(), "packages/identity-access"),
+      env: { ...process.env, DATABASE_URL: databaseUrl, BETTER_AUTH_SECRET: betterAuthSecret },
+      stdio: "pipe"
+    });
+    const resetUrl = readFileSync(outputFile, "utf8");
+    const handle = new URL(resetUrl, BASE).searchParams.get("h");
+    if (handle === null) throw new Error("Production reset seam did not return a handoff handle.");
+    return handle;
+  } finally {
+    try { unlinkSync(outputFile); } catch { /* no handoff file was created */ }
+  }
 }
 function cleanup() { psql(`delete from public.auth_password_reset_tokens where user_id=${literal(fixture.userId)}; delete from public.auth_mfa_challenges where user_id=${literal(fixture.userId)}; delete from public.auth_two_factor where user_id=${literal(fixture.userId)}; delete from public.auth_sessions where user_id=${literal(fixture.userId)}; delete from public.memberships where organization_id=${literal(fixture.organizationId)}::uuid; delete from public.workspaces where organization_id=${literal(fixture.organizationId)}::uuid; delete from public.organizations where id=${literal(fixture.organizationId)}::uuid; delete from public.auth_accounts where user_id=${literal(fixture.userId)}; delete from public.auth_users where id=${literal(fixture.userId)};`); }
 async function login(context, password) { const page = await context.newPage(); await page.goto(`${BASE}/login`, { waitUntil: "networkidle" }); await page.locator('input[name="email"]').fill(fixture.email); await page.locator('input[name="password"]').fill(password); await page.getByRole("button", { name: "Sign in" }).click(); await page.waitForURL((url) => !url.pathname.startsWith("/login")); return page; }
@@ -48,12 +73,12 @@ try {
   await seed(); browser = await chromium.launch();
   const first = await browser.newContext(); const second = await browser.newContext();
   await login(first, OLD_PASSWORD); await login(second, OLD_PASSWORD);
-  const token = seedResetToken();
+   const handle = seedResetHandle();
   const reset = await browser.newContext(); const resetPage = await reset.newPage();
-  await resetPage.goto(`${BASE}/reset-password?token=${encodeURIComponent(token)}`, { waitUntil: "networkidle" });
+   await resetPage.goto(`${BASE}/reset-password?h=${encodeURIComponent(handle)}`, { waitUntil: "networkidle" });
   await resetPage.locator('input[name="password"]').fill(NEW_PASSWORD); await resetPage.locator('input[name="confirmPassword"]').fill(NEW_PASSWORD); await resetPage.getByRole("button", { name: "Reset password" }).click();
   await resetPage.getByText("Password reset. Sign in with your new password.").waitFor();
-  record("reset form consumes the disposable token", true); await resetPage.screenshot({ path: join(OUT, "01-reset-success.png") });
+   record("reset form consumes the disposable handle", true); await resetPage.screenshot({ path: join(OUT, "01-reset-success.png") });
   record("reset revokes every session and invalidates MFA challenges", scalar(`select count(*) from public.auth_sessions where user_id=${literal(fixture.userId)}`) === "0" && scalar(`select count(*) from public.auth_mfa_challenges where user_id=${literal(fixture.userId)}`) === "0");
   const fresh = await browser.newContext(); await login(fresh, NEW_PASSWORD); record("new password signs in after reset", true);
   const forgot = await browser.newContext(); const forgotPage = await forgot.newPage(); await forgotPage.goto(`${BASE}/forgot-password`, { waitUntil: "networkidle" }); await forgotPage.locator('input[name="email"]').fill("unknown@example.test"); await forgotPage.getByRole("button", { name: "Request password reset" }).click(); const genericAlert = forgotPage.getByText("If that account can be reset, follow the instructions provided by your administrator."); await genericAlert.waitFor(); const generic = await genericAlert.innerText(); record("unknown email has generic confirmation", /If that account can be reset/i.test(generic)); await forgotPage.screenshot({ path: join(OUT, "02-forgot-generic.png") });

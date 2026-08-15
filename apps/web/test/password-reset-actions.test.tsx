@@ -36,8 +36,15 @@ describe("password reset and change-password actions", () => {
   });
 
   it("does not send mismatched reset passwords to the AuthPort", async () => {
-    await expect(resetPasswordAction({ status: "idle" }, form({ token: "token", password: "long-enough-password", confirmPassword: "different-password" }))).resolves.toMatchObject({ status: "error", message: "Passwords do not match." });
+    await expect(resetPasswordAction({ status: "idle" }, form({ handle: "a".repeat(43), password: "long-enough-password", confirmPassword: "different-password" }))).resolves.toMatchObject({ status: "error", message: "Passwords do not match." });
     expect(mocks.resetPassword).not.toHaveBeenCalled();
+  });
+
+  it("passes XFF to the public handle exchange limiter", async () => {
+    mocks.headers.mockResolvedValue(new Headers({ "x-forwarded-for": "spoofed-client, 198.51.100.17" }));
+    mocks.resetPassword.mockResolvedValue({ ok: false, error: { code: "auth.resetInvalid" } });
+    await resetPasswordAction({ status: "idle" }, form({ handle: "a".repeat(43), password: "long-enough-password", confirmPassword: "long-enough-password" }));
+    expect(mocks.resetPassword).toHaveBeenCalledWith({ handle: "a".repeat(43), newPassword: "long-enough-password", ipAddress: "spoofed-client, 198.51.100.17" });
   });
 
   it("requires the current password and preserves the current session when changing password", async () => {

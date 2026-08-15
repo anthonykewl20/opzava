@@ -1,5 +1,5 @@
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -78,16 +78,39 @@ export function mfaEncryptionKey(): string | null {
   return key === undefined || key.trim() === "" ? null : key;
 }
 
+const atRestSalt = "opzava/v1/identity-at-rest";
+const atRestInfo = "opzava-identity-access";
+const hkdfPrefix = "hkdf1:";
+
+/**
+ * MFA material must not be encrypted with BETTER_AUTH_SECRET directly.  Keeping
+ * the legacy decrypt path lets existing factors survive this key separation;
+ * every new enrollment writes the versioned HKDF-derived form.
+ */
+function atRestEncryptionKey(secret: string): string {
+  return Buffer.from(hkdfSync("sha256", secret, atRestSalt, atRestInfo, 32)).toString("base64url");
+}
+
+/** Separate stable HMAC key for indexed external-identity email lookup. */
+export function identityLookupKey(): string | null {
+  const secret = mfaEncryptionKey();
+  return secret === null
+    ? null
+    : Buffer.from(hkdfSync("sha256", secret, "opzava/v1/identity-lookup", "opzava-identity-access", 32)).toString("base64url");
+}
+
 export async function encryptTotpSecret(secret: string): Promise<string> {
   const key = mfaEncryptionKey();
   if (key === null) throw new Error("BETTER_AUTH_SECRET is required for MFA.");
-  return symmetricEncrypt({ key, data: secret });
+  return `${hkdfPrefix}${await symmetricEncrypt({ key: atRestEncryptionKey(key), data: secret })}`;
 }
 
 export async function decryptTotpSecret(secret: string): Promise<string> {
   const key = mfaEncryptionKey();
   if (key === null) throw new Error("BETTER_AUTH_SECRET is required for MFA.");
-  return symmetricDecrypt({ key, data: secret });
+  return secret.startsWith(hkdfPrefix)
+    ? symmetricDecrypt({ key: atRestEncryptionKey(key), data: secret.slice(hkdfPrefix.length) })
+    : symmetricDecrypt({ key, data: secret });
 }
 
 function recoveryDigest(salt: string, code: string): string {
