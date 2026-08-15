@@ -4,7 +4,11 @@ import type { Result } from "@opzava/shared-kernel";
 export type SessionId = string & { readonly __sessionId: "SessionId" };
 export type SessionToken = string & { readonly __sessionToken: "SessionToken" };
 export type MfaChallengeId = string & { readonly __mfaChallengeId: "MfaChallengeId" };
-export type PasswordResetToken = string & { readonly __passwordResetToken: "PasswordResetToken" };
+/** One-time browser handoff handle. It is never a raw reset token. */
+export type PasswordResetHandle = string & { readonly __passwordResetHandle: "PasswordResetHandle" };
+export type InvitationToken = string & { readonly __invitationToken: "InvitationToken" };
+export type GuestMagicLinkToken = string & { readonly __guestMagicLinkToken: "GuestMagicLinkToken" };
+export type GuestSessionToken = string & { readonly __guestSessionToken: "GuestSessionToken" };
 
 export interface AuthMembership {
   readonly orgId: OrgId;
@@ -126,21 +130,26 @@ export interface MfaStatus {
 export interface PasswordResetRequestOutcome {
   readonly status: "reset-token-issued";
   /**
-   * Present only for a server-side, freshly authenticated self-service request.
-   * A browser-facing request must never receive or render this value.
+   * Present only for controlled delivery to a freshly authenticated account owner.
+   * This is the sole browser-safe reset delivery value: it contains a one-time
+   * handoff handle, never the password-reset credential itself.
    */
-  readonly resetToken?: PasswordResetToken;
+  readonly resetUrl?: string;
 }
 
 export interface RequestPasswordResetInput {
   readonly email: string;
   /** Enables the controlled, out-of-band v1 delivery path for the account owner only. */
   readonly authenticatedSelf?: { readonly userId: UserId; readonly sessionId: SessionId };
+  /** Rightmost proxy-appended x-forwarded-for hop, supplied only by the trusted server boundary. */
+  readonly ipAddress?: string;
 }
 
 export interface ResetPasswordInput {
-  readonly token: PasswordResetToken;
+  readonly handle: PasswordResetHandle;
   readonly newPassword: string;
+  /** Rightmost proxy-appended x-forwarded-for hop for the public exchange limiter. */
+  readonly ipAddress?: string;
 }
 
 export interface ChangePasswordInput {
@@ -148,6 +157,61 @@ export interface ChangePasswordInput {
   readonly currentSessionId: SessionId;
   readonly currentPassword: string;
   readonly newPassword: string;
+}
+
+export interface Invitation {
+  readonly id: string;
+  readonly orgId: OrgId;
+  readonly email: string;
+  readonly role: "admin" | "member";
+  readonly expiresAt: Date;
+  readonly acceptedAt: Date | null;
+  readonly revokedAt: Date | null;
+}
+
+export interface CreateInvitationInput {
+  readonly orgId: OrgId;
+  readonly email: string;
+  readonly role: "admin" | "member";
+  readonly actor: UserId;
+  readonly expiresAt?: Date;
+}
+
+/** Invitation TTLs over 24h reject; guest-link TTLs over 24h clamp to 24h. */
+
+export interface AcceptInvitationInput {
+  readonly token: InvitationToken;
+  readonly userId: UserId;
+}
+
+export interface CreateGuestMagicLinkInput {
+  readonly orgId: OrgId;
+  /** v1's current project aggregate is persisted as a tenant workspace. */
+  readonly projectId: string;
+  readonly email: string;
+  readonly actor: UserId;
+  readonly expiresAt?: Date;
+}
+
+export interface GuestMagicLink {
+  readonly id: string;
+  readonly guestMagicLinkToken: GuestMagicLinkToken;
+  readonly expiresAt: Date;
+}
+
+export interface GuestSession {
+  readonly guestSessionToken: GuestSessionToken;
+  readonly expiresAt: Date;
+}
+
+/**
+ * This deliberately never becomes AuthSession: guest credentials grant only
+ * the returned external identity/project scope and confer no organization role.
+ */
+export interface GuestSessionPrincipal {
+  readonly orgId: OrgId;
+  readonly projectId: string;
+  readonly externalIdentityId: string;
 }
 
 export interface AuthPort {
@@ -160,6 +224,14 @@ export interface AuthPort {
   requestPasswordReset(input: RequestPasswordResetInput): Promise<Result<PasswordResetRequestOutcome>>;
   resetPassword(input: ResetPasswordInput): Promise<Result<void>>;
   changePassword(input: ChangePasswordInput): Promise<Result<void>>;
+  createInvitation(input: CreateInvitationInput): Promise<Result<{ readonly invitation: Invitation; readonly token: InvitationToken }>>;
+  listInvitations(input: { readonly orgId: OrgId; readonly actor: UserId }): Promise<Result<readonly Invitation[]>>;
+  revokeInvitation(input: { readonly id: string; readonly orgId: OrgId; readonly actor: UserId }): Promise<Result<void>>;
+  /** Provider invite callbacks must route here; no callback may create membership directly. */
+  acceptInvitation(input: AcceptInvitationInput): Promise<Result<void>>;
+  createGuestMagicLink(input: CreateGuestMagicLinkInput): Promise<Result<GuestMagicLink>>;
+  consumeGuestMagicLink(input: { readonly token: GuestMagicLinkToken }): Promise<Result<GuestSession>>;
+  resolveGuestSession(token: GuestSessionToken): Promise<Result<GuestSessionPrincipal | null>>;
   getSession(input: GetSessionInput): Promise<Result<AuthSession | null>>;
   revokeSession(input: RevokeSessionInput): Promise<Result<void>>;
   listSessions(input: ListSessionsInput): Promise<Result<readonly AuthSession[]>>;

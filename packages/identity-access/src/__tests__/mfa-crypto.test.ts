@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { base32Decode, base32Encode, totpAt, verifyTotp } from "../adapters/better-auth/mfa-crypto.js";
+import { base32Decode, base32Encode, decryptTotpSecret, encryptTotpSecret, totpAt, verifyTotp } from "../adapters/better-auth/mfa-crypto.js";
+import { symmetricEncrypt } from "better-auth/crypto";
 
 const rfc4226Secret = "12345678901234567890";
 const rfc4226Base32Secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
@@ -28,6 +29,21 @@ describe("MFA crypto", () => {
   it("never accepts the all-zero code across representative RFC counters", () => {
     for (let counter = 0; counter < 10; counter += 1) {
       expect(verifyTotp(rfc4226Base32Secret, "000000", counter * 30_000)).toBe(false);
+    }
+  });
+
+  it("writes HKDF-versioned MFA ciphertext and can still decrypt legacy ciphertext", async () => {
+    const previous = process.env["BETTER_AUTH_SECRET"];
+    process.env["BETTER_AUTH_SECRET"] = "test-mfa-master-secret";
+    try {
+      const legacy = await symmetricEncrypt({ key: "test-mfa-master-secret", data: "legacy-secret" });
+      expect(await decryptTotpSecret(legacy)).toBe("legacy-secret");
+      const encrypted = await encryptTotpSecret("new-secret");
+      expect(encrypted).toMatch(/^hkdf1:/);
+      expect(await decryptTotpSecret(encrypted)).toBe("new-secret");
+    } finally {
+      if (previous === undefined) delete process.env["BETTER_AUTH_SECRET"];
+      else process.env["BETTER_AUTH_SECRET"] = previous;
     }
   });
 });

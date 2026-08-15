@@ -37,7 +37,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Reset links are intentionally reachable without an existing session. The
-  // token itself is the short-lived, single-use credential checked server-side.
+  // handle itself is the short-lived, single-use credential checked server-side.
   if (isPath(pathname, forgotPasswordPath) || isPath(pathname, resetPasswordPath)) {
     return NextResponse.next();
   }
