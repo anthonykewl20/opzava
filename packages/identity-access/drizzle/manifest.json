@@ -128,6 +128,10 @@
     {
       "path": "0031_guest_magic_links.sql",
       "sha256": "e8699ba6fed30f05f5d0e54c07173c7bed8e998938eeb6f51b80122c56c82e31"
+    },
+    {
+      "path": "0032_passkeys.sql",
+      "sha256": "2c5454fce4c1297bd44e4bc9f1571f608d20e31b8d2e71d3f8325ce13be7f509"
     }
   ]
 }

@@ -39,6 +39,12 @@ safe Better Auth release exists.
 7. Record GHSA/release-note links, the old and new exact pins, commands/results, and rollback
    readiness in the upgrade PR.
 
+## Migration 0032 operational note
+
+Migration `0032_passkeys.sql` adds `auth_users.webauthn_user_id` with a volatile default. PostgreSQL
+rewrites the full table under `ACCESS EXCLUSIVE`; schedule its application accordingly. Its follow-up
+`UPDATE` is a no-op after that rewrite, but remains in the migration as an explicit backfill guard.
+
 ## Rollback
 
 If release validation or production monitoring fails, revert the three pins across the two manifest files and the

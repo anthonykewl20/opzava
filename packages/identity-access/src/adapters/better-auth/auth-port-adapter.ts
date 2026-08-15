@@ -7,6 +7,14 @@ import {
 } from "@opzava/shared-kernel";
 import { sql } from "drizzle-orm";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type RegistrationResponseJSON
+} from "@simplewebauthn/server";
 
 import type {
   AuthPort,
@@ -68,6 +76,33 @@ const passwordResetRequests = new Map<string, number[]>();
 let lastPublicRateLimitPruneAt = 0;
 const maximumInvitationTtlMs = 24 * 60 * 60 * 1000;
 const guestSessionTtlMs = 8 * 60 * 60 * 1000;
+const passkeyChallengeTtlMs = 5 * 60 * 1000;
+
+interface PasskeyConfig { readonly rpID: string; readonly rpName: string; readonly origins: readonly string[]; }
+
+function passkeyConfig(): PasskeyConfig {
+  const local = { rpID: "web.opzava.localhost", rpName: "Opzava", origins: ["http://web.opzava.localhost:18088"] };
+  // Compose intentionally runs the local image with NODE_ENV=production; its
+  // trusted APP_URL still identifies the documented local deployment. Never use
+  // a request Host/Origin to make this decision.
+  const localDeployment = process.env["APP_URL"] === local.origins[0] || process.env["BETTER_AUTH_URL"] === local.origins[0];
+  const production = process.env["NODE_ENV"] === "production" && !localDeployment;
+  const rpID = process.env["PASSKEY_RP_ID"]?.trim() || (production ? "" : local.rpID);
+  const rpName = process.env["PASSKEY_RP_NAME"]?.trim() || (production ? "" : local.rpName);
+  const origins = (process.env["PASSKEY_RP_ORIGINS"]?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? (production ? [] : local.origins));
+  if (!rpID || !rpName || origins.length === 0 || origins.some((origin) => {
+    try { return new URL(origin).origin !== origin; } catch { return true; }
+  })) throw new Error("PASSKEY_RP_ID, PASSKEY_RP_NAME, and PASSKEY_RP_ORIGINS must be configured with trusted origins.");
+  return { rpID, rpName, origins };
+}
+
+/** Configuration failure is scoped to the optional passkey capability. */
+function passkeyUnavailable(): DomainError {
+  return new DomainError({
+    code: "auth.passkeyUnavailable",
+    message: "Passkey authentication is unavailable. Try your password instead."
+  });
+}
 
 function rowsFromExecuteResult(result: unknown): ReadonlyArray<Record<string, unknown>> {
   if (Array.isArray(result)) {
@@ -269,6 +304,24 @@ interface ChallengeRow {
   readonly ipAddressHash: string | null;
 }
 
+interface PasskeyChallengeRow {
+  readonly id: string;
+  readonly purpose: "registration" | "authentication" | "step-up";
+  readonly salt: string;
+  readonly challengeHash: string;
+  readonly userId: string | null;
+  readonly sessionId: string | null;
+  readonly activeOrganizationId: string | null;
+  readonly membershipVersion: number | null;
+}
+
+function rowToPasskeyChallenge(row: Record<string, unknown> | undefined): PasskeyChallengeRow | null {
+  if (row === undefined || typeof row["id"] !== "string" || (row["purpose"] !== "registration" && row["purpose"] !== "authentication" && row["purpose"] !== "step-up") || typeof row["salt"] !== "string" || typeof row["challenge_hash"] !== "string") return null;
+  return { id: row["id"], purpose: row["purpose"], salt: row["salt"], challengeHash: row["challenge_hash"], userId: typeof row["user_id"] === "string" ? row["user_id"] : null, sessionId: typeof row["session_id"] === "string" ? row["session_id"] : null, activeOrganizationId: typeof row["active_organization_id"] === "string" ? row["active_organization_id"] : null, membershipVersion: typeof row["membership_version"] === "number" ? row["membership_version"] : null };
+}
+
+function passkeyFailed(): DomainError { return new DomainError({ code: "auth.passkeyVerificationFailed", message: "Passkey verification could not be completed." }); }
+
 interface ResetTokenRow {
   readonly id: string;
   readonly userId: string;
@@ -345,6 +398,12 @@ function dateFrom(value: unknown): Date | null {
   return null;
 }
 
+function parseCounter(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value);
+  return NaN;
+}
+
 interface InvitationRow {
   readonly id: string;
   readonly organizationId: string;
@@ -408,10 +467,75 @@ function rowToResetToken(row: Record<string, unknown> | undefined): ResetTokenRo
 }
 
 export class BetterAuthPortAdapter implements AuthPort {
+  private passkey: PasskeyConfig | undefined;
+
   public constructor(
     private readonly database: RootDatabase = db,
-    private readonly hooks: BetterAuthPortAdapterHooks = {}
-  ) {}
+    private readonly hooks: BetterAuthPortAdapterHooks = {},
+    passkey?: PasskeyConfig
+  ) { this.passkey = passkey; }
+
+  /**
+   * Passkeys are an optional capability. Do not read or validate their RP
+   * configuration while constructing the AuthPort: password, session, MFA, and
+   * reset operations must remain available when passkeys are not configured.
+   */
+  private passkeyConfiguration(): PasskeyConfig {
+    try {
+      return this.passkey ??= passkeyConfig();
+    } catch {
+      throw passkeyUnavailable();
+    }
+  }
+
+  private async issuePasskeyChallenge(input: {
+    readonly database: ExecuteDatabase;
+    readonly purpose: PasskeyChallengeRow["purpose"];
+    readonly challenge: string;
+    readonly userId?: string;
+    readonly sessionId?: string;
+    readonly activeOrganizationId?: string;
+    readonly membershipVersion?: number;
+  }): Promise<import("@opzava/ports").PasskeyCeremony> {
+    const lookupDigest = tokenLookupDigest(input.challenge);
+    if (lookupDigest === null) throw passkeyFailed();
+    const expiresAt = new Date(Date.now() + passkeyChallengeTtlMs);
+    const id = randomUUID();
+    const salt = randomBytes(16).toString("hex");
+    await input.database.execute(sql`
+      insert into public.auth_passkey_challenges (
+        id, purpose, salt, challenge_hash, challenge_lookup_digest, user_id, session_id,
+        active_organization_id, membership_version, expires_at
+      ) values (
+        ${id}::uuid, ${input.purpose}, ${salt}, ${saltedTokenDigest(salt, input.challenge)}, ${lookupDigest},
+        ${input.userId ?? null}, ${input.sessionId ?? null}, ${input.activeOrganizationId ?? null},
+        ${input.membershipVersion ?? null}, ${expiresAt}
+      )
+    `);
+    return { challengeId: input.challenge as import("@opzava/ports").PasskeyChallengeId, options: {}, expiresAt };
+  }
+
+  private async activePasskeySession(database: ExecuteDatabase, userId: string, sessionId: string): Promise<{ readonly organizationId: string; readonly membershipVersion: number } | null> {
+    const session = await database.execute(sql`
+      select s.active_organization_id::text, s.membership_version
+      from public.auth_sessions s join public.auth_users u on u.id = s.user_id
+      where s.id = ${sessionId} and s.user_id = ${userId} and s.expires_at > now()
+      for update of s, u
+    `);
+    const row = rowsFromExecuteResult(session)[0];
+    if (typeof row?.["active_organization_id"] !== "string" || typeof row["membership_version"] !== "number") return null;
+    // Memberships are tenant-protected. The session's pinned organization is
+    // the only candidate here; establish that transaction-local context before
+    // re-validating the pinned membership under RLS.
+    await this.setTenantContext(database, row["active_organization_id"], userId);
+    const membership = await database.execute(sql`
+      select 1 from public.memberships m join public.organizations o on o.id = m.organization_id
+      where m.user_id = ${userId} and m.organization_id = ${row["active_organization_id"]}::uuid
+        and m.membership_version = ${row["membership_version"]} and m.status = 'active'
+        and o.lifecycle_state in ('provisioning', 'active')
+    `);
+    return rowsFromExecuteResult(membership)[0] === undefined ? null : { organizationId: row["active_organization_id"], membershipVersion: row["membership_version"] };
+  }
 
   private async twoFactorForUser(userId: string): Promise<Pick<TwoFactorRow, "backupCodes" | "verified"> | null> {
     const result = await this.database.execute(sql`
@@ -982,6 +1106,152 @@ export class BetterAuthPortAdapter implements AuthPort {
     } catch (error) { return err(sessionError(error)); }
   }
 
+  public async listPasskeys(input: { readonly userId: import("@opzava/shared-kernel").UserId }): Promise<Result<readonly import("@opzava/ports").Passkey[]>> {
+    try {
+      this.passkeyConfiguration();
+      const result = await this.database.execute(sql`
+        select id::text, name, device_type, backed_up, transports, created_at, last_used_at
+        from public.auth_passkeys where user_id = ${input.userId} order by created_at asc
+      `);
+      return ok(rowsFromExecuteResult(result).flatMap((row) => {
+        const createdAt = dateFrom(row["created_at"]); const lastUsedAt = dateFrom(row["last_used_at"]);
+        const transports = Array.isArray(row["transports"]) && row["transports"].every((item) => typeof item === "string") ? row["transports"] : [];
+        return typeof row["id"] === "string" && typeof row["name"] === "string" && (row["device_type"] === "singleDevice" || row["device_type"] === "multiDevice") && typeof createdAt?.getTime === "function"
+          ? [{ id: row["id"], name: row["name"], deviceType: row["device_type"], backedUp: row["backed_up"] === true, transports, createdAt, lastUsedAt }]
+          : [];
+      }));
+    } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+
+  public async startPasskeyEnrollment(input: import("@opzava/ports").StartPasskeyEnrollmentInput): Promise<Result<import("@opzava/ports").PasskeyCeremony>> {
+    try {
+      const passkey = this.passkeyConfiguration();
+      const password = await this.verifyPasswordAttempt({ userId: String(input.userId), password: input.password });
+      if (password.kind !== "authenticated") return err(new DomainError({ code: "auth.passkeyEnrollmentPasswordInvalid", message: "Your password could not be verified." }));
+      const started = await this.database.transaction(async (tx) => {
+        const active = await this.activePasskeySession(tx as unknown as ExecuteDatabase, String(input.userId), String(input.currentSessionId));
+        if (active === null) return null;
+        const user = await tx.execute(sql`select email, name, encode(webauthn_user_id, 'base64') as webauthn_user_id from public.auth_users where id = ${input.userId} for update`);
+        const row = rowsFromExecuteResult(user)[0];
+        if (typeof row?.["email"] !== "string" || typeof row["webauthn_user_id"] !== "string") return null;
+        const existing = await tx.execute(sql`select credential_id, transports from public.auth_passkeys where user_id = ${input.userId}`);
+        const options = await generateRegistrationOptions({
+          rpName: passkey.rpName, rpID: passkey.rpID, userName: row["email"], userDisplayName: typeof row["name"] === "string" ? row["name"] : row["email"],
+          userID: Buffer.from(row["webauthn_user_id"], "base64"), attestationType: "none",
+          authenticatorSelection: { userVerification: "required", residentKey: "required" },
+          excludeCredentials: rowsFromExecuteResult(existing).flatMap((credential) => typeof credential["credential_id"] === "string" ? [{ id: credential["credential_id"], ...(Array.isArray(credential["transports"]) ? { transports: credential["transports"] as never } : {}) }] : [])
+        });
+        const ceremony = await this.issuePasskeyChallenge({ database: tx as unknown as ExecuteDatabase, purpose: "registration", challenge: options.challenge, userId: String(input.userId), sessionId: String(input.currentSessionId), activeOrganizationId: active.organizationId, membershipVersion: active.membershipVersion });
+        return { ...ceremony, options: options as unknown as import("@opzava/ports").PasskeyOptions };
+      });
+      return started === null ? err(passkeyFailed()) : ok(started);
+    } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+
+  public async finishPasskeyEnrollment(input: import("@opzava/ports").FinishPasskeyEnrollmentInput): Promise<Result<import("@opzava/ports").Passkey>> {
+    try {
+      const passkey = this.passkeyConfiguration();
+      const lookup = tokenLookupDigest(String(input.challengeId)); if (lookup === null) return err(passkeyFailed());
+      const completed = await this.database.transaction(async (tx) => {
+        const directory = await tx.execute(sql`select id::text, purpose, salt, challenge_hash, user_id, session_id, active_organization_id::text, membership_version from public.auth_passkey_challenges where challenge_lookup_digest = ${lookup} and used_at is null and expires_at > now() for update`);
+        const challenge = rowToPasskeyChallenge(rowsFromExecuteResult(directory)[0]);
+        if (challenge === null || challenge.purpose !== "registration" || !sameDigest(challenge.challengeHash, saltedTokenDigest(challenge.salt, String(input.challengeId))) || challenge.userId === null || challenge.sessionId === null) return null;
+        const consumed = await tx.execute(sql`update public.auth_passkey_challenges set used_at = now() where id = ${challenge.id}::uuid and used_at is null and expires_at > now()`);
+        if ((consumed as { readonly rowCount?: number }).rowCount !== 1) return null;
+        const active = await this.activePasskeySession(tx as unknown as ExecuteDatabase, challenge.userId, challenge.sessionId);
+        if (active === null || active.organizationId !== challenge.activeOrganizationId || active.membershipVersion !== challenge.membershipVersion) return null;
+        const verified = await verifyRegistrationResponse({ response: input.response as unknown as RegistrationResponseJSON, expectedChallenge: String(input.challengeId), expectedOrigin: [...passkey.origins], expectedRPID: passkey.rpID, requireUserVerification: true });
+        if (!verified.verified || !verified.registrationInfo.userVerified) return null;
+        const info = verified.registrationInfo;
+        const id = randomUUID(); const name = input.name?.trim().slice(0, 80) || "Passkey";
+        const reportedTransports = input.response["response"] && typeof input.response["response"] === "object"
+          ? (input.response["response"] as Record<string, unknown>)["transports"]
+          : [];
+        const transports = Array.isArray(reportedTransports) && reportedTransports.every((transport) => typeof transport === "string") ? reportedTransports : [];
+        await tx.execute(sql`insert into public.auth_passkeys (id, user_id, credential_id, public_key, counter, transports, device_type, backed_up, name, aaguid) values (${id}::uuid, ${challenge.userId}, ${info.credential.id}, ${Buffer.from(info.credential.publicKey).toString("base64url")}, ${info.credential.counter}, ${JSON.stringify(transports)}::jsonb, ${info.credentialDeviceType}, ${info.credentialBackedUp}, ${name}, ${info.aaguid})`);
+        return { id, name, deviceType: info.credentialDeviceType, backedUp: info.credentialBackedUp, transports, createdAt: new Date(), lastUsedAt: null } satisfies import("@opzava/ports").Passkey;
+      });
+      return completed === null ? err(passkeyFailed()) : ok(completed);
+    } catch (error) { return err(error instanceof DomainError ? error : passkeyFailed()); }
+  }
+
+  public async startPasskeySignIn(): Promise<Result<import("@opzava/ports").PasskeyCeremony>> {
+    try {
+      const passkey = this.passkeyConfiguration();
+      const options = await generateAuthenticationOptions({ rpID: passkey.rpID, userVerification: "required" });
+      const ceremony = await this.issuePasskeyChallenge({ database: this.database, purpose: "authentication", challenge: options.challenge });
+      return ok({ ...ceremony, options: options as unknown as import("@opzava/ports").PasskeyOptions });
+    } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+
+  private async finishPasskeyAssertion(input: { readonly challengeId: import("@opzava/ports").PasskeyChallengeId; readonly response: import("@opzava/ports").PasskeyResponse; readonly purpose: "authentication" | "step-up"; readonly userAgent?: string; readonly ipAddress?: string; readonly session?: { readonly userId: string; readonly sessionId: string } }): Promise<{ readonly sessionToken?: string; readonly verifiedAt: Date } | null> {
+    const passkey = this.passkeyConfiguration();
+    const lookup = tokenLookupDigest(String(input.challengeId)); if (lookup === null || typeof input.response["id"] !== "string") return null;
+    return this.database.transaction(async (tx) => {
+      const selected = await tx.execute(sql`select id::text, purpose, salt, challenge_hash, user_id, session_id, active_organization_id::text, membership_version from public.auth_passkey_challenges where challenge_lookup_digest = ${lookup} and used_at is null and expires_at > now() for update`);
+      const challenge = rowToPasskeyChallenge(rowsFromExecuteResult(selected)[0]);
+      if (challenge === null || challenge.purpose !== input.purpose || !sameDigest(challenge.challengeHash, saltedTokenDigest(challenge.salt, String(input.challengeId)))) return null;
+      const consumed = await tx.execute(sql`update public.auth_passkey_challenges set used_at = now() where id = ${challenge.id}::uuid and used_at is null and expires_at > now()`);
+      if ((consumed as { readonly rowCount?: number }).rowCount !== 1) return null;
+      const prevalidated = input.session === undefined ? null : await this.activePasskeySession(tx as unknown as ExecuteDatabase, input.session.userId, input.session.sessionId);
+      if (input.session !== undefined && (challenge.userId !== input.session.userId || challenge.sessionId !== input.session.sessionId || prevalidated === null || prevalidated.organizationId !== challenge.activeOrganizationId || prevalidated.membershipVersion !== challenge.membershipVersion)) return null;
+      const credentialResult = await tx.execute(sql`select id::text, user_id, credential_id, public_key, counter, transports from public.auth_passkeys where credential_id = ${input.response["id"]} for update`);
+      const credential = rowsFromExecuteResult(credentialResult)[0];
+      const credentialCounter = parseCounter(credential?.["counter"]);
+      if (credential === undefined || typeof credential["user_id"] !== "string" || typeof credential["credential_id"] !== "string" || typeof credential["public_key"] !== "string" || !Number.isSafeInteger(credentialCounter) || credentialCounter < 0) return null;
+      const userId = credential["user_id"];
+      if (input.session !== undefined && (challenge.userId !== input.session.userId || challenge.sessionId !== input.session.sessionId || userId !== input.session.userId)) return null;
+      let active: { readonly organizationId: string; readonly membershipVersion: number } | null;
+      if (input.session !== undefined) active = prevalidated;
+      else {
+        // The credential establishes this identity, but memberships and
+        // organizations remain RLS-protected. Set only the authenticated user
+        // context while selecting that user's active memberships.
+        await tx.execute(sql`select set_config('app.current_user', ${userId}, true)`);
+        const membershipResult = await tx.execute(sql`
+          select m.organization_id::text, m.membership_version from public.memberships m
+          join public.organizations o on o.id = m.organization_id
+          where m.user_id = ${userId} and m.status = 'active' and o.lifecycle_state in ('provisioning', 'active')
+          order by m.created_at, m.organization_id limit 1
+        `);
+        const membership = rowsFromExecuteResult(membershipResult)[0];
+        active = typeof membership?.["organization_id"] === "string" && typeof membership["membership_version"] === "number"
+          ? { organizationId: membership["organization_id"], membershipVersion: membership["membership_version"] }
+          : null;
+      }
+      if (active === null || (challenge.activeOrganizationId !== null && (active.organizationId !== challenge.activeOrganizationId || active.membershipVersion !== challenge.membershipVersion))) return null;
+       const verification = await verifyAuthenticationResponse({ response: input.response as unknown as AuthenticationResponseJSON, expectedChallenge: String(input.challengeId), expectedOrigin: [...passkey.origins], expectedRPID: passkey.rpID, requireUserVerification: true, credential: { id: credential["credential_id"], publicKey: Buffer.from(credential["public_key"], "base64url"), counter: credentialCounter, ...(Array.isArray(credential["transports"]) ? { transports: credential["transports"] as never } : {}) } });
+      // Counter 0 denotes authenticators that do not implement a signature counter.
+      // Any non-zero assertion must strictly advance the stored counter, including
+      // after a concurrent ceremony has acquired this row lock.
+      if (!verification.verified || !verification.authenticationInfo.userVerified || (verification.authenticationInfo.newCounter !== 0 && verification.authenticationInfo.newCounter <= credentialCounter)) return null;
+      const updated = await tx.execute(sql`update public.auth_passkeys set counter = ${verification.authenticationInfo.newCounter}, device_type = ${verification.authenticationInfo.credentialDeviceType}, backed_up = ${verification.authenticationInfo.credentialBackedUp}, last_used_at = now() where id = ${credential["id"]}::uuid and (counter = 0 or ${verification.authenticationInfo.newCounter} > counter)`);
+      if ((updated as { readonly rowCount?: number }).rowCount !== 1) return null;
+      const verifiedAt = new Date();
+       if (input.purpose === "step-up") { await tx.execute(sql`update public.auth_sessions set mfa_satisfied_at = ${verifiedAt} where id = ${input.session!.sessionId} and user_id = ${userId}`); return { verifiedAt }; }
+       // ADR-006 "Passkeys and account locks": a UV-verified authenticator
+       // deliberately bypasses password brute-force locks to prevent attacker-induced lockout.
+       const issued = await this.insertSession({ database: tx as unknown as ExecuteDatabase, userId, activeOrganizationId: active.organizationId, membershipVersion: active.membershipVersion, ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }), ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress }), mfaSatisfiedAt: verifiedAt });
+      return { sessionToken: issued.token, verifiedAt };
+    });
+  }
+
+  public async finishPasskeySignIn(input: import("@opzava/ports").FinishPasskeySignInInput): Promise<Result<AuthSession>> {
+    try { const result = await this.finishPasskeyAssertion({ challengeId: input.challengeId, response: input.response, purpose: "authentication", ...(input.userAgent === undefined ? {} : { userAgent: input.userAgent }), ...(input.ipAddress === undefined ? {} : { ipAddress: input.ipAddress }) }); if (result?.sessionToken === undefined) return err(passkeyFailed()); const session = await resolveSessionPrincipal(result.sessionToken, this.database); return !session.ok || session.value === null ? err(passkeyFailed()) : ok(session.value); } catch (error) { return err(error instanceof DomainError ? error : passkeyFailed()); }
+  }
+  public async startPasskeyStepUp(input: { readonly userId: import("@opzava/shared-kernel").UserId; readonly currentSessionId: import("@opzava/ports").SessionId }): Promise<Result<import("@opzava/ports").PasskeyCeremony>> {
+    try { const passkey = this.passkeyConfiguration(); const ceremony = await this.database.transaction(async (tx) => { const active = await this.activePasskeySession(tx as unknown as ExecuteDatabase, String(input.userId), String(input.currentSessionId)); if (active === null) return null; const credentials = await tx.execute(sql`select credential_id, transports from public.auth_passkeys where user_id = ${input.userId}`); const options = await generateAuthenticationOptions({ rpID: passkey.rpID, userVerification: "required", allowCredentials: rowsFromExecuteResult(credentials).flatMap((row) => typeof row["credential_id"] === "string" ? [{ id: row["credential_id"], ...(Array.isArray(row["transports"]) ? { transports: row["transports"] as never } : {}) }] : []) }); const issued = await this.issuePasskeyChallenge({ database: tx as unknown as ExecuteDatabase, purpose: "step-up", challenge: options.challenge, userId: String(input.userId), sessionId: String(input.currentSessionId), activeOrganizationId: active.organizationId, membershipVersion: active.membershipVersion }); return { ...issued, options: options as unknown as import("@opzava/ports").PasskeyOptions }; }); return ceremony === null ? err(passkeyFailed()) : ok(ceremony); } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+  public async finishPasskeyStepUp(input: import("@opzava/ports").FinishPasskeyStepUpInput): Promise<Result<{ readonly verifiedAt: Date }>> {
+    try { const result = await this.finishPasskeyAssertion({ challengeId: input.challengeId, response: input.response, purpose: "step-up", session: { userId: String(input.userId), sessionId: String(input.currentSessionId) } }); return result === null ? err(passkeyFailed()) : ok({ verifiedAt: result.verifiedAt }); } catch (error) { return err(error instanceof DomainError ? error : passkeyFailed()); }
+  }
+  public async renamePasskey(input: { readonly userId: import("@opzava/shared-kernel").UserId; readonly currentSessionId: import("@opzava/ports").SessionId; readonly password: string; readonly passkeyId: string; readonly name: string }): Promise<Result<void>> {
+    try { this.passkeyConfiguration(); if (input.name.trim() === "") return err(passkeyFailed()); const password = await this.verifyPasswordAttempt({ userId: String(input.userId), password: input.password }); if (password.kind !== "authenticated") return err(new DomainError({ code: "auth.passkeyEnrollmentPasswordInvalid", message: "Your password could not be verified." })); const changed = await this.database.transaction(async (tx) => { if (await this.activePasskeySession(tx as unknown as ExecuteDatabase, String(input.userId), String(input.currentSessionId)) === null) return false; const result = await tx.execute(sql`update public.auth_passkeys set name = ${input.name.trim().slice(0, 80)} where id = ${input.passkeyId}::uuid and user_id = ${input.userId}`); return (result as { readonly rowCount?: number }).rowCount === 1; }); return changed ? ok(undefined) : err(passkeyFailed()); } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+  public async revokePasskey(input: { readonly userId: import("@opzava/shared-kernel").UserId; readonly currentSessionId: import("@opzava/ports").SessionId; readonly password: string; readonly passkeyId: string }): Promise<Result<void>> {
+    try { this.passkeyConfiguration(); const password = await this.verifyPasswordAttempt({ userId: String(input.userId), password: input.password }); if (password.kind !== "authenticated") return err(new DomainError({ code: "auth.passkeyEnrollmentPasswordInvalid", message: "Your password could not be verified." })); const changed = await this.database.transaction(async (tx) => { if (await this.activePasskeySession(tx as unknown as ExecuteDatabase, String(input.userId), String(input.currentSessionId)) === null) return false; /* v1 allows removing the final passkey; password/recovery remain usable. */ const result = await tx.execute(sql`delete from public.auth_passkeys where id = ${input.passkeyId}::uuid and user_id = ${input.userId}`); return (result as { readonly rowCount?: number }).rowCount === 1; }); return changed ? ok(undefined) : err(passkeyFailed()); } catch (error) { return err(error instanceof DomainError ? error : sessionError(error)); }
+  }
+
   public async requestPasswordReset(input: import("@opzava/ports").RequestPasswordResetInput): Promise<Result<import("@opzava/ports").PasswordResetRequestOutcome>> {
     try {
       const email = normalizeEmail(input.email);
@@ -1474,4 +1744,24 @@ export class BetterAuthPortAdapter implements AuthPort {
   }
 }
 
-export const authPort = new BetterAuthPortAdapter();
+const authPortMethods = new Set<keyof AuthPort>([
+  "signIn", "verifyMfaChallenge", "startMfaEnrollment", "enableMfa", "disableMfa", "getMfaStatus",
+  "listPasskeys", "startPasskeyEnrollment", "finishPasskeyEnrollment", "startPasskeySignIn",
+  "finishPasskeySignIn", "startPasskeyStepUp", "finishPasskeyStepUp", "renamePasskey", "revokePasskey",
+  "requestPasswordReset", "resetPassword", "changePassword", "createInvitation", "listInvitations",
+  "revokeInvitation", "acceptInvitation", "createGuestMagicLink", "consumeGuestMagicLink",
+  "resolveGuestSession", "getSession", "revokeSession", "listSessions", "logoutAll"
+]);
+
+// Next evaluates route modules while collecting build metadata. Construct only
+// for known AuthPort methods, memoize once, and ignore symbol/then inspection.
+// Returning a bound method preserves module-scope extraction (`const signIn = authPort.signIn`).
+let defaultAuthPort: BetterAuthPortAdapter | undefined;
+export const authPort: AuthPort = new Proxy({} as AuthPort, {
+  get(_target, property: PropertyKey) {
+    if (typeof property !== "string" || !authPortMethods.has(property as keyof AuthPort)) return undefined;
+    defaultAuthPort ??= new BetterAuthPortAdapter();
+    const operation = defaultAuthPort[property as keyof AuthPort];
+    return typeof operation === "function" ? operation.bind(defaultAuthPort) : operation;
+  }
+});

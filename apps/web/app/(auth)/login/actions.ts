@@ -16,6 +16,8 @@ export interface LoginActionState {
   readonly locked?: boolean;
 }
 
+export type PasskeyLoginStart = { readonly ok: true; readonly challengeId: string; readonly options: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly message: string };
+
 const mfaSchema = z.object({
   challengeId: z.string().min(1),
   code: z.string().trim().min(1, "Enter your verification code."),
@@ -138,5 +140,27 @@ export async function verifyMfaAction(
     };
   }
   await setSessionCookie(result.value.session);
+  redirect("/");
+}
+
+/** Explicit v1 WebAuthn path; conditional mediation is intentionally not used. */
+export async function startPasskeyLoginAction(): Promise<PasskeyLoginStart> {
+  const result = await authPort.startPasskeySignIn();
+  return result.ok
+    ? { ok: true, challengeId: result.value.challengeId, options: result.value.options }
+    : { ok: false, message: "Passkey sign-in is unavailable. Try your password instead." };
+}
+
+export async function finishPasskeyLoginAction(challengeId: string, response: Readonly<Record<string, unknown>>): Promise<LoginActionState> {
+  const requestHeaders = new Headers(await headers());
+  const ipAddress = clientIpFromHeaders(requestHeaders);
+  const result = await authPort.finishPasskeySignIn({
+    challengeId: challengeId as import("@opzava/ports").PasskeyChallengeId,
+    response,
+    ...(requestHeaders.get("user-agent") === null ? {} : { userAgent: requestHeaders.get("user-agent")! }),
+    ...(ipAddress === undefined ? {} : { ipAddress })
+  });
+  if (!result.ok) return { status: "error", message: "That passkey could not be verified. Try again or use your password." };
+  await setSessionCookie(result.value);
   redirect("/");
 }

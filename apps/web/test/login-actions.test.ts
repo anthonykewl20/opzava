@@ -3,19 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   signIn: vi.fn(),
   verifyMfaChallenge: vi.fn(),
+  startPasskeySignIn: vi.fn(),
+  finishPasskeySignIn: vi.fn(),
   headers: vi.fn(),
   setSessionCookie: vi.fn(),
   redirect: vi.fn(),
 }));
 
 vi.mock("@opzava/identity-access/better-auth", () => ({
-  authPort: { signIn: mocks.signIn, verifyMfaChallenge: mocks.verifyMfaChallenge },
+  authPort: {
+    signIn: mocks.signIn,
+    verifyMfaChallenge: mocks.verifyMfaChallenge,
+    startPasskeySignIn: mocks.startPasskeySignIn,
+    finishPasskeySignIn: mocks.finishPasskeySignIn
+  },
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/auth-cookie", () => ({ setSessionCookie: mocks.setSessionCookie }));
 
-import { loginAction, verifyMfaAction } from "../app/(auth)/login/actions";
+import { finishPasskeyLoginAction, loginAction, verifyMfaAction } from "../app/(auth)/login/actions";
 
 function form(values: Record<string, string>): FormData {
   const data = new FormData();
@@ -26,6 +33,8 @@ function form(values: Record<string, string>): FormData {
 beforeEach(() => {
   mocks.signIn.mockReset();
   mocks.verifyMfaChallenge.mockReset();
+  mocks.startPasskeySignIn.mockReset();
+  mocks.finishPasskeySignIn.mockReset();
   mocks.setSessionCookie.mockReset();
   mocks.redirect.mockReset();
   mocks.headers.mockResolvedValue(new Headers({ "user-agent": "vitest" }));
@@ -62,6 +71,14 @@ describe("login MFA actions", () => {
       status: "mfa",
       locked: true,
       message: "Too many attempts — try again in a few minutes",
+    });
+  });
+
+  it("returns passkey verification failure state for the login form to render", async () => {
+    mocks.finishPasskeySignIn.mockResolvedValue({ ok: false, error: { code: "auth.passkeyVerificationFailed" } });
+    await expect(finishPasskeyLoginAction("opaque-challenge", { id: "credential" })).resolves.toEqual({
+      status: "error",
+      message: "That passkey could not be verified. Try again or use your password."
     });
   });
 });

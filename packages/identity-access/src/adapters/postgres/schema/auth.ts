@@ -1,10 +1,13 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -13,6 +16,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { organizations, workspaces } from "./tenancy.js";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea"
+});
 
 export const authUsers = pgTable(
   "auth_users",
@@ -25,10 +32,14 @@ export const authUsers = pgTable(
     twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
     passwordFailedCount: integer("password_failed_count").notNull().default(0),
     passwordLockedUntil: timestamp("password_locked_until", { withTimezone: true }),
+    webauthnUserId: bytea("webauthn_user_id").notNull().default(sql`decode(md5(clock_timestamp()::text || random()::text) || md5(random()::text), 'hex')`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (table) => [uniqueIndex("auth_users_email_unique").on(sql`lower(${table.email})`)]
+  (table) => [
+    uniqueIndex("auth_users_email_unique").on(sql`lower(${table.email})`),
+    uniqueIndex("auth_users_webauthn_user_id_unique").on(table.webauthnUserId)
+  ]
 );
 
 export const authTwoFactor = pgTable(
@@ -96,6 +107,59 @@ export const authSessions = pgTable(
   (table) => [
     index("auth_sessions_user_id_idx").on(table.userId),
     index("auth_sessions_active_organization_id_idx").on(table.activeOrganizationId)
+  ]
+);
+
+/** Global user credentials: a passkey may authenticate the member in any organization. */
+export const authPasskeys = pgTable(
+  "auth_passkeys",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull(),
+    publicKey: text("public_key").notNull(),
+    counter: bigint("counter", { mode: "number" }).notNull().default(0),
+    transports: jsonb("transports").notNull().default(sql`'[]'::jsonb`),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull().default(false),
+    name: text("name").notNull(),
+    aaguid: text("aaguid").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true })
+  },
+  (table) => [
+    check("auth_passkeys_counter_check", sql`${table.counter} >= 0`),
+    check("auth_passkeys_device_type_check", sql`${table.deviceType} in ('singleDevice', 'multiDevice')`),
+    uniqueIndex("auth_passkeys_credential_id_unique").on(table.credentialId),
+    index("auth_passkeys_user_id_idx").on(table.userId)
+  ]
+);
+
+/** Authentication challenges are global; registration and step-up challenges pin the active organization. */
+export const authPasskeyChallenges = pgTable(
+  "auth_passkey_challenges",
+  {
+    id: uuid("id").primaryKey(),
+    purpose: text("purpose").notNull(),
+    salt: text("salt").notNull(),
+    challengeHash: text("challenge_hash").notNull(),
+    challengeLookupDigest: text("challenge_lookup_digest").notNull(),
+    userId: text("user_id").references(() => authUsers.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").references(() => authSessions.id, { onDelete: "cascade" }),
+    activeOrganizationId: uuid("active_organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+    membershipVersion: integer("membership_version"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    check("auth_passkey_challenges_purpose_check", sql`${table.purpose} in ('registration', 'authentication', 'step-up')`),
+    check("auth_passkey_challenges_bound_purpose", sql`
+      (${table.purpose} = 'authentication' and ${table.userId} is null and ${table.sessionId} is null)
+      or (${table.purpose} in ('registration', 'step-up') and ${table.userId} is not null and ${table.sessionId} is not null and ${table.activeOrganizationId} is not null and ${table.membershipVersion} is not null)
+    `),
+    uniqueIndex("auth_passkey_challenges_lookup_digest_unique").on(table.challengeLookupDigest),
+    index("auth_passkey_challenges_expires_at_idx").on(table.expiresAt)
   ]
 );
 
@@ -277,6 +341,8 @@ export const betterAuthSchema = {
   auth_verifications: authVerifications,
   auth_two_factor: authTwoFactor,
   auth_mfa_challenges: authMfaChallenges,
+  auth_passkeys: authPasskeys,
+  auth_passkey_challenges: authPasskeyChallenges,
   auth_password_reset_tokens: authPasswordResetTokens,
   auth_invitations: authInvitations,
   auth_external_identities: authExternalIdentities,

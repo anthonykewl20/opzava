@@ -1,8 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import { changePasswordAction, securityAction, type ChangePasswordActionState, type SecurityActionState } from "@/app/(auth)/security/actions";
+import { finishPasskeyEnrollmentAction, managePasskeyAction, startPasskeyEnrollmentAction } from "@/app/(auth)/security/actions";
+import { createPasskey } from "@/lib/webauthn-json";
+import { useRouter } from "next/navigation";
 
 const initialState: SecurityActionState = { status: "idle" };
 
@@ -24,7 +27,7 @@ export function MfaEnrollmentFields({ secret, otpauthUri, generation }: {
   </>;
 }
 
-export function SecurityForm({ enabled, remaining }: { readonly enabled: boolean; readonly remaining: number }) {
+export function SecurityForm({ enabled, remaining, passkeys }: { readonly enabled: boolean; readonly remaining: number; readonly passkeys: readonly import("@opzava/ports").Passkey[] | undefined }) {
   const [state, formAction, pending] = useActionState(securityAction, initialState);
   const effectiveEnabled = state.status === "disabled" ? false : enabled || state.status === "recovery";
 
@@ -80,7 +83,32 @@ export function SecurityForm({ enabled, remaining }: { readonly enabled: boolean
       </form> : null}
     </div>
     </section>
+    {passkeys === undefined
+      ? <p className="hint" role="status">Passkeys are not configured on this deployment.</p>
+      : <PasskeySection passkeys={passkeys} />}
   </>;
+}
+
+function PasskeySection({ passkeys }: { readonly passkeys: readonly import("@opzava/ports").Passkey[] }) {
+  const [password, setPassword] = useState(""); const [name, setName] = useState(""); const [message, setMessage] = useState<string>(); const [pending, setPending] = useState(false); const router = useRouter();
+  async function enroll() {
+    setPending(true); setMessage(undefined);
+    try { const started = await startPasskeyEnrollmentAction(password); if (!started.ok || started.challengeId === undefined || started.options === undefined) { setMessage(started.message ?? "We could not start passkey setup."); return; } const response = await createPasskey(started.options); const finished = await finishPasskeyEnrollmentAction(started.challengeId, response, name); setMessage(finished.message); if (finished.ok) { setPassword(""); setName(""); router.refresh(); } } catch { setMessage("Passkey enrollment was cancelled or could not be verified."); } finally { setPending(false); }
+  }
+  async function manage(intent: "rename" | "revoke", id: string, currentName: string) {
+    const freshPassword = window.prompt("Enter your current password to continue."); if (freshPassword === null || freshPassword === "") return;
+    const nextName = intent === "rename" ? window.prompt("Passkey name", currentName) : undefined;
+    if (intent === "rename" && (nextName === null || nextName === undefined || nextName.trim() === "")) return;
+    const result = await managePasskeyAction(intent, id, freshPassword, nextName ?? undefined); setMessage(result.message); if (result.ok) router.refresh();
+  }
+  return <section className="card" aria-labelledby="passkeys-heading"><div className="card-header"><h2 className="card-title" id="passkeys-heading">Passkeys</h2></div><div className="card-content">
+    <p>Use a passkey to sign in without a password. Adding one requires your current password.</p>
+    {passkeys.length === 0 ? <p className="hint">No passkeys added yet.</p> : <ul>{passkeys.map((passkey) => <li key={passkey.id}>{passkey.name} <span className="hint">{passkey.deviceType === "multiDevice" ? "synced" : "device-bound"}</span> <button className="link" type="button" onClick={() => void manage("rename", passkey.id, passkey.name)}>Rename</button> <button className="link" type="button" onClick={() => void manage("revoke", passkey.id, passkey.name)}>Remove</button></li>)}</ul>}
+    {message === undefined ? null : <p className="hint" role="alert">{message}</p>}
+    <label className="label" htmlFor="passkey-name">Passkey name</label><input className="input" id="passkey-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="This device" />
+    <label className="label" htmlFor="passkey-password">Current password</label><input className="input" id="passkey-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+    <button className="btn btn-primary" type="button" disabled={pending || password === ""} onClick={() => void enroll()}>{pending ? "Adding passkey…" : "Add a passkey"}</button>
+  </div></section>;
 }
 
 function ChangePasswordForm() {
