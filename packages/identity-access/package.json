@@ -29,6 +29,7 @@
     "@opzava/adapters": "workspace:*",
     "@opzava/ports": "workspace:*",
     "@opzava/shared-kernel": "workspace:*",
+    "@simplewebauthn/server": "13.3.2",
     "better-auth": "1.6.23",
     "drizzle-orm": "0.45.2"
   },

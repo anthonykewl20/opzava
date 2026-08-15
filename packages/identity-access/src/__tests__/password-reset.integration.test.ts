@@ -5,6 +5,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { BetterAuthPortAdapter } from "../adapters/better-auth/auth-port-adapter.js";
 import { hashPassword } from "../adapters/better-auth/password-hasher.js";
 
+// This suite exercises the deterministic directory-HMAC path; do not depend on
+// another identity suite having populated the process environment first.
+process.env["BETTER_AUTH_SECRET"] = "password-reset-integration-test-secret";
+
 const migrationUrl = process.env["DATABASE_MIGRATION_URL"];
 const enabled = migrationUrl !== undefined && migrationUrl.trim() !== "";
 const admin = enabled ? createPostgresPool(migrationUrl!) : null;

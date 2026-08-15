@@ -134,3 +134,25 @@ export async function changePasswordAction(
     ? { status: "success", message: "Password changed. Other signed-in devices were signed out." }
     : { status: "error", message: result.error.code === "auth.invalidCredentials" ? "That current password didn't match." : "We could not change your password. Try again." };
 }
+
+export async function startPasskeyEnrollmentAction(password: string): Promise<{ readonly ok: boolean; readonly challengeId?: string; readonly options?: Readonly<Record<string, unknown>>; readonly message?: string }> {
+  const session = await getCurrentAuthSession(new Headers(await headers()));
+  if (session === null) return { ok: false, message: "Your session has ended. Sign in again." };
+  const result = await authPort.startPasskeyEnrollment({ userId: session.identity.userId, currentSessionId: session.sessionId, password });
+  return result.ok ? { ok: true, challengeId: result.value.challengeId, options: result.value.options } : { ok: false, message: result.error.code === "auth.passkeyEnrollmentPasswordInvalid" ? "That password didn't match." : "We could not start passkey setup." };
+}
+
+export async function finishPasskeyEnrollmentAction(challengeId: string, response: Readonly<Record<string, unknown>>, name: string): Promise<{ readonly ok: boolean; readonly message: string }> {
+  const result = await authPort.finishPasskeyEnrollment({ challengeId: challengeId as import("@opzava/ports").PasskeyChallengeId, response, ...(name.trim() === "" ? {} : { name }) });
+  return result.ok ? { ok: true, message: "Passkey added." } : { ok: false, message: "That passkey could not be verified." };
+}
+
+export async function managePasskeyAction(intent: "rename" | "revoke", passkeyId: string, password: string, name?: string): Promise<{ readonly ok: boolean; readonly message: string }> {
+  const session = await getCurrentAuthSession(new Headers(await headers()));
+  if (session === null) return { ok: false, message: "Your session has ended. Sign in again." };
+  const isRename = intent === "rename";
+  const result = isRename
+    ? await authPort.renamePasskey({ userId: session.identity.userId, currentSessionId: session.sessionId, password, passkeyId, name: name ?? "" })
+    : await authPort.revokePasskey({ userId: session.identity.userId, currentSessionId: session.sessionId, password, passkeyId });
+  return result.ok ? { ok: true, message: intent === "rename" ? "Passkey renamed." : "Passkey removed." } : { ok: false, message: "We could not update that passkey. Confirm your current password and try again." };
+}

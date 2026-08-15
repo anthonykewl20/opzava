@@ -3,7 +3,8 @@
 import { useActionState, useRef, useState, type ClipboardEvent, type ChangeEvent, type KeyboardEvent } from "react";
 import { useFormStatus } from "react-dom";
 
-import { loginAction, type LoginActionState, verifyMfaAction } from "@/app/(auth)/login/actions";
+import { finishPasskeyLoginAction, loginAction, startPasskeyLoginAction, type LoginActionState, verifyMfaAction } from "@/app/(auth)/login/actions";
+import { getPasskey } from "@/lib/webauthn-json";
 
 const initialLoginActionState: LoginActionState = { status: "idle" };
 
@@ -40,12 +41,37 @@ function SubmitButton() {
   );
 }
 
+export function PasskeyFeedback({ message }: { readonly message: string | undefined }) {
+  return message === undefined ? null : (
+    <div className="sb-alert sb-alert--destructive" role="alert">
+      <span className="ico" aria-hidden="true">!</span>
+      <strong className="sb-alert-title">Could not sign in</strong>
+      <span className="sb-alert-desc">{message}</span>
+    </div>
+  );
+}
+
+export function loginFeedbackMessage({
+  passwordError,
+  passkeyError,
+  passkeyPending
+}: {
+  readonly passwordError: string | undefined;
+  readonly passkeyError: string | undefined;
+  readonly passkeyPending: boolean;
+}): string | undefined {
+  if (passkeyError !== undefined) return passkeyError;
+  return passkeyPending ? undefined : passwordError;
+}
+
 export function LoginForm() {
   const [state, formAction] = useActionState(loginAction, initialLoginActionState);
   const [mfaState, mfaFormAction] = useActionState(verifyMfaAction, initialLoginActionState);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [totpDigits, setTotpDigits] = useState<string[]>(() => Array.from({ length: 6 }, () => ""));
+  const [passkeyError, setPasskeyError] = useState<string>();
+  const [passkeyPending, setPasskeyPending] = useState(false);
   const totpInputs = useRef<Array<HTMLInputElement | null>>([]);
 
   function setTotpValue(value: string) {
@@ -136,20 +162,39 @@ export function LoginForm() {
   }
 
   const fieldError = (name: string) => state.fieldErrors?.[name];
+  function onPasswordSubmit(formData: FormData) {
+    setPasskeyError(undefined);
+    formAction(formData);
+  }
+
+  async function signInWithPasskey() {
+    setPasskeyError(undefined);
+    setPasskeyPending(true);
+    try {
+      const started = await startPasskeyLoginAction();
+      if (!started.ok) { setPasskeyError(started.message); return; }
+      const assertion = { challengeId: started.challengeId, response: await getPasskey(started.options) };
+      const finished = await finishPasskeyLoginAction(assertion.challengeId, assertion.response);
+      if (finished.status === "error") setPasskeyError(finished.message ?? "That passkey could not be verified. Try again or use your password.");
+    } catch {
+      // A successful Server Action redirect is intentionally outside this catch.
+      setPasskeyError("That passkey could not be verified. Try again or use your password.");
+    } finally {
+      setPasskeyPending(false);
+    }
+  }
+
+  const feedbackMessage = loginFeedbackMessage({
+    passwordError: state.status === "error" ? state.message : undefined,
+    passkeyError,
+    passkeyPending
+  });
 
   return (
-    <form action={formAction} noValidate>
-      {state.status === "error" && state.message !== undefined ? (
-        <div className="sb-alert sb-alert--destructive" role="alert">
-          <span className="ico" aria-hidden="true">
-            !
-          </span>
-          <strong className="sb-alert-title">Could not sign in</strong>
-          <span className="sb-alert-desc">{state.message}</span>
-        </div>
-      ) : null}
+    <form action={onPasswordSubmit} noValidate>
+      <PasskeyFeedback message={feedbackMessage} />
 
-      <div className="field" style={{ marginTop: state.status === "error" ? "var(--space-4)" : 0 }}>
+      <div className="field" style={{ marginTop: feedbackMessage === undefined ? 0 : "var(--space-4)" }}>
         <label className="label" htmlFor="email">
           Email
         </label>
@@ -206,6 +251,7 @@ export function LoginForm() {
       </div>
 
       <SubmitButton />
+      <button className="btn" type="button" onClick={() => void signInWithPasskey()}>Use a passkey</button>
     </form>
   );
 }

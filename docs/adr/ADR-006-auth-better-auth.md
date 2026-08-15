@@ -91,6 +91,18 @@ Invitation and membership code must be transactionally strict. The auth provider
 
 Security maintenance is part of the architecture. Better Auth's feature fit is accepted together with its advisory monitoring burden. A pinned release, GHSA tracking, upgrade tests, and an Auth.js fallback path are not optional operational niceties; they are the risk controls that make the primary choice acceptable.
 
+## Amendment (2026-08-15): Passkey ceremony ownership
+
+Better Auth continues to supply the compatible schema and algorithm conventions, but the `AuthPort` adapter owns WebAuthn ceremony orchestration and **all** session issuance. Passkeys are implemented with the mature `@simplewebauthn/server` verification core directly behind that port. The Better Auth passkey plugin is endpoint-coupled, hardcodes `requireUserVerification: false`, and issues sessions via `internalAdapter`, bypassing Opzava's AuthPort session boundary; it is therefore not used.
+
+Passkey credentials are user-scoped global identity data under the `0001` auth-table convention, with no organization column or tenant RLS. Challenge records are likewise not tenant-RLS data, but registration and step-up challenges pin `active_organization_id` and membership version so their current-session context is revalidated at finish. Every registration, passwordless sign-in, and step-up challenge is short-lived (five minutes), salted-HMAC verified after deterministic directory lookup, purpose-bound, and conditionally consumed in its finish transaction. RP ID/name/origins come only from trusted configuration, never request headers. Both creation and assertion require user verification. A UV-verified passkey passwordless sign-in satisfies MFA and records `mfa_satisfied_at`; this avoids an unnecessary TOTP prompt for a user who has 2FA enabled.
+
+### Passkeys and account locks
+
+Passwordless sign-in with a registered passkey deliberately bypasses the password brute-force lockout. A registered passkey requires authenticator possession and live user verification, which is stronger than the locked password factor. Blocking this path would let an attacker who repeatedly submits wrong passwords deny a legitimate passkey holder access. Password attempts remain locked and all passkey ceremony validation, user verification, membership checks, challenge consumption, and credential-counter checks remain fail-closed.
+
+Adding, renaming, and revoking a passkey requires the existing password re-authentication pattern. v1 deliberately permits revoking the last passkey: password and (where enabled) recovery codes remain available factors; factor-count policy can be tightened later through an explicit policy change.
+
 ## Alternatives
 
 Use Auth.js v5 plus the Postgres adapter as the primary auth stack. Rejected as the default because Opzava would need to build or harden more of the organization, MFA/recovery, passkey, anti-enumeration, invitation, and revocable-session surface itself. It remains the real fallback because it is stable enough for session/provider fundamentals and can run behind the same `AuthPort`.

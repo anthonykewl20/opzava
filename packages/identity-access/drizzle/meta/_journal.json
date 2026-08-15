@@ -225,6 +225,13 @@
       "when": 1787616000000,
       "tag": "0031_guest_magic_links",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787702400000,
+      "tag": "0032_passkeys",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,54 @@ export type PasswordResetHandle = string & { readonly __passwordResetHandle: "Pa
 export type InvitationToken = string & { readonly __invitationToken: "InvitationToken" };
 export type GuestMagicLinkToken = string & { readonly __guestMagicLinkToken: "GuestMagicLinkToken" };
 export type GuestSessionToken = string & { readonly __guestSessionToken: "GuestSessionToken" };
+export type PasskeyChallengeId = string & { readonly __passkeyChallengeId: "PasskeyChallengeId" };
+
+/** JSON-safe WebAuthn options/responses cross the port; vendor types do not. */
+export type PasskeyOptions = Readonly<Record<string, unknown>>;
+export type PasskeyResponse = Readonly<Record<string, unknown>>;
+
+export interface Passkey {
+  readonly id: string;
+  readonly name: string;
+  readonly deviceType: "singleDevice" | "multiDevice";
+  readonly backedUp: boolean;
+  readonly transports: readonly string[];
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date | null;
+}
+
+export interface PasskeyCeremony {
+  readonly challengeId: PasskeyChallengeId;
+  readonly options: PasskeyOptions;
+  readonly expiresAt: Date;
+}
+
+export interface StartPasskeyEnrollmentInput {
+  readonly userId: UserId;
+  readonly currentSessionId: SessionId;
+  /** Fresh password re-auth is required to add an authenticator. */
+  readonly password: string;
+}
+
+export interface FinishPasskeyEnrollmentInput {
+  readonly challengeId: PasskeyChallengeId;
+  readonly response: PasskeyResponse;
+  readonly name?: string;
+}
+
+export interface FinishPasskeySignInInput {
+  readonly challengeId: PasskeyChallengeId;
+  readonly response: PasskeyResponse;
+  readonly userAgent?: string;
+  readonly ipAddress?: string;
+}
+
+export interface FinishPasskeyStepUpInput {
+  readonly challengeId: PasskeyChallengeId;
+  readonly response: PasskeyResponse;
+  readonly currentSessionId: SessionId;
+  readonly userId: UserId;
+}
 
 export interface AuthMembership {
   readonly orgId: OrgId;
@@ -221,6 +269,15 @@ export interface AuthPort {
   enableMfa(input: EnableMfaInput): Promise<Result<EnabledMfa>>;
   disableMfa(input: DisableMfaInput): Promise<Result<void>>;
   getMfaStatus(input: { readonly userId: UserId }): Promise<Result<MfaStatus>>;
+  listPasskeys(input: { readonly userId: UserId }): Promise<Result<readonly Passkey[]>>;
+  startPasskeyEnrollment(input: StartPasskeyEnrollmentInput): Promise<Result<PasskeyCeremony>>;
+  finishPasskeyEnrollment(input: FinishPasskeyEnrollmentInput): Promise<Result<Passkey>>;
+  startPasskeySignIn(): Promise<Result<PasskeyCeremony>>;
+  finishPasskeySignIn(input: FinishPasskeySignInInput): Promise<Result<AuthSession>>;
+  startPasskeyStepUp(input: { readonly userId: UserId; readonly currentSessionId: SessionId }): Promise<Result<PasskeyCeremony>>;
+  finishPasskeyStepUp(input: FinishPasskeyStepUpInput): Promise<Result<{ readonly verifiedAt: Date }>>;
+  renamePasskey(input: { readonly userId: UserId; readonly currentSessionId: SessionId; readonly password: string; readonly passkeyId: string; readonly name: string }): Promise<Result<void>>;
+  revokePasskey(input: { readonly userId: UserId; readonly currentSessionId: SessionId; readonly password: string; readonly passkeyId: string }): Promise<Result<void>>;
   requestPasswordReset(input: RequestPasswordResetInput): Promise<Result<PasswordResetRequestOutcome>>;
   resetPassword(input: ResetPasswordInput): Promise<Result<void>>;
   changePassword(input: ChangePasswordInput): Promise<Result<void>>;
