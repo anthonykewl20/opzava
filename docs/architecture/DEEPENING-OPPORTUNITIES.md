@@ -96,15 +96,6 @@ Each card names its source module doc so the claim can be verified against the c
 - ADR check: respects ADR-005 (tool policy stays the enforcement boundary).
 - Strength: STRONG (verify the duplication is truly verbatim before extracting).
 
-### 7. Wire the `AuthPort.signIn` MFA hooks into the Better Auth adapter
-- Source: [modules/identity-access.md](modules/identity-access.md), verified against source.
-- Files: `packages/ports/src/auth.ts:86` declares `signIn(input, hooks?: MfaHooks): Promise<Result<AuthSession | MfaChallenge>>`; `packages/identity-access/src/adapters/better-auth/auth-port-adapter.ts:104` implements `signIn(input: SignInInput): Promise<Result<AuthSession | MfaChallenge>>` and omits the optional `hooks` parameter.
-- Problem: verified. The Adapter satisfies the port (TypeScript allows a method with fewer parameters) and its return type already permits a `MfaChallenge`, so it can return a challenge. The real gap is narrower than a mismatch: the Adapter never reads the optional `hooks?: MfaHooks`, so the MFA-hooks path the Interface declares is silently dropped by the sole Adapter.
-- Solution: thread `hooks` into the Better Auth adapter's `signIn` so the MFA orchestration the port promises is reachable, or, if no caller ever passes hooks, narrow the port to match.
-- Benefits: the seam delivers its declared MFA-hooks behavior; the Interface and Adapter agree on a real capability.
-- ADR check: respects ADR-006 (Better Auth behind AuthPort, MFA is in scope).
-- Strength: WORTH EXPLORING (verified incompleteness, not a type mismatch; confirm whether any caller passes `hooks` today before prioritizing).
-
 ## WORTH EXPLORING
 
 ### 8. Split `ConnectionsProvisioningPort` into three cohesive ports

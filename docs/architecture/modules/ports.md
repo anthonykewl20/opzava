@@ -81,17 +81,16 @@ Gap: the "sessionRef/runRef only on final" invariant is stated in comments, not 
 - **Deepening opportunity:** make the terminal invariant structural by splitting `OpenClawStreamEvent` into a `OpenClawStreamChunk` (non-terminal) and a terminal `OpenClawStreamFinal` that is the only variant carrying `sessionRef`/`runRef`, so the interface itself refuses the misuse.
 
 ### AuthPort - `packages/ports/src/auth.ts`
-- **Interface (the seam):** `AuthPort` exposes five operations (`packages/ports/src/auth.ts:85-91`): `signIn`, `getSession`, `revokeSession`, `listSessions`, `logoutAll`.
-Invariants: `signIn` takes optional `MfaHooks` (`:78-83`) and returns `Result<AuthSession | MfaChallenge>` (`:86`), so MFA orchestration is expressed as a return-value branch, not a separate call; sessions carry identity, membership(s), and expiry (`:15-29`); ids are branded (`SessionId`, `SessionToken`, `MfaChallengeId`, `:4-6`).
-- **Behind the seam (implementation):** hidden behavior is session issuance/revocation, multi-membership resolution, MFA challenge creation/verification, and logout-all fan-out.
+- **Interface (the seam):** `AuthPort` exposes authentication/session lifecycle, TOTP/recovery MFA, passkey, password reset/change, invitation, and guest-magic-link operations (`packages/ports/src/auth.ts:265-295`).
+Invariants: `signIn` returns `Result<AuthSession | MfaChallenge>` (`:266`); passkey options/responses cross the port as JSON-safe records rather than vendor types (`:14-16`); and guest credentials resolve only to project-scoped `GuestSessionPrincipal`, never `AuthSession` (`:255-263`).
+- **Behind the seam (implementation):** hidden behavior is ceremony and session issuance/revocation, multi-membership resolution, TOTP/recovery challenge handling, direct SimpleWebAuthn verification, reset handoff exchange, invitation revalidation, guest-session lifecycle, and logout-all fan-out.
 - **Adapters:** 1 adapter: `BetterAuthPortAdapter` (`packages/identity-access/src/adapters/better-auth/auth-port-adapter.ts:101`).
 Hypothetical seam by count; the adapter hides the entire Better Auth SDK plus the DB session store.
 - **Depth:** deep.
-Deletion test: deleting the port would push MFA orchestration, session lifecycle, and multi-membership resolution into every caller, a large concentration behind a five-method interface that also folds MFA into `signIn`'s return type.
+Deletion test: deleting the port would push authentication ceremonies, session lifecycle, invitation/guest boundaries, and multi-membership resolution into every caller, a large concentration behind one interface.
 - **Seams:** external seam consumed by web auth routes; the only external type leak is the DOM `Headers` type in `GetSessionInput` (`:38-41`), which loosely couples the port to a fetch-style request shape.
-- **Testing through the interface:** `packages/identity-access/src/__tests__/slice1c-auth.integration.test.ts`.
-Gap: the MFA-as-return-branch contract (challenge vs session) is the riskiest path and has no dedicated port-level contract test asserting both branches.
-- **Deepening opportunity:** none on the surface; the MFA fold into `signIn` is already a depth win (one operation, two outcomes) and should be preserved.
+- **Testing through the interface:** `packages/identity-access/src/__tests__/slice1c-auth.integration.test.ts`, `mfa-crypto.test.ts`, `password-reset.integration.test.ts`, `identity-completion.integration.test.ts`, and `passkeys.integration.test.ts`.
+- **Deepening opportunity:** none on the surface; provider types remain behind JSON-safe port values and all session issuance remains at this boundary.
 
 ### EventBusPort - DELETED (#160)
 - **Interface (the seam):** none. The port exposed `publish`/`recordOutbox`/`subscribe` and had **zero adapters and zero consumers**; its one caller took it as an optional dependency, so the domain event it claimed to publish went nowhere. It was deleted in #160 (zero adapters, zero consumers — the optional dependency made the missing adapter a silent no-op). ADR-004 stands; any replacement must land with the Postgres outbox and its first real consumer under PRD-019/ADR-017 rather than historical #152.
